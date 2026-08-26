@@ -3,20 +3,19 @@
 #include "D3d12AdapterSelection.h"
 #include "D3d12DeviceCreation.h"
 #include "D3d12Diagnostics.h"
+#include "D3d12ProbeUtilities.h"
 #include "D3d12QueueState.h"
 #include "D3d12SwapChainState.h"
 
 #include <Cue/Foundation/Assert.h>
 #include <Cue/RHI/D3D12/D3d12Backend.h>
 
-#include <d3d12sdklayers.h>
-
 #include <array>
-#include <cstddef>
 #include <iterator>
 #include <memory>
 #include <utility>
-#include <vector>
+
+using cue::d3d12_test_private::count_info_queue_errors;
 
 namespace
 {
@@ -343,50 +342,6 @@ cue::Result<void> handle_native_failure_for_probe(void *, cue::Error &&a_error,
     std::unique_ptr<ProbeObjects> objects = std::make_unique<ProbeObjects>(
         std::move(selection.factory), std::move(device), std::move(queueState), diagnostics);
     return cue::Result<std::unique_ptr<ProbeObjects>>::success(std::move(objects));
-}
-
-/// @brief D3D12 Info Queue に記録された Error Severity 以上の Message 数を返す
-[[nodiscard]] std::uint64_t count_info_queue_errors(ID3D12Device *a_device) noexcept
-{
-    Microsoft::WRL::ComPtr<ID3D12InfoQueue> infoQueue;
-
-    if (FAILED(a_device->QueryInterface(IID_PPV_ARGS(&infoQueue))))
-    {
-        return 0;
-    }
-
-    const std::uint64_t messageCount = infoQueue->GetNumStoredMessagesAllowedByRetrievalFilter();
-    std::uint64_t errorCount = 0;
-
-    for (std::uint64_t messageIndex = 0; messageIndex < messageCount; ++messageIndex)
-    {
-        SIZE_T messageSize = 0;
-
-        if (FAILED(infoQueue->GetMessage(messageIndex, nullptr, &messageSize)) || messageSize == 0)
-        {
-            ++errorCount;
-            continue;
-        }
-
-        try
-        {
-            std::vector<std::byte> storage(messageSize);
-            D3D12_MESSAGE *message = reinterpret_cast<D3D12_MESSAGE *>(storage.data());
-
-            if (FAILED(infoQueue->GetMessage(messageIndex, message, &messageSize)) ||
-                message->Severity == D3D12_MESSAGE_SEVERITY_ERROR ||
-                message->Severity == D3D12_MESSAGE_SEVERITY_CORRUPTION)
-            {
-                ++errorCount;
-            }
-        }
-        catch (...)
-        {
-            return errorCount + 1;
-        }
-    }
-
-    return errorCount;
 }
 
 /// @brief Error が指定された Domain と Code を保持しているかを判定する
