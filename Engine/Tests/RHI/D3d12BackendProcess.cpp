@@ -1,48 +1,16 @@
+#include "TestSupport/RhiProcessTestFixture.h"
+
 #include <Cue/Foundation/Assert.h>
 #include <Cue/RHI/D3D12/D3d12Backend.h>
 #include <Cue/RHI/D3D12/TestSupport/D3d12BackendProbe.h>
 
-#include <cstdlib>
 #include <memory>
 #include <string_view>
 #include <thread>
 #include <utility>
-#include <vector>
 
 namespace
 {
-class ProcessFatalHandler final : public cue::FatalHandler
-{
-  public:
-    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
-    [[noreturn]] void terminate() noexcept override
-    {
-        std::_Exit(90);
-    }
-
-    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
-    [[noreturn]] void terminate(std::string_view) noexcept override
-    {
-        std::_Exit(91);
-    }
-};
-
-class ProcessLogSink final : public cue::LogSink
-{
-  public:
-    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
-    [[nodiscard]] bool write(const cue::LogRecord &) override
-    {
-        return true;
-    }
-
-    /// @brief 対象 Sink に保留中の Log 出力を反映し、完了成否を返す
-    [[nodiscard]] bool flush() override
-    {
-        return true;
-    }
-};
-
 /// @brief D3d12BackendProcess Test の Backend LifecycleScenario を実行し、検証結果を返す
 [[nodiscard]] int run_backend_lifecycle(
     cue::D3d12AdapterPolicy a_policy, cue::GraphicsAdapterKind a_expectedKind,
@@ -161,11 +129,8 @@ int main(int a_argumentCount, char **a_arguments)
         return 2;
     }
 
-    ProcessFatalHandler fatalHandler;
-    std::vector<std::unique_ptr<cue::LogSink>> sinks;
-    sinks.push_back(std::make_unique<ProcessLogSink>());
-    cue::Logger logger(fatalHandler, std::move(sinks));
-    cue::AssertContext assertContext(logger, fatalHandler);
+    cue::test::RhiProcessTestFixture fixture;
+    cue::AssertContext &assertContext = fixture.assert_context();
 
     if (mode == "DeviceFailure")
     {

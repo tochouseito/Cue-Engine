@@ -1,46 +1,12 @@
+#include "TestSupport/RhiProcessTestFixture.h"
+
 #include <Cue/Foundation/Assert.h>
 #include <Cue/RHI/D3D12/TestSupport/D3d12DiagnosticsProbe.h>
 
-#include <cstdlib>
-#include <memory>
 #include <string_view>
-#include <utility>
-#include <vector>
 
 namespace
 {
-class ProcessFatalHandler final : public cue::FatalHandler
-{
-  public:
-    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
-    [[noreturn]] void terminate() noexcept override
-    {
-        std::_Exit(90);
-    }
-
-    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
-    [[noreturn]] void terminate(std::string_view) noexcept override
-    {
-        std::_Exit(91);
-    }
-};
-
-class ProcessLogSink final : public cue::LogSink
-{
-  public:
-    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
-    [[nodiscard]] bool write(const cue::LogRecord &) override
-    {
-        return true;
-    }
-
-    /// @brief 対象 Sink に保留中の Log 出力を反映し、完了成否を返す
-    [[nodiscard]] bool flush() override
-    {
-        return true;
-    }
-};
-
 /// @brief D3d12DiagnosticsProcess Test の Disabled が期待する契約を満たすか検証する
 [[nodiscard]] int validate_disabled(const cue::D3d12DiagnosticsProbeReport &a_report) noexcept
 {
@@ -72,11 +38,8 @@ int main(int a_argumentCount, char **a_arguments)
         return 1;
     }
 
-    ProcessFatalHandler fatalHandler;
-    std::vector<std::unique_ptr<cue::LogSink>> sinks;
-    sinks.push_back(std::make_unique<ProcessLogSink>());
-    cue::Logger logger(fatalHandler, std::move(sinks));
-    cue::AssertContext assertContext(logger, fatalHandler);
+    cue::test::RhiProcessTestFixture fixture;
+    cue::AssertContext &assertContext = fixture.assert_context();
     std::string_view mode = a_arguments[1];
     cue::Result<cue::D3d12DiagnosticsProbeReport> result =
         mode == "Disabled" ? cue::probe_disabled_d3d12_diagnostics(assertContext)
