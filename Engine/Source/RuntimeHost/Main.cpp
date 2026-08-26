@@ -2,6 +2,7 @@
 #include <Cue/Foundation/Error.h>
 #include <Cue/Foundation/Fatal.h>
 #include <Cue/Foundation/Log.h>
+#include <Cue/Foundation/NumberParsing.h>
 #include <Cue/Platform/WindowSystem.h>
 #include <Cue/Platform/Windows/WindowsPlatform.h>
 #if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
@@ -15,7 +16,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cwchar>
-#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -64,42 +64,6 @@ struct RuntimeOptions final
 #endif
     cue::D3d12AdapterPolicy graphicsAdapterPolicy = cue::D3d12AdapterPolicy::HighPerformanceHardware;
 };
-
-/// @brief Window Size 引数を正の 32-bit 整数へ安全に変換する
-[[nodiscard]] bool parse_size(std::wstring_view a_text, std::uint32_t &a_value) noexcept
-{
-    if (a_text.empty())
-    {
-        return false;
-    }
-
-    std::uint32_t value = 0;
-
-    for (wchar_t character : a_text)
-    {
-        if (character < L'0' || character > L'9')
-        {
-            return false;
-        }
-
-        std::uint32_t digit = static_cast<std::uint32_t>(character - L'0');
-
-        if (value > (std::numeric_limits<std::uint32_t>::max() - digit) / 10)
-        {
-            return false;
-        }
-
-        value = value * 10 + digit;
-    }
-
-    if (value == 0)
-    {
-        return false;
-    }
-
-    a_value = value;
-    return true;
-}
 
 /// @brief Command Line を実行 Mode と Window 設定へ変換し、排他的な Mode 指定を検証する
 [[nodiscard]] cue::Result<bool> parse_options(int a_argumentCount, wchar_t **a_arguments, RuntimeOptions &a_options,
@@ -184,17 +148,25 @@ struct RuntimeOptions final
         }
         else if (argument == L"--width")
         {
-            if (!parse_size(value, a_options.clientSize.width))
+            std::optional<std::uint32_t> width = cue::parse_unsigned_decimal<std::uint32_t>(value);
+
+            if (!width.has_value() || *width == 0)
             {
                 return cue::Result<bool>::success(false);
             }
+
+            a_options.clientSize.width = *width;
         }
         else if (argument == L"--height")
         {
-            if (!parse_size(value, a_options.clientSize.height))
+            std::optional<std::uint32_t> height = cue::parse_unsigned_decimal<std::uint32_t>(value);
+
+            if (!height.has_value() || *height == 0)
             {
                 return cue::Result<bool>::success(false);
             }
+
+            a_options.clientSize.height = *height;
         }
         else
         {

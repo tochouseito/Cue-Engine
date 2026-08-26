@@ -17,6 +17,7 @@ target_sources(
             Public/Cue/Foundation/Assert.h
             Public/Cue/Foundation/Fatal.h
             Public/Cue/Foundation/Log.h
+            Public/Cue/Foundation/NumberParsing.h
             Public/Cue/Foundation/Result.h
             Public/Cue/Foundation/SourceLocation.h
             Public/Cue/Foundation/Types.h

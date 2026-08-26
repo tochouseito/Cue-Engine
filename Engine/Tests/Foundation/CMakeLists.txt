@@ -3,6 +3,11 @@ add_executable(CueFoundationResultTests ResultTests.cpp)
 target_link_libraries(CueFoundationResultTests PRIVATE Cue.Foundation)
 target_compile_features(CueFoundationResultTests PRIVATE cxx_std_20)
 
+add_executable(CueFoundationNumberParsingTests NumberParsingTests.cpp)
+
+target_link_libraries(CueFoundationNumberParsingTests PRIVATE Cue.Foundation)
+target_compile_features(CueFoundationNumberParsingTests PRIVATE cxx_std_20)
+
 add_executable(CueFoundationEmergencyTests EmergencyFailureTests.cpp)
 
 target_link_libraries(CueFoundationEmergencyTests PRIVATE Cue.Foundation)
@@ -624,6 +629,7 @@ add_executable(
     ErrorHeaderCompile.cpp
     FatalHeaderCompile.cpp
     LogHeaderCompile.cpp
+    NumberParsingHeaderCompile.cpp
     PublicHeaderCompile.cpp
     ResultHeaderCompile.cpp
     SourceLocationHeaderCompile.cpp
@@ -641,6 +647,7 @@ foreach(
         CueFoundationDiagnosticsProcessTests
         CueFoundationAssertTests
         CueFoundationResultTests
+        CueFoundationNumberParsingTests
         CueFoundationPublicHeaderTest
 )
     set_target_properties(
@@ -679,10 +686,12 @@ add_custom_target(
         CueFoundationDiagnosticsProcessTests
         CueFoundationAssertTests
         CueFoundationResultTests
+        CueFoundationNumberParsingTests
         CueFoundationPublicHeaderTest
 )
 
 add_test(NAME Cue.Foundation.Result COMMAND CueFoundationResultTests)
+add_test(NAME Cue.Foundation.NumberParsing COMMAND CueFoundationNumberParsingTests)
 add_test(NAME Cue.Foundation.PublicHeaders COMMAND CueFoundationPublicHeaderTest)
 add_test(NAME Cue.Foundation.Logger COMMAND CueFoundationLoggerTests)
 add_test(NAME Cue.Foundation.Assert.Success COMMAND CueFoundationAssertTests Success)
@@ -771,6 +780,7 @@ endforeach()
 
 set_tests_properties(
     Cue.Foundation.Result
+    Cue.Foundation.NumberParsing
     Cue.Foundation.PublicHeaders
     Cue.Foundation.Logger
     Cue.Foundation.Assert.Success
