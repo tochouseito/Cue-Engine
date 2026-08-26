@@ -55,7 +55,7 @@ class StateSink final : public cue::LogSink
     {
     }
 
-    /// @brief Log 出力時に例外を注入し、Logger から Emergency 終了へ移行する経路を再現する
+    /// @brief Log Record を受領した事実を記録し、指定された成功または失敗結果を Logger へ返す
     [[nodiscard]] bool write(const cue::LogRecord &) override
     {
         m_state.didWrite = true;
@@ -77,7 +77,7 @@ class StateSink final : public cue::LogSink
 class ThrowingSink final : public cue::LogSink
 {
   public:
-    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
+    /// @brief Log 出力時に例外を注入し、Logger から Emergency 終了へ移行する経路を再現する
     [[nodiscard]] bool write(const cue::LogRecord &) override
     {
         throw std::runtime_error("sink failure");

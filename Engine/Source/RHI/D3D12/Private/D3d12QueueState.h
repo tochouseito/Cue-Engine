@@ -100,7 +100,7 @@ class D3d12QueueState final
     /// @brief D3d12QueueState が保持する Resource を所有権規則に従って破棄する
     ~D3d12QueueState() noexcept = default;
 
-    /// @brief D3D12 Queue State が保持する Reserve Fence Value を呼び出し元へ返す
+    /// @brief 未処理予約がないことを検証して次の Fence 値を予約し、値の枯渇時は Error を返す
     [[nodiscard]] Result<std::uint64_t> reserve_fence_value() noexcept;
     /// @brief D3D12 Queue State の Command List を GPU 実行順と Resource State を守って投入する
     void execute_command_list(ID3D12CommandList *a_commandList) noexcept;
