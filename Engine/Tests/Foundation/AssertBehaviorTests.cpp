@@ -102,6 +102,22 @@ class AssertFatalHandler final : public cue::FatalHandler
     CUE_ASSERT(context, false, "assert failure");
     return 78;
 }
+
+/// @brief Secondary Error の自己参照を Build 別契約に従って検出または安全に無視できることを検証する
+[[nodiscard]] int run_secondary_self_reference()
+{
+    AssertState state;
+    AssertFatalHandler handler(state);
+    std::vector<std::unique_ptr<cue::LogSink>> sinks;
+    sinks.push_back(std::make_unique<AssertSink>(state));
+    cue::Logger logger(handler, std::move(sinks));
+    cue::AssertContext context(logger, handler, try_break);
+    cue::ErrorCode code = cue::ErrorCode::create(handler, "Cue.Foundation.Assert", 1);
+    cue::Error error = cue::Error::create(handler, std::move(code), "primary");
+
+    error.append_secondary_diagnostics(context, error, "self reference", "Secondary Error");
+    return error.contexts().empty() && error.code().domain() == "Cue.Foundation.Assert" ? 0 : 79;
+}
 } // namespace
 
 /// @brief 対象の検証 Scenario を実行し、合否を Process 終了 Code で返す
@@ -119,6 +135,10 @@ int main(int a_argumentCount, char **a_arguments)
     if (mode == "Failure")
     {
         return run_failure();
+    }
+    if (mode == "SecondarySelfReference")
+    {
+        return run_secondary_self_reference();
     }
     return 11;
 }

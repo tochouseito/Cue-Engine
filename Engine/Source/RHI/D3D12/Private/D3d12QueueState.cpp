@@ -10,6 +10,7 @@
 
 #include <limits>
 #include <optional>
+#include <source_location>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -47,86 +48,35 @@ constexpr std::uint64_t k_maximumSignalValue = k_deviceRemovedCompletedValue - 1
                                   "D3D12 Device was removed", std::move(nativeError), std::move(a_cause));
 }
 
-/// @brief Error の Domain、Code、Native 情報を追跡可能な Context として追加する
-void add_error_identity_context(cue::Error &a_primaryError, std::string_view a_label, const cue::ErrorCode &a_code,
-                                const cue::NativeError *a_nativeError,
-                                const cue::AssertContext &a_assertContext) noexcept
-{
-    try
-    {
-        std::string codeContext(a_label);
-        codeContext.append(" Code=");
-        codeContext.append(a_code.domain());
-        codeContext.push_back('/');
-        codeContext.append(std::to_string(a_code.value()));
-        a_primaryError.add_context(a_assertContext.fatal_handler(), codeContext);
-
-        if (a_nativeError != nullptr)
-        {
-            std::string nativeContext(a_label);
-            nativeContext.append(" NativeError=");
-            nativeContext.append(a_nativeError->domain());
-            nativeContext.push_back('/');
-            nativeContext.append(std::to_string(a_nativeError->value()));
-            a_primaryError.add_context(a_assertContext.fatal_handler(), nativeContext);
-        }
-    }
-    catch (...)
-    {
-        a_assertContext.fatal_handler().terminate("D3D12 Queue Error context allocation failed");
-    }
-}
-
 /// @brief 主因 Error を失わず Secondary Error の識別情報を Context へ追加する
 void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a_secondaryError,
-                                 std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
+                                 std::string_view a_context, const cue::AssertContext &a_assertContext,
+                                 std::source_location a_location = std::source_location::current()) noexcept
 {
-    a_primaryError.add_context(a_assertContext.fatal_handler(), a_context);
-    a_primaryError.add_context(a_assertContext.fatal_handler(), a_secondaryError.summary());
-    add_error_identity_context(a_primaryError, "Secondary Queue Error", a_secondaryError.code(),
-                               a_secondaryError.try_native_error(), a_assertContext);
-
-    for (const cue::ErrorContext &context : a_secondaryError.contexts())
-    {
-        a_primaryError.add_context(a_assertContext.fatal_handler(), context.message());
-    }
-
-    for (const cue::ErrorCause &cause : a_secondaryError.causes())
-    {
-        a_primaryError.add_context(a_assertContext.fatal_handler(), "Secondary Queue Error cause");
-        a_primaryError.add_context(a_assertContext.fatal_handler(), cause.summary());
-        add_error_identity_context(a_primaryError, "Secondary Queue Error cause", cause.code(),
-                                   cause.try_native_error(), a_assertContext);
-
-        for (const cue::ErrorContext &context : cause.contexts())
-        {
-            a_primaryError.add_context(a_assertContext.fatal_handler(), context.message());
-        }
-    }
+    a_primaryError.append_secondary_diagnostics(
+        a_assertContext, a_secondaryError, a_context,
+        "Secondary Queue Error", a_location);
 }
 
 /// @brief 主 Error を維持したまま Secondary Cause の Summary、識別情報、Context を診断情報として転記する
 void add_secondary_cause_context(cue::Error &a_primaryError, const cue::ErrorCause &a_secondaryCause,
-                                 std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
+                                 std::string_view a_context, const cue::AssertContext &a_assertContext,
+                                 std::source_location a_location = std::source_location::current()) noexcept
 {
-    a_primaryError.add_context(a_assertContext.fatal_handler(), a_context);
-    a_primaryError.add_context(a_assertContext.fatal_handler(), a_secondaryCause.summary());
-    add_error_identity_context(a_primaryError, "Secondary Queue Error", a_secondaryCause.code(),
-                               a_secondaryCause.try_native_error(), a_assertContext);
-
-    for (const cue::ErrorContext &context : a_secondaryCause.contexts())
-    {
-        a_primaryError.add_context(a_assertContext.fatal_handler(), context.message());
-    }
+    a_primaryError.append_secondary_diagnostics(
+        a_assertContext.fatal_handler(), a_secondaryCause, a_context,
+        "Secondary Queue Error", a_location);
 }
 
 /// @brief D3D12 Queue State の Secondary Error を診断と Lifecycle の規則に従って更新する
 void retain_secondary_error(cue::Error &a_primaryError, cue::Result<void> &a_secondaryResult,
-                            std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
+                            std::string_view a_context, const cue::AssertContext &a_assertContext,
+                            std::source_location a_location = std::source_location::current()) noexcept
 {
     if (!a_secondaryResult)
     {
-        add_secondary_error_context(a_primaryError, *a_secondaryResult.try_error(), a_context, a_assertContext);
+        add_secondary_error_context(
+            a_primaryError, *a_secondaryResult.try_error(), a_context, a_assertContext, a_location);
     }
 }
 

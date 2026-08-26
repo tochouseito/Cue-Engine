@@ -1,17 +1,27 @@
+#include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
 #include <Cue/Foundation/Result.h>
 
 #include <cstdlib>
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace
 {
-class TestEmergencyHandler final : public cue::EmergencyHandler
+class TestEmergencyHandler final : public cue::FatalHandler
 {
   public:
+    /// @brief 通常 Fatal 診断後に Test Process を終了する
+    [[noreturn]] void terminate() noexcept override
+    {
+        std::abort();
+    }
+
     /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate(std::string_view) noexcept override
     {
@@ -122,6 +132,116 @@ concept HasRvalueErrorProbe = requires(T &&a_result) { std::move(a_result).try_e
     const std::string *value = moved.try_value();
     return value != nullptr && *value == "moved value";
 }
+
+/// @brief Secondary Error の全診断情報と SourceLocation を規定順で保持することを検証する
+[[nodiscard]] bool test_secondary_error_diagnostics(
+    TestEmergencyHandler &a_emergencyHandler, const cue::AssertContext &a_assertContext)
+{
+    cue::ErrorCode primaryRootCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Primary.Root", 1);
+    cue::Error primaryRoot = cue::Error::create(a_emergencyHandler, std::move(primaryRootCode), "primary root");
+    cue::ErrorCode primaryCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Primary", 2);
+    cue::NativeError primaryNative = cue::NativeError::create(a_emergencyHandler, "Win32", 3);
+    cue::Error primary = cue::Error::reclassify(
+        a_emergencyHandler, std::move(primaryCode), "primary summary", std::move(primaryNative),
+        std::move(primaryRoot));
+    primary.add_context(a_emergencyHandler, "primary context");
+
+    cue::ErrorCode secondaryRootCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Secondary.Root", 10);
+    cue::NativeError secondaryRootNative = cue::NativeError::create(a_emergencyHandler, "HRESULT", -1);
+    cue::Error secondaryRoot = cue::Error::create(
+        a_emergencyHandler, std::move(secondaryRootCode), "secondary root summary",
+        std::move(secondaryRootNative));
+    secondaryRoot.add_context(a_emergencyHandler, "secondary root context");
+    const std::uint_least32_t secondaryRootContextLine = secondaryRoot.contexts()[0].location().line();
+
+    cue::ErrorCode secondaryMiddleCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Secondary.Middle", 11);
+    cue::Error secondaryMiddle = cue::Error::reclassify(
+        a_emergencyHandler, std::move(secondaryMiddleCode), "secondary middle summary",
+        std::move(secondaryRoot));
+    secondaryMiddle.add_context(a_emergencyHandler, "secondary middle context");
+    const std::uint_least32_t secondaryMiddleContextLine = secondaryMiddle.contexts()[0].location().line();
+
+    cue::ErrorCode secondaryCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Secondary", 12);
+    cue::NativeError secondaryNative = cue::NativeError::create(a_emergencyHandler, "Win32", 13);
+    cue::Error secondary = cue::Error::reclassify(
+        a_emergencyHandler, std::move(secondaryCode), "secondary summary", std::move(secondaryNative),
+        std::move(secondaryMiddle));
+    secondary.add_context(a_emergencyHandler, "secondary context");
+    const std::uint_least32_t secondaryContextLine = secondary.contexts()[0].location().line();
+
+    const std::uint_least32_t appendLine = __LINE__ + 1;
+    primary.append_secondary_diagnostics(
+        a_assertContext, secondary, "cleanup also failed", "Secondary Test Error");
+
+    const std::span<const cue::ErrorContext> contexts = primary.contexts();
+    const cue::NativeError *primaryStoredNative = primary.try_native_error();
+    const bool primaryUnchanged = primary.code().domain() == "Cue.Primary" && primary.code().value() == 2 &&
+                                  primary.summary() == "primary summary" && primaryStoredNative != nullptr &&
+                                  primaryStoredNative->domain() == "Win32" && primaryStoredNative->value() == 3 &&
+                                  primary.causes().size() == 1 && primary.root_code().domain() == "Cue.Primary.Root";
+
+    if (!primaryUnchanged || contexts.size() != 15)
+    {
+        return false;
+    }
+
+    const bool messagesMatch = contexts[0].message() == "primary context" &&
+                               contexts[1].message() == "cleanup also failed" &&
+                               contexts[2].message() == "secondary summary" &&
+                               contexts[3].message() == "Secondary Test Error Code=Cue.Secondary/12" &&
+                               contexts[4].message() == "Secondary Test Error NativeError=Win32/13" &&
+                               contexts[5].message() == "secondary context" &&
+                               contexts[6].message() == "Secondary Test Error Cause" &&
+                               contexts[7].message() == "secondary middle summary" &&
+                               contexts[8].message() == "Secondary Test Error Cause Code=Cue.Secondary.Middle/11" &&
+                               contexts[9].message() == "secondary middle context" &&
+                               contexts[10].message() == "Secondary Test Error Cause" &&
+                               contexts[11].message() == "secondary root summary" &&
+                               contexts[12].message() == "Secondary Test Error Cause Code=Cue.Secondary.Root/10" &&
+                               contexts[13].message() == "Secondary Test Error Cause NativeError=HRESULT/-1" &&
+                               contexts[14].message() == "secondary root context";
+    const bool generatedLocationsMatch = contexts[1].location().line() == appendLine &&
+                                         contexts[2].location().line() == appendLine &&
+                                         contexts[3].location().line() == appendLine &&
+                                         contexts[4].location().line() == appendLine &&
+                                         contexts[6].location().line() == appendLine &&
+                                         contexts[7].location().line() == appendLine &&
+                                         contexts[8].location().line() == appendLine &&
+                                         contexts[10].location().line() == appendLine &&
+                                         contexts[11].location().line() == appendLine &&
+                                         contexts[12].location().line() == appendLine &&
+                                         contexts[13].location().line() == appendLine;
+    const bool preservedLocationsMatch = contexts[5].location().line() == secondaryContextLine &&
+                                         contexts[9].location().line() == secondaryMiddleContextLine &&
+                                         contexts[14].location().line() == secondaryRootContextLine;
+    return messagesMatch && generatedLocationsMatch && preservedLocationsMatch;
+}
+
+/// @brief Secondary ErrorCause 単体を余分な Native Context なしで規定順に転記できることを検証する
+[[nodiscard]] bool test_secondary_cause_diagnostics(TestEmergencyHandler &a_emergencyHandler)
+{
+    cue::ErrorCode causeCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Cause", 21);
+    cue::Error cause = cue::Error::create(a_emergencyHandler, std::move(causeCode), "cause summary");
+    cause.add_context(a_emergencyHandler, "cause context");
+    const std::uint_least32_t causeContextLine = cause.contexts()[0].location().line();
+    cue::ErrorCode secondaryCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Secondary", 22);
+    cue::Error secondary = cue::Error::reclassify(
+        a_emergencyHandler, std::move(secondaryCode), "secondary summary", std::move(cause));
+    cue::ErrorCode primaryCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Primary", 23);
+    cue::Error primary = cue::Error::create(a_emergencyHandler, std::move(primaryCode), "primary summary");
+
+    const std::uint_least32_t appendLine = __LINE__ + 1;
+    primary.append_secondary_diagnostics(
+        a_emergencyHandler, secondary.causes()[0], "cause also failed", "Secondary Cause Test");
+
+    const std::span<const cue::ErrorContext> contexts = primary.contexts();
+    return contexts.size() == 4 && contexts[0].message() == "cause also failed" &&
+           contexts[1].message() == "cause summary" &&
+           contexts[2].message() == "Secondary Cause Test Code=Cue.Cause/21" &&
+           contexts[3].message() == "cause context" && contexts[0].location().line() == appendLine &&
+           contexts[1].location().line() == appendLine && contexts[2].location().line() == appendLine &&
+           contexts[3].location().line() == causeContextLine;
+}
 } // namespace
 
 static_assert(!std::is_copy_constructible_v<cue::Error>);
@@ -135,6 +255,9 @@ static_assert(!HasRvalueErrorProbe<cue::Result<int>>);
 int main()
 {
     TestEmergencyHandler emergencyHandler;
+    std::vector<std::unique_ptr<cue::LogSink>> sinks;
+    cue::Logger logger(emergencyHandler, std::move(sinks));
+    cue::AssertContext assertContext(logger, emergencyHandler);
 
     if (!test_success())
     {
@@ -164,6 +287,16 @@ int main()
     if (!test_move())
     {
         return 6;
+    }
+
+    if (!test_secondary_error_diagnostics(emergencyHandler, assertContext))
+    {
+        return 7;
+    }
+
+    if (!test_secondary_cause_diagnostics(emergencyHandler))
+    {
+        return 8;
     }
 
     return 0;

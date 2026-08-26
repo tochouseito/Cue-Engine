@@ -18,6 +18,7 @@
 #include <cwchar>
 #include <memory>
 #include <optional>
+#include <source_location>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -259,65 +260,13 @@ void print_usage() noexcept
 
 /// @brief 主因 Error を保持したまま Cleanup 中の Secondary Error を診断 Context へ追加する
 void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a_secondaryError,
-                                 std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
+                                 std::string_view a_context, const cue::AssertContext &a_assertContext,
+                                 std::source_location a_location = std::source_location::current()) noexcept
 {
     // 最初に処理を失敗させた Error を主因として保ち、後始末の失敗も同じ診断から追跡できるようにする
-    try
-    {
-        a_primaryError.add_context(a_assertContext.fatal_handler(), a_context);
-        a_primaryError.add_context(a_assertContext.fatal_handler(), a_secondaryError.summary());
-        std::string codeContext = "Secondary Runtime Error Code=";
-        codeContext.append(a_secondaryError.code().domain());
-        codeContext.push_back('/');
-        codeContext.append(std::to_string(a_secondaryError.code().value()));
-        a_primaryError.add_context(a_assertContext.fatal_handler(), codeContext);
-
-        const cue::NativeError *nativeError = a_secondaryError.try_native_error();
-
-        if (nativeError != nullptr)
-        {
-            std::string nativeContext = "Secondary Runtime Error NativeError=";
-            nativeContext.append(nativeError->domain());
-            nativeContext.push_back('/');
-            nativeContext.append(std::to_string(nativeError->value()));
-            a_primaryError.add_context(a_assertContext.fatal_handler(), nativeContext);
-        }
-
-        for (const cue::ErrorContext &context : a_secondaryError.contexts())
-        {
-            a_primaryError.add_context(a_assertContext.fatal_handler(), context.message());
-        }
-
-        for (const cue::ErrorCause &cause : a_secondaryError.causes())
-        {
-            a_primaryError.add_context(a_assertContext.fatal_handler(), cause.summary());
-            std::string causeCodeContext = "Secondary Runtime Error Cause Code=";
-            causeCodeContext.append(cause.code().domain());
-            causeCodeContext.push_back('/');
-            causeCodeContext.append(std::to_string(cause.code().value()));
-            a_primaryError.add_context(a_assertContext.fatal_handler(), causeCodeContext);
-
-            const cue::NativeError *causeNativeError = cause.try_native_error();
-
-            if (causeNativeError != nullptr)
-            {
-                std::string causeNativeContext = "Secondary Runtime Error Cause NativeError=";
-                causeNativeContext.append(causeNativeError->domain());
-                causeNativeContext.push_back('/');
-                causeNativeContext.append(std::to_string(causeNativeError->value()));
-                a_primaryError.add_context(a_assertContext.fatal_handler(), causeNativeContext);
-            }
-
-            for (const cue::ErrorContext &context : cause.contexts())
-            {
-                a_primaryError.add_context(a_assertContext.fatal_handler(), context.message());
-            }
-        }
-    }
-    catch (...)
-    {
-        a_assertContext.fatal_handler().terminate("Runtime Host Error context allocation failed");
-    }
+    a_primaryError.append_secondary_diagnostics(
+        a_assertContext, a_secondaryError, a_context,
+        "Secondary Runtime Error", a_location);
 }
 
 /// @brief Window を生成せず D3D12 Backend の生成、能力取得、停止経路を検証する

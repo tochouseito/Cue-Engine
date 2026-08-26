@@ -1,16 +1,49 @@
 #include <Cue/Foundation/Error.h>
+#include <Cue/Foundation/Assert.h>
 
 #include <cstdlib>
 #include <utility>
 
 namespace
 {
+/// @brief Secondary Error の Code と任意 Native Error を転記前に所有する診断文字列
+struct ErrorIdentityContexts final
+{
+    std::string code;
+    std::optional<std::string> nativeError;
+};
+
 /// @brief 通常診断を継続できない失敗を Emergency Handler へ委譲して Process を終了する
 [[noreturn]] void terminate_emergency(cue::EmergencyHandler &a_emergencyHandler, std::string_view a_message) noexcept
 {
     a_emergencyHandler.terminate(a_message);
     // Source 上でも終了経路を明示するが、Handler が復帰した時点で `[[noreturn]]` 契約違反となる
     std::abort();
+}
+
+/// @brief Error の Code と任意 Native Error を指定 Label の診断文字列へ変換する
+[[nodiscard]] ErrorIdentityContexts make_error_identity_contexts(
+    std::string_view a_label, const cue::ErrorCode &a_code,
+    const cue::NativeError *a_nativeError)
+{
+    std::string codeContext(a_label);
+    codeContext.append(" Code=");
+    codeContext.append(a_code.domain());
+    codeContext.push_back('/');
+    codeContext.append(std::to_string(a_code.value()));
+    std::optional<std::string> nativeErrorContext;
+
+    if (a_nativeError != nullptr)
+    {
+        std::string nativeContext(a_label);
+        nativeContext.append(" NativeError=");
+        nativeContext.append(a_nativeError->domain());
+        nativeContext.push_back('/');
+        nativeContext.append(std::to_string(a_nativeError->value()));
+        nativeErrorContext.emplace(std::move(nativeContext));
+    }
+
+    return {std::move(codeContext), std::move(nativeErrorContext)};
 }
 } // namespace
 
@@ -193,6 +226,115 @@ void Error::add_context(EmergencyHandler &a_emergencyHandler, std::string_view a
     catch (...)
     {
         terminate_emergency(a_emergencyHandler, "Error context creation failed");
+    }
+}
+
+/// @brief Secondary Error の診断を Primary Error の Context へ転記する
+void Error::append_secondary_diagnostics(
+    const AssertContext &a_assertContext, const Error &a_secondaryError,
+    std::string_view a_context, std::string_view a_label,
+    std::source_location a_location) noexcept
+{
+    CUE_ASSERT(a_assertContext, this != &a_secondaryError,
+               "Secondary Error must not alias the Primary Error");
+
+    if (this == &a_secondaryError)
+    {
+        return;
+    }
+
+    EmergencyHandler &emergencyHandler = a_assertContext.fatal_handler();
+
+    try
+    {
+        const ErrorCode &secondaryCode = a_secondaryError.code();
+        const NativeError *secondaryNativeError = a_secondaryError.try_native_error();
+        const ErrorIdentityContexts identity = make_error_identity_contexts(
+            a_label, secondaryCode, secondaryNativeError);
+
+        add_context(emergencyHandler, a_context, a_location);
+        add_context(emergencyHandler, a_secondaryError.summary(), a_location);
+        add_context(emergencyHandler, identity.code, a_location);
+
+        if (identity.nativeError)
+        {
+            add_context(emergencyHandler, *identity.nativeError, a_location);
+        }
+
+        for (const ErrorContext &context : a_secondaryError.contexts())
+        {
+            append_preserved_context(emergencyHandler, context);
+        }
+
+        for (const ErrorCause &cause : a_secondaryError.causes())
+        {
+            std::string causeLabel(a_label);
+            causeLabel.append(" Cause");
+            const ErrorIdentityContexts causeIdentity = make_error_identity_contexts(
+                causeLabel, cause.code(), cause.try_native_error());
+            add_context(emergencyHandler, causeLabel, a_location);
+            add_context(emergencyHandler, cause.summary(), a_location);
+            add_context(emergencyHandler, causeIdentity.code, a_location);
+
+            if (causeIdentity.nativeError)
+            {
+                add_context(emergencyHandler, *causeIdentity.nativeError, a_location);
+            }
+
+            for (const ErrorContext &context : cause.contexts())
+            {
+                append_preserved_context(emergencyHandler, context);
+            }
+        }
+    }
+    catch (...)
+    {
+        terminate_emergency(emergencyHandler, "Secondary Error diagnostic composition failed");
+    }
+}
+
+/// @brief Secondary Cause の診断を Primary Error の Context へ転記する
+void Error::append_secondary_diagnostics(
+    EmergencyHandler &a_emergencyHandler, const ErrorCause &a_secondaryCause,
+    std::string_view a_context, std::string_view a_label,
+    std::source_location a_location) noexcept
+{
+    try
+    {
+        const ErrorIdentityContexts identity = make_error_identity_contexts(
+            a_label, a_secondaryCause.code(), a_secondaryCause.try_native_error());
+        add_context(a_emergencyHandler, a_context, a_location);
+        add_context(a_emergencyHandler, a_secondaryCause.summary(), a_location);
+        add_context(a_emergencyHandler, identity.code, a_location);
+
+        if (identity.nativeError)
+        {
+            add_context(a_emergencyHandler, *identity.nativeError, a_location);
+        }
+
+        for (const ErrorContext &context : a_secondaryCause.contexts())
+        {
+            append_preserved_context(a_emergencyHandler, context);
+        }
+    }
+    catch (...)
+    {
+        terminate_emergency(a_emergencyHandler, "Secondary Cause diagnostic composition failed");
+    }
+}
+
+/// @brief 転記元 Error Context の Message と SourceLocation を変更せず追加する
+void Error::append_preserved_context(EmergencyHandler &a_emergencyHandler,
+                                     const ErrorContext &a_context) noexcept
+{
+    try
+    {
+        ErrorContext context(std::string(a_context.message()), a_context.location());
+        m_contexts.push_back(std::move(context));
+    }
+    catch (...)
+    {
+        terminate_emergency(a_emergencyHandler, "Preserved Error context creation failed");
     }
 }
 

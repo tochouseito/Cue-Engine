@@ -775,6 +775,16 @@ add_test(
         -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyEmergencyExit.cmake
 )
 
+add_test(
+    NAME Cue.Foundation.Error.SecondarySelfReference
+    COMMAND
+        ${CMAKE_COMMAND}
+        -DTEST_EXECUTABLE=$<TARGET_FILE:CueFoundationAssertTests>
+        -DTEST_MODE=SecondarySelfReference
+        -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,75>
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyEmergencyExit.cmake
+)
+
 foreach(
     diagnosticMode
     IN ITEMS
@@ -805,6 +815,8 @@ foreach(
     emergencyMode
     IN ITEMS
         AddContext
+        AppendSecondaryContext
+        AppendSecondaryFormatting
         CreateError
         CreateErrorCode
         Reclassify
@@ -854,6 +866,7 @@ endif()
 
 set_tests_properties(
     Cue.Foundation.Assert.Failure
+    Cue.Foundation.Error.SecondarySelfReference
     Cue.Foundation.Diagnostics.Fatal
     Cue.Foundation.Diagnostics.FatalContended
     Cue.Foundation.Diagnostics.FatalSinkFailure
@@ -866,6 +879,8 @@ set_tests_properties(
 
 set_tests_properties(
     Cue.Foundation.Emergency.AddContext
+    Cue.Foundation.Emergency.AppendSecondaryContext
+    Cue.Foundation.Emergency.AppendSecondaryFormatting
     Cue.Foundation.Emergency.CreateError
     Cue.Foundation.Emergency.CreateErrorCode
     Cue.Foundation.Emergency.Reclassify

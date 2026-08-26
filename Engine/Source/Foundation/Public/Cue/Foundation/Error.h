@@ -13,6 +13,8 @@
 
 namespace cue
 {
+class AssertContext;
+
 /// @brief Domain 内で一意な Error 識別子
 ///
 /// Domain と数値を分離し、Module 間で同じ数値を使用しても Error の意味が衝突しないようにする
@@ -211,6 +213,29 @@ class Error final
     void add_context(EmergencyHandler &a_emergencyHandler, std::string_view a_message,
                      std::source_location a_location = std::source_location::current()) noexcept;
 
+    /// @brief Secondary Error の診断を Primary Error の Context へ転記する
+    /// @param a_assertContext 自己参照違反の診断と Allocation 失敗時の非所有終了境界
+    /// @param a_secondaryError 呼び出し中だけ参照する Secondary Error
+    /// @param a_context Secondary Error が発生した後続処理の説明
+    /// @param a_label Code と Native Error を識別する診断 Prefix
+    /// @param a_location 新しく生成する Context へ記録する実際の呼び出し位置
+    /// @pre a_secondaryError は呼び出し対象の Primary Error と異なる Object であること
+    void append_secondary_diagnostics(
+        const AssertContext &a_assertContext, const Error &a_secondaryError,
+        std::string_view a_context, std::string_view a_label,
+        std::source_location a_location = std::source_location::current()) noexcept;
+
+    /// @brief Secondary Cause の診断を Primary Error の Context へ転記する
+    /// @param a_emergencyHandler Allocation 失敗時の非所有終了境界
+    /// @param a_secondaryCause 呼び出し中だけ参照する Secondary Cause
+    /// @param a_context Secondary Cause が発生した後続処理の説明
+    /// @param a_label Code と Native Error を識別する診断 Prefix
+    /// @param a_location 新しく生成する Context へ記録する実際の呼び出し位置
+    void append_secondary_diagnostics(
+        EmergencyHandler &a_emergencyHandler, const ErrorCause &a_secondaryCause,
+        std::string_view a_context, std::string_view a_label,
+        std::source_location a_location = std::source_location::current()) noexcept;
+
     /// @brief Primary Error Code を返す
     [[nodiscard]] const ErrorCode &code() const noexcept;
 
@@ -234,6 +259,10 @@ class Error final
     [[nodiscard]] static Error reclassify_impl(EmergencyHandler &a_emergencyHandler, ErrorCode &&a_code,
                                                std::string_view a_summary, std::optional<NativeError> &&a_nativeError,
                                                Error &&a_cause) noexcept;
+
+    /// @brief 転記元 Error Context の Message と SourceLocation を変更せず追加する
+    void append_preserved_context(EmergencyHandler &a_emergencyHandler,
+                                  const ErrorContext &a_context) noexcept;
 
     /// @brief Error を必要な依存と初期状態から構築する
     Error(ErrorCode &&a_code, std::string &&a_summary, std::optional<NativeError> &&a_nativeError) noexcept;
