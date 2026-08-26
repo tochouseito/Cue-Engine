@@ -93,7 +93,7 @@ class D3d12QueueState final
     D3d12QueueState(const D3d12QueueState &) = delete;
     /// @brief D3d12QueueState の一意所有を保つため Copy 代入を禁止する
     D3d12QueueState &operator=(const D3d12QueueState &) = delete;
-    /// @brief D3d12QueueState の所有状態を Move 構築し、移動元を安全な空状態へ戻す
+    /// @brief Queue State の所有状態を Move 構築し、移動元は有効だが内容未規定の状態にする
     D3d12QueueState(D3d12QueueState &&) noexcept = default;
     /// @brief D3d12QueueState の所有状態を Move 代入し、代入元を安全な空状態へ移す
     D3d12QueueState &operator=(D3d12QueueState &&a_other) noexcept;

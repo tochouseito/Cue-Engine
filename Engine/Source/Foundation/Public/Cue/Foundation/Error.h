@@ -24,9 +24,9 @@ class ErrorCode final
     ErrorCode(const ErrorCode &) = delete;
     /// @brief ErrorCode の一意所有を保つため Copy 代入を禁止する
     ErrorCode &operator=(const ErrorCode &) = delete;
-    /// @brief ErrorCode の所有状態を Move 構築し、移動元を安全な空状態へ戻す
+    /// @brief ErrorCode の状態を Move 構築し、移動元は有効だが内容未規定の状態にする
     ErrorCode(ErrorCode &&) noexcept = default;
-    /// @brief ErrorCode の所有状態を Move 代入し、代入元を安全な空状態へ移す
+    /// @brief ErrorCode の状態を Move 代入し、移動元は有効だが内容未規定の状態にする
     ErrorCode &operator=(ErrorCode &&) noexcept = default;
     /// @brief ErrorCode が保持する Resource を所有権規則に従って破棄する
     ~ErrorCode() = default;
@@ -62,9 +62,9 @@ class NativeError final
     NativeError(const NativeError &) = delete;
     /// @brief NativeError の一意所有を保つため Copy 代入を禁止する
     NativeError &operator=(const NativeError &) = delete;
-    /// @brief NativeError の所有状態を Move 構築し、移動元を安全な空状態へ戻す
+    /// @brief NativeError の状態を Move 構築し、移動元は有効だが内容未規定の状態にする
     NativeError(NativeError &&) noexcept = default;
-    /// @brief NativeError の所有状態を Move 代入し、代入元を安全な空状態へ移す
+    /// @brief NativeError の状態を Move 代入し、移動元は有効だが内容未規定の状態にする
     NativeError &operator=(NativeError &&) noexcept = default;
     /// @brief NativeError が保持する Resource を所有権規則に従って破棄する
     ~NativeError() = default;
@@ -97,9 +97,9 @@ class ErrorContext final
     ErrorContext(const ErrorContext &) = delete;
     /// @brief ErrorContext の一意所有を保つため Copy 代入を禁止する
     ErrorContext &operator=(const ErrorContext &) = delete;
-    /// @brief ErrorContext の所有状態を Move 構築し、移動元を安全な空状態へ戻す
+    /// @brief ErrorContext の状態を Move 構築し、移動元は有効だが内容未規定の状態にする
     ErrorContext(ErrorContext &&) noexcept = default;
-    /// @brief ErrorContext の所有状態を Move 代入し、代入元を安全な空状態へ移す
+    /// @brief ErrorContext の状態を Move 代入し、移動元は有効だが内容未規定の状態にする
     ErrorContext &operator=(ErrorContext &&) noexcept = default;
     /// @brief ErrorContext が保持する Resource を所有権規則に従って破棄する
     ~ErrorContext() = default;
@@ -130,9 +130,9 @@ class ErrorCause final
     ErrorCause(const ErrorCause &) = delete;
     /// @brief ErrorCause の一意所有を保つため Copy 代入を禁止する
     ErrorCause &operator=(const ErrorCause &) = delete;
-    /// @brief ErrorCause の所有状態を Move 構築し、移動元を安全な空状態へ戻す
+    /// @brief ErrorCause の状態を Move 構築し、移動元は有効だが内容未規定の状態にする
     ErrorCause(ErrorCause &&) noexcept = default;
-    /// @brief ErrorCause の所有状態を Move 代入し、代入元を安全な空状態へ移す
+    /// @brief ErrorCause の状態を Move 代入し、移動元は有効だが内容未規定の状態にする
     ErrorCause &operator=(ErrorCause &&) noexcept = default;
     /// @brief ErrorCause が保持する Resource を所有権規則に従って破棄する
     ~ErrorCause() = default;
@@ -174,9 +174,9 @@ class Error final
     Error(const Error &) = delete;
     /// @brief Error の一意所有を保つため Copy 代入を禁止する
     Error &operator=(const Error &) = delete;
-    /// @brief Error の所有状態を Move 構築し、移動元を安全な空状態へ戻す
+    /// @brief Error の状態を Move 構築し、移動元は有効だが内容未規定の状態にする
     Error(Error &&) noexcept = default;
-    /// @brief Error の所有状態を Move 代入し、代入元を安全な空状態へ移す
+    /// @brief Error の状態を Move 代入し、移動元は有効だが内容未規定の状態にする
     Error &operator=(Error &&) noexcept = default;
     /// @brief Error が保持する Resource を所有権規則に従って破棄する
     ~Error() = default;

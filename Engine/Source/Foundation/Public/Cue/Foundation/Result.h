@@ -29,9 +29,9 @@ template <typename T> class Result final
     Result(const Result &) = delete;
     /// @brief Result の一意所有を保つため Copy 代入を禁止する
     Result &operator=(const Result &) = delete;
-    /// @brief Result の所有状態を Move 構築し、移動元を安全な空状態へ戻す
+    /// @brief Result の状態を Move 構築し、移動元は有効だが内容未規定の状態にする
     Result(Result &&) noexcept = default;
-    /// @brief Result の所有状態を Move 代入し、代入元を安全な空状態へ移す
+    /// @brief Result の状態を Move 代入し、移動元は有効だが内容未規定の状態にする
     Result &operator=(Result &&) noexcept = default;
     /// @brief Result が保持する Resource を所有権規則に従って破棄する
     ~Result() = default;
@@ -121,9 +121,9 @@ template <> class Result<void> final
     Result(const Result &) = delete;
     /// @brief Result の一意所有を保つため Copy 代入を禁止する
     Result &operator=(const Result &) = delete;
-    /// @brief Result の所有状態を Move 構築し、移動元を安全な空状態へ戻す
+    /// @brief Result の状態を Move 構築し、移動元は有効だが内容未規定の状態にする
     Result(Result &&) noexcept = default;
-    /// @brief Result の所有状態を Move 代入し、代入元を安全な空状態へ移す
+    /// @brief Result の状態を Move 代入し、移動元は有効だが内容未規定の状態にする
     Result &operator=(Result &&) noexcept = default;
     /// @brief Result が保持する Resource を所有権規則に従って破棄する
     ~Result() = default;

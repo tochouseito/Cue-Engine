@@ -34,9 +34,9 @@ class LogRecord final
     LogRecord(const LogRecord &) = delete;
     /// @brief LogRecord の一意所有を保つため Copy 代入を禁止する
     LogRecord &operator=(const LogRecord &) = delete;
-    /// @brief LogRecord の所有状態を Move 構築し、移動元を安全な空状態へ戻す
+    /// @brief LogRecord の状態を Move 構築し、移動元は有効だが内容未規定の状態にする
     LogRecord(LogRecord &&) noexcept = default;
-    /// @brief LogRecord の所有状態を Move 代入し、代入元を安全な空状態へ移す
+    /// @brief LogRecord の状態を Move 代入し、移動元は有効だが内容未規定の状態にする
     LogRecord &operator=(LogRecord &&) noexcept = default;
     /// @brief LogRecord が保持する Resource を所有権規則に従って破棄する
     ~LogRecord() = default;
