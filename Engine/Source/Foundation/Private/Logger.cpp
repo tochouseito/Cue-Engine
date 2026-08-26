@@ -27,7 +27,7 @@ class SinkDispatchGuard final
         ++sinkDispatchDepth;
     }
 
-    /// @brief SinkDispatchGuard が保持する Resource を所有権規則に従って破棄する
+    /// @brief 早期 Return や例外でも Dispatch Depth を戻し、後続 Log の再入判定を復元する
     ~SinkDispatchGuard()
     {
         --sinkDispatchDepth;

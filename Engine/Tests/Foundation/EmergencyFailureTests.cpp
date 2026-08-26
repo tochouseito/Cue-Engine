@@ -70,7 +70,7 @@ class TestEmergencyHandler final : public cue::EmergencyHandler
     return 3;
 }
 
-/// @brief EmergencyFailureTests Test が保持する Test Add Context を呼び出し元へ返す
+/// @brief Context 追加時の Allocation 失敗が Emergency Handler による Process 終了へ移行することを検証する
 [[nodiscard]] int test_add_context(TestEmergencyHandler &a_emergencyHandler)
 {
     cue::ErrorCode code = cue::ErrorCode::create(a_emergencyHandler, "Cue", 5);
@@ -117,6 +117,7 @@ void operator delete[](void *a_memory, std::size_t) noexcept
     std::free(a_memory);
 }
 
+/// @brief 指定 Scenario の Allocation 失敗を再現し、Emergency 終了経路を Process 単位で検証する
 int main(int a_argumentCount, char **a_arguments)
 {
     if (a_argumentCount != 2)

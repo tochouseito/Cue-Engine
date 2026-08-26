@@ -749,6 +749,7 @@ class ForeignWindow final : public cue::Window
 }
 } // namespace
 
+/// @brief 指定 Scenario で Win32 Window を操作し、Lifecycle、Event、Thread 制約を Process 単位で検証する
 int main(int a_argumentCount, char **a_arguments)
 {
     if (a_argumentCount != 2)

@@ -42,6 +42,7 @@ class ProcessLogSink final : public cue::LogSink
 };
 } // namespace
 
+/// @brief 指定 Scenario で Queue と Fence 処理を実行し、同期と失敗経路を Process 単位で検証する
 int main(int a_argumentCount, char **a_arguments)
 {
     if (a_argumentCount != 2)

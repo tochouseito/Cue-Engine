@@ -64,6 +64,7 @@ class ProcessLogSink final : public cue::LogSink
 }
 } // namespace
 
+/// @brief 指定 Scenario で D3D12 診断機能を実行し、Info Queue と Error 変換を Process 単位で検証する
 int main(int a_argumentCount, char **a_arguments)
 {
     if (a_argumentCount != 2)

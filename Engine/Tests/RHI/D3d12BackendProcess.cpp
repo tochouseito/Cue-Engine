@@ -145,6 +145,7 @@ class ProcessLogSink final : public cue::LogSink
 }
 } // namespace
 
+/// @brief 指定 Scenario で D3D12 Backend の所有権と Thread Affinity を Process 単位で検証する
 int main(int a_argumentCount, char **a_arguments)
 {
     if (a_argumentCount != 2)

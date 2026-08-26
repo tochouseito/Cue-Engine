@@ -205,6 +205,7 @@ class BlockingSink final : public cue::LogSink
 }
 } // namespace
 
+/// @brief 指定 Scenario を別 Process で実行し、Fatal 診断と競合時の終了動作を検証する
 int main(int a_argumentCount, char **a_arguments)
 {
     if (a_argumentCount != 2)

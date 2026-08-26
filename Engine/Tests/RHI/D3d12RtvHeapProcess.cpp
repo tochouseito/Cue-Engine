@@ -42,6 +42,7 @@ class ProcessLogSink final : public cue::LogSink
 };
 } // namespace
 
+/// @brief 指定 Scenario で RTV Heap 処理を実行し、Descriptor 所有権と失敗経路を Process 単位で検証する
 int main(int a_argumentCount, char **a_arguments)
 {
     if (a_argumentCount != 2)

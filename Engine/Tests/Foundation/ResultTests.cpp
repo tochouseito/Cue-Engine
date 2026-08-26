@@ -131,6 +131,7 @@ static_assert(std::is_nothrow_move_constructible_v<cue::Result<int>>);
 static_assert(!HasRvalueValueProbe<cue::Result<int>>);
 static_assert(!HasRvalueErrorProbe<cue::Result<int>>);
 
+/// @brief Result の成功・失敗・Move 所有権契約を実行時に検証して終了 Code を返す
 int main()
 {
     TestEmergencyHandler emergencyHandler;

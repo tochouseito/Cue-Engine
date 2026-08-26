@@ -160,6 +160,7 @@ class RecordingSink final : public cue::LogSink
 }
 } // namespace
 
+/// @brief Logger の同期出力、再入防止、複数 Thread 投入を一括検証して終了 Code を返す
 int main()
 {
     TestEmergencyHandler emergencyHandler;

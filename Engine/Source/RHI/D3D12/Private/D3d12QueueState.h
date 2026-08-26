@@ -52,15 +52,15 @@ struct D3d12QueueNativeFunctions final
 class D3d12FenceEvent final
 {
   public:
-    /// @brief 無効な D3d12FenceEvent 状態を作らせないため既定構築を禁止する
+    /// @brief Event をまだ所有しない空の Fence Event Owner を構築する
     D3d12FenceEvent() noexcept;
-    /// @brief 無効な D3d12FenceEvent 状態を作らせないため既定構築を禁止する
+    /// @brief Native Event Handle と Close Callback の一意所有を開始する
     D3d12FenceEvent(HANDLE a_handle, BOOL(WINAPI *a_closeHandle)(HANDLE)) noexcept;
     /// @brief D3d12FenceEvent の一意所有を保つため Copy 構築を禁止する
     D3d12FenceEvent(const D3d12FenceEvent &) = delete;
     /// @brief D3d12FenceEvent の一意所有を保つため Copy 代入を禁止する
     D3d12FenceEvent &operator=(const D3d12FenceEvent &) = delete;
-    /// @brief D3d12FenceEvent の所有状態を移動させないため Move 構築を禁止する
+    /// @brief Native Event Handle の一意所有を移動元から引き継ぐ
     D3d12FenceEvent(D3d12FenceEvent &&a_other) noexcept;
     /// @brief D3d12FenceEvent の所有状態を移動させないため Move 代入を禁止する
     D3d12FenceEvent &operator=(D3d12FenceEvent &&) noexcept = delete;
