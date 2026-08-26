@@ -24,6 +24,7 @@ target_link_libraries(
     PUBLIC
         Cue.Platform
     PRIVATE
+        Cue.Foundation.Windows
         User32
 )
 target_compile_features(Cue.Platform.Windows PUBLIC cxx_std_20)

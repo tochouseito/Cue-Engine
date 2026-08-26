@@ -77,6 +77,16 @@ bool verify_d3d12_unsupported_candidate_skip_for_probe() noexcept
     return selectedIndex == 2;
 }
 
+/// @brief 空の DXGI Adapter 名が既存の D3D12 Error Code 23 で拒否されることを検証する
+bool verify_d3d12_empty_adapter_name_rejection_for_probe(
+    const AssertContext &a_assertContext) noexcept
+{
+    Result<std::string> result = convert_d3d12_adapter_name({}, a_assertContext);
+    const Error *error = result.try_error();
+    return !result && error != nullptr && error->code().domain() == "Cue.RHI.D3D12" &&
+           error->code().value() == 23;
+}
+
 Result<D3d12FactoryFallbackProbeReport> probe_d3d12_factory_fallback(
     const AssertContext &a_assertContext) noexcept
 {

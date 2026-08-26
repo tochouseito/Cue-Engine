@@ -9,6 +9,7 @@
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
 #include <Cue/Foundation/Log.h>
+#include <Cue/Foundation/Windows/UtfConversion.h>
 
 #include <Windows.h>
 
@@ -55,7 +56,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
 }
 
 /// @brief 入力を Adapter Name へ検証付きで変換し、変換結果を返す
-[[nodiscard]] cue::Result<std::string> convert_adapter_name(
+[[nodiscard]] cue::Result<std::string> convert_adapter_name_impl(
     std::wstring_view a_name, const cue::AssertContext &a_context) noexcept
 {
     if (a_name.empty() || a_name.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
@@ -64,37 +65,20 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
             make_error(a_context, k_adapterNameFailed, "DXGI adapter name is invalid"));
     }
 
-    int sourceLength = static_cast<int>(a_name.size());
-    int convertedLength = WideCharToMultiByte(
-        CP_UTF8, WC_ERR_INVALID_CHARS, a_name.data(), sourceLength, nullptr, 0, nullptr, nullptr);
+    std::string result;
+    const cue::WindowsUtfConversionResult conversion = cue::convert_windows_utf16_to_utf8(
+        a_name, result, a_context.fatal_handler());
 
-    if (convertedLength == 0)
+    if (conversion.status != cue::WindowsUtfConversionStatus::Success)
     {
-        DWORD nativeCode = GetLastError();
+        const std::string_view summary = conversion.status == cue::WindowsUtfConversionStatus::InvalidSequence
+                                             ? "DXGI adapter name is not valid UTF-16"
+                                             : "DXGI adapter name conversion failed";
         return cue::Result<std::string>::failure(make_win32_error(
-            a_context, k_adapterNameFailed, "DXGI adapter name is not valid UTF-16", nativeCode));
+            a_context, k_adapterNameFailed, summary, static_cast<DWORD>(conversion.nativeCode)));
     }
 
-    try
-    {
-        std::string result(static_cast<std::size_t>(convertedLength), '\0');
-        int writtenLength = WideCharToMultiByte(
-            CP_UTF8, WC_ERR_INVALID_CHARS, a_name.data(), sourceLength, result.data(), convertedLength,
-            nullptr, nullptr);
-
-        if (writtenLength != convertedLength)
-        {
-            DWORD nativeCode = GetLastError();
-            return cue::Result<std::string>::failure(make_win32_error(
-                a_context, k_adapterNameFailed, "DXGI adapter name conversion failed", nativeCode));
-        }
-
-        return cue::Result<std::string>::success(std::move(result));
-    }
-    catch (...)
-    {
-        terminate_allocation(a_context);
-    }
+    return cue::Result<std::string>::success(std::move(result));
 }
 
 /// @brief D3D12 Adapter 選択が保持する Get Adapter Name を呼び出し元へ返す
@@ -173,7 +157,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
         return cue::Result<cue::D3d12AdapterReport>::failure(std::move(*nameViewResult.try_error()));
     }
 
-    cue::Result<std::string> nameResult = convert_adapter_name(*nameViewResult.try_value(), a_context);
+    cue::Result<std::string> nameResult = cue::convert_d3d12_adapter_name(*nameViewResult.try_value(), a_context);
 
     if (!nameResult)
     {
@@ -267,6 +251,13 @@ HRESULT WINAPI create_dxgi_factory(UINT a_flags, REFIID a_interfaceId, void **a_
 
 namespace cue
 {
+/// @brief DXGI Adapter の UTF-16 名を既存の D3D12 Error 契約を保って UTF-8 へ変換する
+Result<std::string> convert_d3d12_adapter_name(
+    std::wstring_view a_name, const AssertContext &a_assertContext) noexcept
+{
+    return convert_adapter_name_impl(a_name, a_assertContext);
+}
+
 bool is_supported_hardware_candidate(D3d12AdapterCandidateFacts a_candidate) noexcept
 {
     return !a_candidate.isSoftware && a_candidate.supportsRequiredFeatureLevel;

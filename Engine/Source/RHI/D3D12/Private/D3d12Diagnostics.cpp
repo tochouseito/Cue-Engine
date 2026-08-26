@@ -8,6 +8,7 @@
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
 #include <Cue/Foundation/Log.h>
+#include <Cue/Foundation/Windows/UtfConversion.h>
 
 #include <Windows.h>
 
@@ -131,35 +132,9 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
         return false;
     }
 
-    int sourceLength = static_cast<int>(name.size());
-    int convertedLength = WideCharToMultiByte(
-        CP_UTF8, WC_ERR_INVALID_CHARS, name.data(), sourceLength, nullptr, 0, nullptr, nullptr);
-
-    if (convertedLength == 0)
-    {
-        return false;
-    }
-
-    try
-    {
-        a_storage.resize(static_cast<std::size_t>(convertedLength));
-    }
-    catch (...)
-    {
-        terminate_allocation(a_context);
-    }
-
-    int writtenLength = WideCharToMultiByte(
-        CP_UTF8, WC_ERR_INVALID_CHARS, name.data(), sourceLength, a_storage.data(), convertedLength,
-        nullptr, nullptr);
-
-    if (writtenLength != convertedLength)
-    {
-        a_storage.clear();
-        return false;
-    }
-
-    return true;
+    const cue::WindowsUtfConversionResult conversion = cue::convert_windows_utf16_to_utf8(
+        name, a_storage, a_context.fatal_handler());
+    return conversion.status == cue::WindowsUtfConversionStatus::Success;
 }
 
 /// @brief DRED 診断で利用可能な Object 名表現を優先順位に従って選択する
@@ -288,6 +263,15 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
 
 namespace cue
 {
+/// @brief DRED 診断で利用可能な Object 名表現を優先順位に従って選択する
+std::string_view select_d3d12_dred_name(
+    const char *a_utf8Name, const wchar_t *a_utf16Name, std::string_view a_fallback,
+    std::string &a_storage, const AssertContext &a_assertContext) noexcept
+{
+    return select_dred_name(a_utf8Name, a_utf16Name, a_fallback, a_storage, a_assertContext);
+}
+
+/// @brief Build 設定と実行 Mode から D3D12 診断を有効化できるか判定する
 bool are_d3d12_diagnostics_allowed() noexcept
 {
     return CUE_D3D12_DIAGNOSTICS_ALLOWED != 0;

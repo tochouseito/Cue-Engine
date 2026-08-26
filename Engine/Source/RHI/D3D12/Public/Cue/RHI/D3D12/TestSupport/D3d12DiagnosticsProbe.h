@@ -21,6 +21,10 @@ struct D3d12DiagnosticsProbeReport final
 /// @brief 現在のBuildでD3D12診断が許可される場合はtrue
 [[nodiscard]] bool are_d3d12_diagnostics_allowed_for_probe() noexcept;
 
+/// @brief 空の DRED UTF-16 名が既定名へ Fall Back する既存契約を検証する
+[[nodiscard]] bool verify_d3d12_empty_dred_name_fallback_for_probe(
+    const AssertContext &a_assertContext) noexcept;
+
 /// @brief 診断無効設定をDevice生成前経路へ適用して結果を返す
 /// @param a_assertContext 呼出中有効な非所有診断Context
 /// @return 成功時は適用結果、失敗時は診断可能なError
