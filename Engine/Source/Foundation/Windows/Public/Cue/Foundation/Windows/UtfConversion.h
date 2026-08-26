@@ -37,6 +37,9 @@ struct WindowsUtfConversionResult final
 /// @param a_output 呼び出し側が所有する出力。失敗時は空になる
 /// @param a_emergencyHandler Allocation 失敗時の非所有終了境界
 /// @return 成功状態、または呼び出し側が Error へ変換する失敗状態と Win32 Code
+/// @pre a_text は呼び出し中に並行変更されないこと
+/// @pre a_output は呼び出しごとに独立しているか、呼び出し側で同期されていること
+/// @pre a_emergencyHandler は全呼び出し中に有効で、並行終了要求を処理できること
 [[nodiscard]] WindowsUtfConversionResult convert_utf8_to_windows_utf16(
     std::string_view a_text, std::wstring &a_output, EmergencyHandler &a_emergencyHandler) noexcept;
 
@@ -45,6 +48,9 @@ struct WindowsUtfConversionResult final
 /// @param a_output 呼び出し側が所有する出力。失敗時は空になる
 /// @param a_emergencyHandler Allocation 失敗時の非所有終了境界
 /// @return 成功状態、または呼び出し側が Error へ変換する失敗状態と Win32 Code
+/// @pre a_text は呼び出し中に並行変更されないこと
+/// @pre a_output は呼び出しごとに独立しているか、呼び出し側で同期されていること
+/// @pre a_emergencyHandler は全呼び出し中に有効で、並行終了要求を処理できること
 [[nodiscard]] WindowsUtfConversionResult convert_windows_utf16_to_utf8(
     std::wstring_view a_text, std::string &a_output, EmergencyHandler &a_emergencyHandler) noexcept;
 } // namespace cue
