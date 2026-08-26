@@ -58,6 +58,12 @@ Cue.Foundation.Windows は次の Primitive を提供します。
 
 Primitive は Engine の Error を生成しません。失敗種別と Native Code のみを返し、意味付けは呼び出し側が行います。
 
+Primitive の空入力契約は、各機能が空文字列を受理することを意味しません。既存の事前条件を呼び出し側に残します。
+
+- DXGI Adapter 名は変換前に空文字列を Error Code 23 で拒否する
+- DRED の UTF-16 Object 名は変換前に空文字列を利用不能と判定し、既定名へ Fall Back する
+- Platform の Window Title と Command Line Argument は従来どおり空文字列を受理する
+
 ### Error Ownership
 
 - Platform の Window Title と Command Line は、既存の Cue.Platform.Windows Error Code と Summary を維持する
@@ -111,10 +117,13 @@ Issue #118 では次を検証します。
 - Empty、ASCII、日本語、補助平面文字、埋め込み NUL の往復
 - 不正 UTF-8、不正 Surrogate、入力長 Overflow の拒否
 - 失敗後に出力が空であること
+- 空の DXGI Adapter 名が Error Code 23 のまま拒否されること
+- 空の DRED UTF-16 Object 名が既定名へ Fall Back すること
 - Platform の既存 Error Code / Native Error
 - DXGI Adapter 名の既存 Error Code / Native Error
 - DRED 名変換失敗時の Fall Back
-- Foundation Dependency Test で Cue.Foundation 本体に Windows 依存がないこと
+- Foundation Dependency Test の Source 走査を Cue.Foundation Core Target の Source / File Set に限定し、Cue.Foundation 本体に Windows 依存がないこと
+- Cue.Foundation.Windows 専用の Dependency Test で、Cue.Foundation 以外の Project Target へ依存しないこと
 - RHI Dependency Test で Cue.Platform.Windows への依存がないこと
 - Debug / Development / Release Build と全 Test
 
