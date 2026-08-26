@@ -53,6 +53,7 @@ void Error::append_secondary_diagnostics(
 - `a_context` は「どの後続処理が失敗したか」を表す呼び出し側固有 Message とする
 - `a_label` は `Secondary Runtime Error`、`Secondary shutdown Error`、`Secondary Queue Error`、`Secondary Frame Command Error` のような診断 Prefix とする
 - `a_location` は共通 Helper ではなく実際の呼び出し位置を、新しく生成する境界 Context と識別 Context に記録する
+- 既存の `retain_secondary_error` などの呼び出し側 Wrapper を残す場合、その Wrapper も既定値付き `std::source_location` を受け取り、`a_location` へ転送する。転送できない Wrapper は削除し、実際の Call Site から共通 API を直接呼び出す
 - API は共有可変状態を持たない。Primary Error の Mutation は ADR-0005 と同様に外部同期を要求する
 
 ### Diagnostic Order and Format
@@ -139,7 +140,8 @@ Issue #120 では次を検証します。
 - 転記元 Context の SourceLocation と、新規 Context の呼び出し位置が保持されること
 - Native Error または Cause がない場合も余分な Context を追加しないこと
 - RuntimeHost、D3D12 Backend、D3D12 Queue、D3D12 Frame Command の既存 Label と Failure Matrix を維持すること
-- Context Allocation 失敗が既存 Emergency Process Test と同じ契約で終了すること
+- Label、Code、Native Error などの診断文字列構築中の Allocation 失敗が、注入済み Emergency Handler の規定経路で終了すること
+- Context 追加中の Allocation 失敗が、注入済み Emergency Handler の規定経路で終了すること
 - Debug / Development / Release Build と全 Test
 
 ## Non-goals
