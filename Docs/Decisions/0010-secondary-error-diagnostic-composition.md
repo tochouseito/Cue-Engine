@@ -50,6 +50,7 @@ void Error::append_secondary_diagnostics(
 
 - 呼び出し対象の `Error` が Primary Error であり、所有権は呼び出し側に残る
 - Secondary Error / ErrorCause は呼び出し中だけ参照し、所有権を移動しない
+- Secondary Error を受ける Overload では、`a_secondaryError` が呼び出し対象の Primary Error とは異なる Object を参照することを前提条件とする。自己参照による合成は許可しない
 - `a_context` は「どの後続処理が失敗したか」を表す呼び出し側固有 Message とする
 - `a_label` は `Secondary Runtime Error`、`Secondary shutdown Error`、`Secondary Queue Error`、`Secondary Frame Command Error` のような診断 Prefix とする
 - `a_location` は共通 Helper ではなく実際の呼び出し位置を、新しく生成する境界 Context と識別 Context に記録する
