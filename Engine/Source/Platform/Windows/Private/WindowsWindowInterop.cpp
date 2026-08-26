@@ -12,6 +12,7 @@ namespace
 {
 constexpr std::int64_t k_foreignWindow = 12;
 
+/// @brief 現在の Module Domain で診断可能な Error を生成する
 [[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::string_view a_summary) noexcept
 {
     cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "Cue.Platform.Windows", k_foreignWindow);

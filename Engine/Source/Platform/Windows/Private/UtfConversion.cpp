@@ -15,12 +15,14 @@ namespace
 constexpr std::int64_t k_invalidUtf8 = 2;
 constexpr std::int64_t k_invalidUtf16 = 11;
 
+/// @brief Allocation 失敗経路が追加 Allocation なしで Process を終了することを検証する
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
 {
     a_context.fatal_handler().terminate("UTF conversion allocation failed");
     std::abort();
 }
 
+/// @brief Windows UTF 変換境界で使用する Conversion Error を生成し、呼び出し元へ返す
 [[nodiscard]] cue::Error make_conversion_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                                std::string_view a_summary, DWORD a_nativeCode) noexcept
 {

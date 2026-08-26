@@ -92,6 +92,7 @@ struct ProbeNativeState final
 
 thread_local ProbeNativeState g_probeState;
 
+/// @brief Probe 間で状態が混ざらないよう Fault Injection 用 Global 状態を初期化する
 void reset_probe_state(ProbeFaultMode a_mode) noexcept
 {
     g_probeState = {};
@@ -99,6 +100,7 @@ void reset_probe_state(ProbeFaultMode a_mode) noexcept
     g_probeState.completionCheckedSinceSubmit = {true, true};
 }
 
+/// @brief D3D12 Frame Command Probe で使用する Allocator For Probe を生成し、呼び出し元へ返す
 HRESULT create_allocator_for_probe(ID3D12Device *a_device, ID3D12CommandAllocator **a_allocator) noexcept
 {
     const HRESULT result = a_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(a_allocator));
@@ -112,6 +114,7 @@ HRESULT create_allocator_for_probe(ID3D12Device *a_device, ID3D12CommandAllocato
     return result;
 }
 
+/// @brief D3D12 Frame Command Probe で使用する List For Probe を生成し、呼び出し元へ返す
 HRESULT create_list_for_probe(ID3D12Device *a_device, ID3D12CommandAllocator *a_allocator,
                               ID3D12GraphicsCommandList **a_commandList) noexcept
 {
@@ -119,6 +122,7 @@ HRESULT create_list_for_probe(ID3D12Device *a_device, ID3D12CommandAllocator *a_
                                        IID_PPV_ARGS(a_commandList));
 }
 
+/// @brief D3D12 Frame Command Probe の Name For Probe を整合性を保って更新する
 HRESULT set_name_for_probe(ID3D12Object *a_object, LPCWSTR a_name) noexcept
 {
     for (std::uint32_t index = 0; index < cue::k_d3d12FrameContextCount; ++index)
@@ -134,6 +138,7 @@ HRESULT set_name_for_probe(ID3D12Object *a_object, LPCWSTR a_name) noexcept
     return a_object->SetName(a_name);
 }
 
+/// @brief D3D12 Frame Command Probe の Allocator For Probe を次の処理で再利用可能な初期状態へ戻す
 HRESULT reset_allocator_for_probe(ID3D12CommandAllocator *a_allocator) noexcept
 {
     for (std::uint32_t index = 0; index < cue::k_d3d12FrameContextCount; ++index)
@@ -157,6 +162,7 @@ HRESULT reset_allocator_for_probe(ID3D12CommandAllocator *a_allocator) noexcept
     return a_allocator->Reset();
 }
 
+/// @brief D3D12 Frame Command Probe の List For Probe を次の処理で再利用可能な初期状態へ戻す
 HRESULT reset_list_for_probe(ID3D12GraphicsCommandList *a_commandList, ID3D12CommandAllocator *a_allocator) noexcept
 {
     ++g_probeState.commandListResetCount;
@@ -170,6 +176,7 @@ HRESULT reset_list_for_probe(ID3D12GraphicsCommandList *a_commandList, ID3D12Com
     return a_commandList->Reset(a_allocator, nullptr);
 }
 
+/// @brief D3D12 Frame Command Probe の List For Probe を依存関係と完了条件を守って安全に解放または停止する
 HRESULT close_list_for_probe(ID3D12GraphicsCommandList *a_commandList) noexcept
 {
     ++g_probeState.commandListCloseCount;
@@ -187,6 +194,7 @@ HRESULT close_list_for_probe(ID3D12GraphicsCommandList *a_commandList) noexcept
     return a_commandList->Close();
 }
 
+/// @brief Probe 対象の Resource Barrier 記録を Native Command List へ転送する
 void resource_barrier_for_probe(ID3D12GraphicsCommandList *a_commandList, UINT a_barrierCount,
                                 const D3D12_RESOURCE_BARRIER *a_barriers) noexcept
 {
@@ -207,6 +215,7 @@ void resource_barrier_for_probe(ID3D12GraphicsCommandList *a_commandList, UINT a
     a_commandList->ResourceBarrier(a_barrierCount, a_barriers);
 }
 
+/// @brief D3D12 Frame Command Probe の Marker For Probe を整合性を保って更新する
 void set_marker_for_probe(ID3D12GraphicsCommandList *a_commandList, PCSTR a_name) noexcept
 {
     g_probeState.markerNamesAreValid =
@@ -217,6 +226,7 @@ void set_marker_for_probe(ID3D12GraphicsCommandList *a_commandList, PCSTR a_name
     cue::default_d3d12_frame_command_native_functions().setMarker(a_commandList, a_name);
 }
 
+/// @brief Probe 対象の RTV Clear を Native Command List へ転送して引数を観測する
 void clear_render_target_view_for_probe(ID3D12GraphicsCommandList *a_commandList,
                                         D3D12_CPU_DESCRIPTOR_HANDLE a_handle, const FLOAT a_color[4],
                                         UINT a_rectangleCount, const D3D12_RECT *a_rectangles) noexcept
@@ -240,6 +250,7 @@ void clear_render_target_view_for_probe(ID3D12GraphicsCommandList *a_commandList
         a_commandList, a_handle, a_color, a_rectangleCount, a_rectangles);
 }
 
+/// @brief D3D12 Frame Command Probe の Lists For Probe を GPU 実行順と Resource State を守って投入する
 void execute_lists_for_probe(ID3D12CommandQueue *a_queue, UINT a_count,
                              ID3D12CommandList *const *a_commandLists) noexcept
 {
@@ -249,6 +260,7 @@ void execute_lists_for_probe(ID3D12CommandQueue *a_queue, UINT a_count,
     a_queue->ExecuteCommandLists(a_count, a_commandLists);
 }
 
+/// @brief Fault Probe が指定した Fence 完了値を Native Queue 経路へ返す
 std::uint64_t completed_value_for_probe(ID3D12Fence *a_fence) noexcept
 {
     ++g_probeState.completedCallCount;
@@ -279,6 +291,7 @@ std::uint64_t completed_value_for_probe(ID3D12Fence *a_fence) noexcept
     return completedValue;
 }
 
+/// @brief D3D12 Frame Command Probe の Event For Probe を整合性を保って更新する
 HRESULT set_event_for_probe(ID3D12Fence *a_fence, std::uint64_t a_value, HANDLE a_event) noexcept
 {
     ++g_probeState.setEventCallCount;
@@ -292,6 +305,7 @@ HRESULT set_event_for_probe(ID3D12Fence *a_fence, std::uint64_t a_value, HANDLE 
     return a_fence->SetEventOnCompletion(a_value, a_event);
 }
 
+/// @brief D3D12 Frame Command Probe の For Single Object For Probe 完了を待機し、後続処理を安全に進められる状態を返す
 DWORD WINAPI wait_for_single_object_for_probe(HANDLE a_event, DWORD a_timeout)
 {
     if (g_probeState.waitFaultActive)
@@ -320,11 +334,13 @@ DWORD WINAPI wait_for_single_object_for_probe(HANDLE a_event, DWORD a_timeout)
     return WaitForSingleObject(a_event, a_timeout);
 }
 
+/// @brief D3D12 Frame Command Probe が保持する Get Last Error For Probe を呼び出し元へ返す
 DWORD WINAPI get_last_error_for_probe()
 {
     return 1234;
 }
 
+/// @brief D3D12 Frame Command Probe で使用する Event For Probe を生成し、呼び出し元へ返す
 HANDLE WINAPI create_event_for_probe(LPSECURITY_ATTRIBUTES a_attributes, BOOL a_manualReset, BOOL a_initialState,
                                      LPCWSTR a_name)
 {
@@ -350,6 +366,7 @@ HANDLE WINAPI create_event_for_probe(LPSECURITY_ATTRIBUTES a_attributes, BOOL a_
     return eventHandle;
 }
 
+/// @brief D3D12 Frame Command Probe の Handle For Probe を依存関係と完了条件を守って安全に解放または停止する
 BOOL WINAPI close_handle_for_probe(HANDLE a_handle)
 {
     ++g_probeState.closeHandleCallCount;
@@ -362,6 +379,7 @@ BOOL WINAPI close_handle_for_probe(HANDLE a_handle)
     return CloseHandle(a_handle);
 }
 
+/// @brief D3D12 Frame Command Probe が保持する Get Device Removed Reason For Probe を呼び出し元へ返す
 HRESULT get_device_removed_reason_for_probe(ID3D12Device *a_device) noexcept
 {
     if (g_probeState.waitFaultActive && g_probeState.waitFaultMode == ProbeWaitFaultMode::DeviceRemoved)
@@ -372,6 +390,7 @@ HRESULT get_device_removed_reason_for_probe(ID3D12Device *a_device) noexcept
     return a_device->GetDeviceRemovedReason();
 }
 
+/// @brief D3D12 Frame Command Probe の For Probe へ完了通知を発行し、追跡する Fence 値を確定する
 HRESULT signal_for_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence, std::uint64_t a_value) noexcept
 {
     g_probeState.targetFenceValue = a_value;
@@ -400,6 +419,7 @@ HRESULT signal_for_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence, std:
     return result;
 }
 
+/// @brief D3D12 Frame Command Probe で使用する Frame Functions を生成し、呼び出し元へ返す
 [[nodiscard]] cue::D3d12FrameCommandNativeFunctions make_frame_functions() noexcept
 {
     return {
@@ -409,6 +429,7 @@ HRESULT signal_for_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence, std:
     };
 }
 
+/// @brief D3D12 Frame Command Probe で使用する Queue Functions を生成し、呼び出し元へ返す
 [[nodiscard]] cue::D3d12QueueNativeFunctions make_queue_functions() noexcept
 {
     cue::D3d12QueueNativeFunctions functions = cue::default_d3d12_queue_native_functions();
@@ -426,16 +447,22 @@ HRESULT signal_for_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence, std:
 
 struct ProbeObjects final
 {
+    /// @brief D3D12 Frame Command Probe に必要な Native Object と State の所有権を束ねる
     ProbeObjects(Microsoft::WRL::ComPtr<ID3D12Device> a_device, cue::D3d12QueueState &&a_queueState,
                  cue::D3d12DiagnosticsStatus a_diagnostics) noexcept
         : device(std::move(a_device)), queueState(std::move(a_queueState)), diagnostics(a_diagnostics)
     {
     }
 
+    /// @brief ProbeObjects の一意所有を保つため Copy 構築を禁止する
     ProbeObjects(const ProbeObjects &) = delete;
+    /// @brief ProbeObjects の一意所有を保つため Copy 代入を禁止する
     ProbeObjects &operator=(const ProbeObjects &) = delete;
+    /// @brief ProbeObjects の所有状態を移動させないため Move 構築を禁止する
     ProbeObjects(ProbeObjects &&) noexcept = delete;
+    /// @brief ProbeObjects の所有状態を移動させないため Move 代入を禁止する
     ProbeObjects &operator=(ProbeObjects &&) noexcept = delete;
+    /// @brief ProbeObjects が保持する Resource を所有権規則に従って破棄する
     ~ProbeObjects() noexcept = default;
 
     Microsoft::WRL::ComPtr<ID3D12Device> device;
@@ -444,6 +471,7 @@ struct ProbeObjects final
     cue::D3d12DiagnosticsStatus diagnostics;
 };
 
+/// @brief D3D12 Frame Command Probe の Probe Back Buffers を所有権と Lifecycle 規則を守って関連付ける
 [[nodiscard]] cue::Result<void> bind_probe_back_buffers(ProbeObjects &a_objects,
                                                         const cue::AssertContext &a_assertContext) noexcept
 {
@@ -483,6 +511,7 @@ struct ProbeObjects final
     return a_objects.frameState->bind_back_buffers(std::move(backBuffers));
 }
 
+/// @brief D3D12 Frame Command Probe で使用する Probe Objects を生成し、呼び出し元へ返す
 [[nodiscard]] cue::Result<std::unique_ptr<ProbeObjects>> create_probe_objects(
     ProbeFaultMode a_mode, bool a_enableDiagnostics, const cue::AssertContext &a_assertContext) noexcept
 {
@@ -555,6 +584,7 @@ struct ProbeObjects final
     return cue::Result<std::unique_ptr<ProbeObjects>>::success(std::move(objects));
 }
 
+/// @brief D3D12 Info Queue に記録された Error Severity 以上の Message 数を返す
 [[nodiscard]] std::uint64_t count_info_queue_errors(ID3D12Device *a_device) noexcept
 {
     Microsoft::WRL::ComPtr<ID3D12InfoQueue> infoQueue;
@@ -598,6 +628,7 @@ struct ProbeObjects final
     return errorCount;
 }
 
+/// @brief D3D12 Frame Command Probe の Probe Objects を依存関係と完了条件を守って安全に解放または停止する
 [[nodiscard]] bool shutdown_probe_objects(std::unique_ptr<ProbeObjects> &a_objects) noexcept
 {
     cue::Result<void> frameShutdownResult = a_objects->frameState->begin_shutdown();
@@ -614,6 +645,7 @@ struct ProbeObjects final
     return frameShutdownResult && allocatorResult && queueShutdownResult;
 }
 
+/// @brief D3D12 Frame Command Probe の Probe Faults を診断と Lifecycle の規則に従って更新する
 void disable_probe_faults() noexcept
 {
     g_probeState.waitFaultMode = ProbeWaitFaultMode::None;
@@ -622,6 +654,7 @@ void disable_probe_faults() noexcept
     g_probeState.completedCallCount = 0;
 }
 
+/// @brief D3D12 Frame Command Probe の Probe Objects を依存関係と完了条件を守って安全に解放または停止する
 [[nodiscard]] bool finish_probe_objects(std::unique_ptr<ProbeObjects> &&a_objects, bool a_valid) noexcept
 {
     if (!a_objects)
@@ -667,11 +700,13 @@ void disable_probe_faults() noexcept
     return a_valid;
 }
 
+/// @brief Error の抽象 Code と Native Error が期待値に一致するかを判定する
 [[nodiscard]] bool matches_error(const cue::Error *a_error, std::int64_t a_code) noexcept
 {
     return a_error != nullptr && a_error->code().domain() == "Cue.RHI.D3D12" && a_error->code().value() == a_code;
 }
 
+/// @brief D3D12 Frame Command Probe の Native Error 条件を判定して返す
 [[nodiscard]] bool matches_native_error(const cue::Error *a_error, std::int64_t a_code, HRESULT a_nativeCode) noexcept
 {
     const cue::NativeError *nativeError = a_error != nullptr ? a_error->try_native_error() : nullptr;
@@ -679,6 +714,7 @@ void disable_probe_faults() noexcept
            nativeError->value() == static_cast<std::int64_t>(a_nativeCode);
 }
 
+/// @brief Error に指定された診断 Context が含まれるかを判定する
 [[nodiscard]] bool has_error_context(const cue::Error *a_error, std::string_view a_context) noexcept
 {
     if (a_error == nullptr)
@@ -697,6 +733,7 @@ void disable_probe_faults() noexcept
     return false;
 }
 
+/// @brief D3D12 Frame Command Probe の Present Signal For Probe を GPU 実行順と Resource State を守って投入する
 [[nodiscard]] cue::Result<std::uint64_t> execute_present_signal_for_probe(
     cue::D3d12FrameCommandState &a_frameState) noexcept
 {
@@ -717,6 +754,7 @@ void disable_probe_faults() noexcept
     return a_frameState.signal_frame();
 }
 
+/// @brief D3D12 Frame Command Probe の Empty Frame For Probe を GPU 実行順と Resource State を守って投入する
 [[nodiscard]] cue::Result<std::uint64_t> submit_empty_frame_for_probe(ProbeObjects &a_objects,
                                                                       std::uint32_t a_frameIndex) noexcept
 {

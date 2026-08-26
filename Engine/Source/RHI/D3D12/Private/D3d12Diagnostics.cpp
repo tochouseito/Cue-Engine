@@ -40,12 +40,14 @@ constexpr std::int64_t k_diagnosticLogFailed = 8;
 constexpr std::uint64_t k_maxDiagnosticMessages = 4096;
 constexpr std::uint32_t k_maxDredNodes = 4096;
 
+/// @brief Allocation 失敗経路が追加 Allocation なしで Process を終了することを検証する
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
 {
     a_context.fatal_handler().terminate("D3D12 diagnostics allocation failed");
     std::abort();
 }
 
+/// @brief 現在の Module Domain で診断可能な Error を生成する
 [[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                     std::string_view a_summary) noexcept
 {
@@ -53,6 +55,7 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
     return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary);
 }
 
+/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
 [[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                            std::string_view a_summary, HRESULT a_nativeCode) noexcept
 {
@@ -62,6 +65,7 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
     return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(nativeError));
 }
 
+/// @brief D3D12 Message Severity を Engine 共通 Log Level へ変換する
 [[nodiscard]] cue::LogLevel to_log_level(D3D12_MESSAGE_SEVERITY a_severity) noexcept
 {
     switch (a_severity)
@@ -79,6 +83,7 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
     }
 }
 
+/// @brief D3D12 診断の Info Queue Breaks を診断と Lifecycle の規則に従って更新する
 [[nodiscard]] HRESULT rollback_info_queue_breaks(ID3D12InfoQueue &a_infoQueue) noexcept
 {
     HRESULT corruptionResult = a_infoQueue.SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, FALSE);
@@ -86,6 +91,7 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
     return FAILED(corruptionResult) ? corruptionResult : errorResult;
 }
 
+/// @brief Log 出力結果を検証し、診断を継続できない場合は終了境界へ移す
 [[nodiscard]] cue::Result<void> validate_log_result(cue::LogResult a_result,
                                                     const cue::AssertContext &a_context) noexcept
 {
@@ -98,6 +104,7 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
         make_error(a_context, k_diagnosticLogFailed, "Foundation Logger could not record D3D12 diagnostics"));
 }
 
+/// @brief D3D12 診断の Fallback を診断出力へ反映し、出力結果を返す
 [[nodiscard]] cue::Result<void> log_fallback(const cue::AssertContext &a_context,
                                               std::string_view a_message, HRESULT a_nativeCode) noexcept
 {
@@ -121,6 +128,7 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
     return cue::Result<void>::failure(std::move(logError));
 }
 
+/// @brief DRED Object 名を利用可能な文字表現から UTF-8 診断名へ変換する
 [[nodiscard]] bool try_convert_dred_name(const wchar_t *a_name, std::string &a_storage,
                                          const cue::AssertContext &a_context) noexcept
 {
@@ -167,6 +175,7 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
     return true;
 }
 
+/// @brief DRED 診断で利用可能な Object 名表現を優先順位に従って選択する
 [[nodiscard]] std::string_view select_dred_name(
     const char *a_utf8Name, const wchar_t *a_utf16Name, std::string_view a_fallback,
     std::string &a_storage, const cue::AssertContext &a_context) noexcept
@@ -184,6 +193,7 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
     return a_fallback;
 }
 
+/// @brief D3D12 診断の DRED Breadcrumbs を診断出力へ反映し、出力結果を返す
 [[nodiscard]] cue::Result<void> log_dred_breadcrumbs(
     const D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 &a_breadcrumbs,
     const cue::AssertContext &a_context) noexcept
@@ -247,6 +257,7 @@ constexpr std::uint32_t k_maxDredNodes = 4096;
     return cue::Result<void>::success();
 }
 
+/// @brief D3D12 診断の DRED Allocations を診断出力へ反映し、出力結果を返す
 [[nodiscard]] cue::Result<void> log_dred_allocations(
     const D3D12_DRED_ALLOCATION_NODE1 *a_head, std::string_view a_domain,
     std::string_view a_message, const cue::AssertContext &a_context) noexcept

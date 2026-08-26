@@ -28,12 +28,14 @@ constexpr std::int64_t k_windowDestroyFailed = 8;
 constexpr std::int64_t k_windowAlreadyExists = 9;
 constexpr std::int64_t k_classUnregistrationFailed = 10;
 
+/// @brief Allocation 失敗経路が追加 Allocation なしで Process を終了することを検証する
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
 {
     a_context.fatal_handler().terminate("Windows Window allocation failed");
     std::abort();
 }
 
+/// @brief 現在の Module Domain で診断可能な Error を生成する
 [[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                     std::string_view a_summary) noexcept
 {
@@ -41,6 +43,7 @@ constexpr std::int64_t k_classUnregistrationFailed = 10;
     return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary);
 }
 
+/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
 [[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                            std::string_view a_summary, DWORD a_nativeCode) noexcept
 {
@@ -49,14 +52,13 @@ constexpr std::int64_t k_classUnregistrationFailed = 10;
     return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(nativeError));
 }
 
-/**
- * @brief Process 内の WindowSystem 間で Win32 Window Class の登録寿命を共有する
- *
- * Win32 Window Class は個々の HWND ではなく Module に属するため、最初の参照で登録し最後の参照で解除する
- */
+/// @brief Process 内の WindowSystem 間で Win32 Window Class の登録寿命を共有する
+///
+/// Win32 Window Class は個々の HWND ではなく Module に属するため、最初の参照で登録し最後の参照で解除する
 class WindowClassRegistry final
 {
   public:
+    /// @brief Win32 Window を所有権と Lifecycle 規則を守って関連付ける
     [[nodiscard]] cue::Result<void> acquire(const cue::AssertContext &a_context, HINSTANCE a_instance) noexcept
     {
         AcquireSRWLockExclusive(&m_lock);
@@ -102,6 +104,7 @@ class WindowClassRegistry final
         return cue::Result<void>::success();
     }
 
+    /// @brief 保持する Native Resource を完了条件と所有権規則に従って解放する
     void release(const cue::AssertContext &a_context, HINSTANCE a_instance) noexcept
     {
         AcquireSRWLockExclusive(&m_lock);
@@ -139,6 +142,7 @@ class WindowClassRegistry final
     std::uint32_t m_referenceCount = 0;
 };
 
+/// @brief Process 内で共有する Win32 Window Class 登録状態への Access を提供する
 [[nodiscard]] WindowClassRegistry &window_class_registry() noexcept
 {
     // Win32 Window Class は Module 単位 Resource のため、WindowSystem 間で参照数を共有する
@@ -146,6 +150,7 @@ class WindowClassRegistry final
     return registry;
 }
 
+/// @brief Win32 Window の Descriptor が期待する契約を満たすか検証する
 [[nodiscard]] cue::Result<void> validate_descriptor(const cue::WindowDescriptor &a_descriptor,
                                                     const cue::AssertContext &a_context) noexcept
 {
@@ -167,6 +172,7 @@ class WindowClassRegistry final
     return cue::Result<void>::success();
 }
 
+/// @brief 要求された Client Size から Win32 Window 全体の Rectangle を計算する
 [[nodiscard]] cue::Result<RECT> calculate_window_rectangle(const cue::WindowDescriptor &a_descriptor,
                                                            const cue::AssertContext &a_context) noexcept
 {

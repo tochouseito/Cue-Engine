@@ -36,17 +36,20 @@ constexpr std::int64_t k_invalidBackBufferClear = 97;
 constexpr std::int64_t k_fenceValueExhausted = 45;
 constexpr std::uint32_t k_invalidFrameIndexValue = (std::numeric_limits<std::uint32_t>::max)();
 
+/// @brief 現在の Module Domain と識別値から Error Code を生成する
 [[nodiscard]] cue::ErrorCode make_code(const cue::AssertContext &a_context, std::int64_t a_value) noexcept
 {
     return cue::ErrorCode::create(a_context.fatal_handler(), "Cue.RHI.D3D12", a_value);
 }
 
+/// @brief 現在の Module Domain で診断可能な Error を生成する
 [[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                     std::string_view a_summary) noexcept
 {
     return cue::Error::create(a_context.fatal_handler(), make_code(a_context, a_code), a_summary);
 }
 
+/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
 [[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                            std::string_view a_summary, HRESULT a_nativeCode) noexcept
 {
@@ -56,11 +59,13 @@ constexpr std::uint32_t k_invalidFrameIndexValue = (std::numeric_limits<std::uin
                               std::move(nativeError));
 }
 
+/// @brief D3D12 Frame Command State で使用する Command Allocator を生成し、呼び出し元へ返す
 HRESULT create_command_allocator(ID3D12Device *a_device, ID3D12CommandAllocator **a_allocator) noexcept
 {
     return a_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(a_allocator));
 }
 
+/// @brief D3D12 Frame Command State で使用する Command List を生成し、呼び出し元へ返す
 HRESULT create_command_list(ID3D12Device *a_device, ID3D12CommandAllocator *a_allocator,
                             ID3D12GraphicsCommandList **a_commandList) noexcept
 {
@@ -68,37 +73,44 @@ HRESULT create_command_list(ID3D12Device *a_device, ID3D12CommandAllocator *a_al
                                        IID_PPV_ARGS(a_commandList));
 }
 
+/// @brief D3D12 Frame Command State の Object Name を整合性を保って更新する
 HRESULT set_object_name(ID3D12Object *a_object, LPCWSTR a_name) noexcept
 {
     return a_object->SetName(a_name);
 }
 
+/// @brief D3D12 Frame Command State の Command Allocator を次の処理で再利用可能な初期状態へ戻す
 HRESULT reset_command_allocator(ID3D12CommandAllocator *a_allocator) noexcept
 {
     return a_allocator->Reset();
 }
 
+/// @brief D3D12 Frame Command State の Command List を次の処理で再利用可能な初期状態へ戻す
 HRESULT reset_command_list(ID3D12GraphicsCommandList *a_commandList, ID3D12CommandAllocator *a_allocator) noexcept
 {
     return a_commandList->Reset(a_allocator, nullptr);
 }
 
+/// @brief D3D12 Command List の Recording を終了し、実行可能な状態へ確定する
 HRESULT close_command_list(ID3D12GraphicsCommandList *a_commandList) noexcept
 {
     return a_commandList->Close();
 }
 
+/// @brief Back Buffer の Resource State 遷移を D3D12 Command List へ記録する
 void resource_barrier(ID3D12GraphicsCommandList *a_commandList, UINT a_barrierCount,
                       const D3D12_RESOURCE_BARRIER *a_barriers) noexcept
 {
     a_commandList->ResourceBarrier(a_barrierCount, a_barriers);
 }
 
+/// @brief D3D12 Frame Command State の Marker を整合性を保って更新する
 void set_marker(ID3D12GraphicsCommandList *a_commandList, PCSTR a_name) noexcept
 {
     PIXSetMarker(a_commandList, PIX_COLOR_DEFAULT, a_name);
 }
 
+/// @brief 指定 RTV を Clear Color で初期化する Command を記録する
 void clear_render_target_view(ID3D12GraphicsCommandList *a_commandList, D3D12_CPU_DESCRIPTOR_HANDLE a_handle,
                               const FLOAT a_color[4], UINT a_rectangleCount,
                               const D3D12_RECT *a_rectangles) noexcept
@@ -106,11 +118,13 @@ void clear_render_target_view(ID3D12GraphicsCommandList *a_commandList, D3D12_CP
     a_commandList->ClearRenderTargetView(a_handle, a_color, a_rectangleCount, a_rectangles);
 }
 
+/// @brief D3D12 Frame Command State の Fence Exhaustion 条件を判定して返す
 [[nodiscard]] bool is_fence_exhaustion(const cue::Error &a_error) noexcept
 {
     return a_error.code().domain() == "Cue.RHI.D3D12" && a_error.code().value() == k_fenceValueExhausted;
 }
 
+/// @brief Error の Domain、Code、Native 情報を追跡可能な Context として追加する
 void add_error_identity_context(cue::Error &a_primaryError, std::string_view a_label,
                                 const cue::Error &a_secondaryError, const cue::AssertContext &a_assertContext) noexcept
 {
@@ -141,6 +155,7 @@ void add_error_identity_context(cue::Error &a_primaryError, std::string_view a_l
     }
 }
 
+/// @brief 主因 Error を失わず Secondary Error の識別情報を Context へ追加する
 void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a_secondaryError,
                                  std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
 {

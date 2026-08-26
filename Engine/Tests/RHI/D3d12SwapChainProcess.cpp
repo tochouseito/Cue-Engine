@@ -19,11 +19,13 @@ namespace
 class ProcessFatalHandler final : public cue::FatalHandler
 {
   public:
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate() noexcept override
     {
         std::_Exit(90);
     }
 
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate(std::string_view) noexcept override
     {
         std::_Exit(91);
@@ -33,6 +35,7 @@ class ProcessFatalHandler final : public cue::FatalHandler
 class ProcessLogSink final : public cue::LogSink
 {
   public:
+    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
     [[nodiscard]] bool write(const cue::LogRecord &a_record) override
     {
         if (a_record.level() == cue::LogLevel::Error || a_record.level() == cue::LogLevel::Fatal)
@@ -43,16 +46,19 @@ class ProcessLogSink final : public cue::LogSink
         return m_isEnabled;
     }
 
+    /// @brief 対象 Sink に保留中の Log 出力を反映し、完了成否を返す
     [[nodiscard]] bool flush() override
     {
         return true;
     }
 
+    /// @brief D3d12SwapChainProcess Test の Enabled を整合性を保って更新する
     void set_enabled(bool a_isEnabled) noexcept
     {
         m_isEnabled = a_isEnabled;
     }
 
+    /// @brief D3d12SwapChainProcess Test が保持する Error Count を呼び出し元へ返す
     [[nodiscard]] std::uint32_t error_count() const noexcept
     {
         return m_errorCount;
@@ -66,11 +72,13 @@ class ProcessLogSink final : public cue::LogSink
 class FailingLogSink final : public cue::LogSink
 {
   public:
+    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
     [[nodiscard]] bool write(const cue::LogRecord &) override
     {
         return false;
     }
 
+    /// @brief 対象 Sink に保留中の Log 出力を反映し、完了成否を返す
     [[nodiscard]] bool flush() override
     {
         return true;
@@ -80,43 +88,51 @@ class FailingLogSink final : public cue::LogSink
 class ForeignWindow final : public cue::Window
 {
   public:
+    /// @brief 生成済み Window を表示可能な状態へ移し、Native 表示結果を返す
     [[nodiscard]] cue::Result<void> show() noexcept override
     {
         return cue::Result<void>::success();
     }
 
+    /// @brief D3d12SwapChainProcess Test を依存関係と完了条件を守って安全に解放または停止する
     [[nodiscard]] cue::Result<void> destroy() noexcept override
     {
         return cue::Result<void>::success();
     }
 
+    /// @brief D3d12SwapChainProcess Test が保持する State を呼び出し元へ返す
     [[nodiscard]] cue::WindowState state() const noexcept override
     {
         return cue::WindowState::Created;
     }
 
+    /// @brief D3d12SwapChainProcess Test が保持する Client Size を呼び出し元へ返す
     [[nodiscard]] cue::WindowSize client_size() const noexcept override
     {
         return {320, 180};
     }
 
+    /// @brief D3d12SwapChainProcess Test の Pop Event へ安全に Access できる場合だけ参照を返す
     [[nodiscard]] bool try_pop_event(cue::WindowEvent &) noexcept override
     {
         return false;
     }
 };
 
+/// @brief Error が指定された Domain と Code を保持しているかを判定する
 [[nodiscard]] bool has_error_code(const cue::Error *a_error, std::int64_t a_value) noexcept
 {
     return a_error != nullptr && a_error->code().domain() == "Cue.RHI.D3D12" && a_error->code().value() == a_value;
 }
 
+/// @brief D3d12SwapChainProcess Test の Platform Error Code 条件を判定して返す
 [[nodiscard]] bool has_platform_error_code(const cue::Error *a_error, std::int64_t a_value) noexcept
 {
     return a_error != nullptr && a_error->code().domain() == "Cue.Platform.Windows" &&
            a_error->code().value() == a_value;
 }
 
+/// @brief D3d12SwapChainProcess Test の Production OwnershipScenario を実行し、検証結果を返す
 [[nodiscard]] bool run_production_ownership(cue::Window &a_window, cue::AssertContext &a_assertContext) noexcept
 {
     cue::D3d12BackendDescriptor backendDescriptor = {
@@ -182,6 +198,7 @@ class ForeignWindow final : public cue::Window
     return valid;
 }
 
+/// @brief D3d12SwapChainProcess Test の Clear SmokeScenario を実行し、検証結果を返す
 [[nodiscard]] bool run_clear_smoke(cue::Window &a_window, ProcessLogSink &a_logSink,
                                    cue::AssertContext &a_assertContext) noexcept
 {
@@ -227,6 +244,7 @@ class ForeignWindow final : public cue::Window
     return valid;
 }
 
+/// @brief D3d12SwapChainProcess Test の Present Frames 300Scenario を実行し、検証結果を返す
 [[nodiscard]] bool run_present_frames_300(cue::Window &a_window, ProcessLogSink &a_logSink,
                                           cue::AssertContext &a_assertContext) noexcept
 {
@@ -282,6 +300,7 @@ class ForeignWindow final : public cue::Window
     return valid;
 }
 
+/// @brief D3d12SwapChainProcess Test の Resize LifecycleScenario を実行し、検証結果を返す
 [[nodiscard]] bool run_resize_lifecycle(cue::Window &a_window, ProcessLogSink &a_logSink,
                                         cue::AssertContext &a_assertContext) noexcept
 {
@@ -352,6 +371,7 @@ class ForeignWindow final : public cue::Window
     return valid;
 }
 
+/// @brief D3d12SwapChainProcess Test の Device Removal LifecycleScenario を実行し、検証結果を返す
 [[nodiscard]] int run_device_removal_lifecycle(cue::Window &a_window, cue::AssertContext &a_assertContext) noexcept
 {
     cue::D3d12BackendDescriptor backendDescriptor = {
@@ -407,6 +427,7 @@ class ForeignWindow final : public cue::Window
     return unclassifiedRemovalValid && contextValid && backendValid ? 0 : 15;
 }
 
+/// @brief D3d12SwapChainProcess Test の Device Removal ResizeScenario を実行し、検証結果を返す
 [[nodiscard]] int run_device_removal_resize(cue::Window &a_window, cue::AssertContext &a_assertContext) noexcept
 {
     cue::D3d12BackendDescriptor backendDescriptor = {
@@ -470,6 +491,7 @@ class ForeignWindow final : public cue::Window
     return resizeValid && cleanupValid ? 0 : 24;
 }
 
+/// @brief D3d12SwapChainProcess Test の Device Removal DRED FailureScenario を実行し、検証結果を返す
 [[nodiscard]] int run_device_removal_dred_failure(cue::Window &a_window, ProcessLogSink &a_logSink,
                                                   cue::AssertContext &a_assertContext) noexcept
 {

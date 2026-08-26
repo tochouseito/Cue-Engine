@@ -57,12 +57,14 @@ thread_local NativeFaultState g_faultState;
 constexpr DWORD k_probeNativeError = 1234;
 constexpr HRESULT k_probeSignalFailure = E_FAIL;
 
+/// @brief Fault 検証後に Native 呼び出し差し替え状態を初期値へ戻す
 void reset_fault_state(NativeFaultMode a_mode) noexcept
 {
     g_faultState = {};
     g_faultState.mode = a_mode;
 }
 
+/// @brief Fault Injection 中の Native 呼び出し順を記録し、想定外呼び出しを検出する
 void observe_native_call() noexcept
 {
     if (g_faultState.nativeFailurePending)
@@ -71,6 +73,7 @@ void observe_native_call() noexcept
     }
 }
 
+/// @brief D3D12 Queue State Probe の Command Lists For Fault を GPU 実行順と Resource State を守って投入する
 void execute_command_lists_for_fault(ID3D12CommandQueue *a_queue, UINT a_count,
                                      ID3D12CommandList *const *a_commandLists) noexcept
 {
@@ -78,6 +81,7 @@ void execute_command_lists_for_fault(ID3D12CommandQueue *a_queue, UINT a_count,
     a_queue->ExecuteCommandLists(a_count, a_commandLists);
 }
 
+/// @brief D3D12 Queue State Probe の For Fault へ完了通知を発行し、追跡する Fence 値を確定する
 HRESULT signal_for_fault(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence, std::uint64_t a_value) noexcept
 {
     observe_native_call();
@@ -106,6 +110,7 @@ HRESULT signal_for_fault(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence, std:
     return a_queue->Signal(a_fence, a_value);
 }
 
+/// @brief D3D12 Queue State Probe が保持する Get Completed Value For Fault を呼び出し元へ返す
 std::uint64_t get_completed_value_for_fault(ID3D12Fence *a_fence) noexcept
 {
     observe_native_call();
@@ -139,6 +144,7 @@ std::uint64_t get_completed_value_for_fault(ID3D12Fence *a_fence) noexcept
     }
 }
 
+/// @brief D3D12 Queue State Probe の Event On Completion For Fault を整合性を保って更新する
 HRESULT set_event_on_completion_for_fault(ID3D12Fence *a_fence, std::uint64_t a_value, HANDLE a_event) noexcept
 {
     observe_native_call();
@@ -152,6 +158,7 @@ HRESULT set_event_on_completion_for_fault(ID3D12Fence *a_fence, std::uint64_t a_
     return a_fence->SetEventOnCompletion(a_value, a_event);
 }
 
+/// @brief D3D12 Queue State Probe の For Single Object For Fault 完了を待機し、後続処理を安全に進められる状態を返す
 DWORD WINAPI wait_for_single_object_for_fault(HANDLE a_event, DWORD a_timeout)
 {
     observe_native_call();
@@ -181,6 +188,7 @@ DWORD WINAPI wait_for_single_object_for_fault(HANDLE a_event, DWORD a_timeout)
     }
 }
 
+/// @brief D3D12 Queue State Probe で使用する Event For Fault を生成し、呼び出し元へ返す
 HANDLE WINAPI create_event_for_fault(LPSECURITY_ATTRIBUTES a_attributes, BOOL a_manualReset, BOOL a_initialState,
                                      LPCWSTR a_name)
 {
@@ -198,6 +206,7 @@ HANDLE WINAPI create_event_for_fault(LPSECURITY_ATTRIBUTES a_attributes, BOOL a_
     return CreateEventW(a_attributes, a_manualReset, a_initialState, a_name);
 }
 
+/// @brief D3D12 Queue State Probe の Handle For Fault を依存関係と完了条件を守って安全に解放または停止する
 BOOL WINAPI close_handle_for_fault(HANDLE a_handle)
 {
     observe_native_call();
@@ -215,6 +224,7 @@ BOOL WINAPI close_handle_for_fault(HANDLE a_handle)
     return CloseHandle(a_handle);
 }
 
+/// @brief D3D12 Queue State Probe が保持する Get Last Error For Fault を呼び出し元へ返す
 DWORD WINAPI get_last_error_for_fault()
 {
     ++g_faultState.getLastErrorCallCount;
@@ -228,6 +238,7 @@ DWORD WINAPI get_last_error_for_fault()
     return k_probeNativeError;
 }
 
+/// @brief D3D12 Queue State Probe が保持する Get Device Removed Reason For Fault を呼び出し元へ返す
 HRESULT get_device_removed_reason_for_fault(ID3D12Device *) noexcept
 {
     observe_native_call();
@@ -247,6 +258,7 @@ HRESULT get_device_removed_reason_for_fault(ID3D12Device *) noexcept
     return S_OK;
 }
 
+/// @brief D3D12 Queue State Probe で使用する Fault Functions を生成し、呼び出し元へ返す
 [[nodiscard]] cue::D3d12QueueNativeFunctions make_fault_functions() noexcept
 {
     return {
@@ -262,6 +274,7 @@ HRESULT get_device_removed_reason_for_fault(ID3D12Device *) noexcept
     };
 }
 
+/// @brief D3D12 Queue State Probe が保持する Get Completed Value For Probe を呼び出し元へ返す
 std::uint64_t get_completed_value_for_probe(ID3D12Fence *a_fence) noexcept
 {
     if (g_forceInitialIncomplete)
@@ -273,12 +286,14 @@ std::uint64_t get_completed_value_for_probe(ID3D12Fence *a_fence) noexcept
     return a_fence->GetCompletedValue();
 }
 
+/// @brief D3D12 Queue State Probe の Event On Completion For Probe を整合性を保って更新する
 HRESULT set_event_on_completion_for_probe(ID3D12Fence *a_fence, std::uint64_t a_value, HANDLE a_event) noexcept
 {
     g_usedEventWaitPath = true;
     return a_fence->SetEventOnCompletion(a_value, a_event);
 }
 
+/// @brief D3D12 Queue State Probe で使用する WARP Device For Probe を生成し、呼び出し元へ返す
 [[nodiscard]] cue::Result<Microsoft::WRL::ComPtr<ID3D12Device>> create_warp_device_for_probe(
     const cue::AssertContext &a_assertContext) noexcept
 {
@@ -297,21 +312,28 @@ HRESULT set_event_on_completion_for_probe(ID3D12Fence *a_fence, std::uint64_t a_
 
 struct QueueProbeObjects final
 {
+    /// @brief 無効な QueueProbeObjects 状態を作らせないため既定構築を禁止する
     QueueProbeObjects(Microsoft::WRL::ComPtr<ID3D12Device> a_device, cue::D3d12QueueState &&a_state) noexcept
         : device(std::move(a_device)), state(std::move(a_state))
     {
     }
 
+    /// @brief QueueProbeObjects の一意所有を保つため Copy 構築を禁止する
     QueueProbeObjects(const QueueProbeObjects &) = delete;
+    /// @brief QueueProbeObjects の一意所有を保つため Copy 代入を禁止する
     QueueProbeObjects &operator=(const QueueProbeObjects &) = delete;
+    /// @brief QueueProbeObjects の所有状態を移動させないため Move 構築を禁止する
     QueueProbeObjects(QueueProbeObjects &&) noexcept = default;
+    /// @brief QueueProbeObjects の所有状態を移動させないため Move 代入を禁止する
     QueueProbeObjects &operator=(QueueProbeObjects &&) noexcept = delete;
+    /// @brief QueueProbeObjects が保持する Resource を所有権規則に従って破棄する
     ~QueueProbeObjects() noexcept = default;
 
     Microsoft::WRL::ComPtr<ID3D12Device> device;
     cue::D3d12QueueState state;
 };
 
+/// @brief D3D12 Queue State Probe で使用する Fault Objects を生成し、呼び出し元へ返す
 [[nodiscard]] cue::Result<std::unique_ptr<QueueProbeObjects>> create_fault_objects(
     NativeFaultMode a_mode, const cue::AssertContext &a_assertContext) noexcept
 {
@@ -338,6 +360,7 @@ struct QueueProbeObjects final
     return cue::Result<std::unique_ptr<QueueProbeObjects>>::success(std::move(objects));
 }
 
+/// @brief Error の抽象 Code と Native Error が期待値に一致するかを判定する
 [[nodiscard]] bool matches_error(const cue::Error &a_error, std::int64_t a_code, std::string_view a_nativeDomain = {},
                                  std::int64_t a_nativeValue = 0) noexcept
 {
@@ -355,6 +378,7 @@ struct QueueProbeObjects final
     return nativeError != nullptr && nativeError->domain() == a_nativeDomain && nativeError->value() == a_nativeValue;
 }
 
+/// @brief Error または Cause が指定された診断 Context を持つかを返す
 [[nodiscard]] bool has_context(const cue::Error &a_error, std::string_view a_message) noexcept
 {
     for (const cue::ErrorContext &context : a_error.contexts())
@@ -368,10 +392,13 @@ struct QueueProbeObjects final
     return false;
 }
 
+/// @brief 安全な解放を証明できない Native Owner を Process 終了まで保持する
 void retain_until_process_exit(std::unique_ptr<QueueProbeObjects> &&a_objects) noexcept;
 
+/// @brief Fault Probe の Cleanup 状態を確定し、検証結果を返す
 [[nodiscard]] bool finish_fault_probe(std::unique_ptr<QueueProbeObjects> &&a_objects, bool a_valid) noexcept;
 
+/// @brief Error または Cause が指定された診断 Context を持つかを返す
 [[nodiscard]] bool has_context(const cue::ErrorCause &a_cause, std::string_view a_message) noexcept
 {
     for (const cue::ErrorContext &context : a_cause.contexts())
@@ -385,6 +412,7 @@ void retain_until_process_exit(std::unique_ptr<QueueProbeObjects> &&a_objects) n
     return false;
 }
 
+/// @brief D3D12 Queue State Probe の Wait Recovery Case が期待する契約を満たすか検証する
 [[nodiscard]] bool verify_wait_recovery_case(NativeFaultMode a_mode, std::int64_t a_expectedCode,
                                              const cue::AssertContext &a_assertContext) noexcept
 {

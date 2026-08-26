@@ -46,12 +46,14 @@ struct ProbeDevice final
 
 thread_local ProbeNativeState g_probeState;
 
+/// @brief Probe 間で状態が混ざらないよう Fault Injection 用 Global 状態を初期化する
 void reset_probe_state(ProbeCreationFault a_fault) noexcept
 {
     g_probeState = {};
     g_probeState.fault = a_fault;
 }
 
+/// @brief D3D12 RTV Heap Probe で使用する Heap For Probe を生成し、呼び出し元へ返す
 HRESULT create_heap_for_probe(ID3D12Device *a_device, const D3D12_DESCRIPTOR_HEAP_DESC *a_descriptor,
                               ID3D12DescriptorHeap **a_heap) noexcept
 {
@@ -66,6 +68,7 @@ HRESULT create_heap_for_probe(ID3D12Device *a_device, const D3D12_DESCRIPTOR_HEA
     return a_device->CreateDescriptorHeap(a_descriptor, IID_PPV_ARGS(a_heap));
 }
 
+/// @brief D3D12 RTV Heap Probe が保持する Get Increment For Probe を呼び出し元へ返す
 UINT get_increment_for_probe(ID3D12Device *a_device) noexcept
 {
     if (g_probeState.fault == ProbeCreationFault::ZeroIncrement)
@@ -76,6 +79,7 @@ UINT get_increment_for_probe(ID3D12Device *a_device) noexcept
     return a_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 }
 
+/// @brief D3D12 RTV Heap Probe が保持する Get Start For Probe を呼び出し元へ返す
 D3D12_CPU_DESCRIPTOR_HANDLE get_start_for_probe(ID3D12DescriptorHeap *a_heap) noexcept
 {
     if (g_probeState.fault == ProbeCreationFault::OverflowStart)
@@ -94,6 +98,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE get_start_for_probe(ID3D12DescriptorHeap *a_heap) no
     return g_probeState.startHandle;
 }
 
+/// @brief D3D12 RTV Heap Probe の Name For Probe を整合性を保って更新する
 HRESULT set_name_for_probe(ID3D12Object *a_object, LPCWSTR a_name) noexcept
 {
     if (g_probeState.fault == ProbeCreationFault::Name)
@@ -104,6 +109,7 @@ HRESULT set_name_for_probe(ID3D12Object *a_object, LPCWSTR a_name) noexcept
     return a_object->SetName(a_name);
 }
 
+/// @brief D3D12 RTV Heap Probe で使用する Probe Functions を生成し、呼び出し元へ返す
 [[nodiscard]] cue::D3d12RtvHeapNativeFunctions make_probe_functions() noexcept
 {
     return {
@@ -114,6 +120,7 @@ HRESULT set_name_for_probe(ID3D12Object *a_object, LPCWSTR a_name) noexcept
     };
 }
 
+/// @brief D3D12 RTV Heap Probe の Native Failure For Probe を規定された順序と失敗規則で処理する
 cue::Result<void> handle_native_failure_for_probe(void *, cue::Error &&a_error,
                                                   const cue::D3d12RtvHeapFailureResources &a_resources) noexcept
 {
@@ -123,6 +130,7 @@ cue::Result<void> handle_native_failure_for_probe(void *, cue::Error &&a_error,
     return cue::Result<void>::failure(std::move(a_error));
 }
 
+/// @brief D3D12 RTV Heap Probe で使用する Probe Device を生成し、呼び出し元へ返す
 [[nodiscard]] cue::Result<ProbeDevice> create_probe_device(bool a_enableDiagnostics,
                                                            const cue::AssertContext &a_assertContext) noexcept
 {
@@ -171,6 +179,7 @@ cue::Result<void> handle_native_failure_for_probe(void *, cue::Error &&a_error,
     return cue::Result<ProbeDevice>::success(std::move(probeDevice));
 }
 
+/// @brief D3D12 Info Queue に記録された Error Severity 以上の Message 数を返す
 [[nodiscard]] std::uint64_t count_info_queue_errors(ID3D12Device *a_device) noexcept
 {
     Microsoft::WRL::ComPtr<ID3D12InfoQueue> infoQueue;
@@ -214,11 +223,13 @@ cue::Result<void> handle_native_failure_for_probe(void *, cue::Error &&a_error,
     return errorCount;
 }
 
+/// @brief Error が指定された Domain と Code を保持しているかを判定する
 [[nodiscard]] bool has_error_code(const cue::Error *a_error, std::int64_t a_value) noexcept
 {
     return a_error != nullptr && a_error->code().domain() == "Cue.RHI.D3D12" && a_error->code().value() == a_value;
 }
 
+/// @brief D3D12 RTV Heap Probe の Heap を依存関係と完了条件を守って安全に解放または停止する
 [[nodiscard]] bool finish_heap(cue::D3d12RtvHeap &a_heap) noexcept
 {
     cue::Result<void> shutdownResult = a_heap.shutdown();

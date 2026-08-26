@@ -12,11 +12,13 @@ namespace
 class ProcessFatalHandler final : public cue::FatalHandler
 {
   public:
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate() noexcept override
     {
         std::_Exit(90);
     }
 
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate(std::string_view) noexcept override
     {
         std::_Exit(91);
@@ -26,11 +28,13 @@ class ProcessFatalHandler final : public cue::FatalHandler
 class ProcessLogSink final : public cue::LogSink
 {
   public:
+    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
     [[nodiscard]] bool write(const cue::LogRecord &) override
     {
         return true;
     }
 
+    /// @brief 対象 Sink に保留中の Log 出力を反映し、完了成否を返す
     [[nodiscard]] bool flush() override
     {
         return true;

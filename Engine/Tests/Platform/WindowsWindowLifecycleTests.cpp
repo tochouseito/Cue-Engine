@@ -24,11 +24,13 @@ constexpr wchar_t k_windowClassName[] = L"CueEngine.Window";
 class TestFatalHandler final : public cue::FatalHandler
 {
   public:
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate() noexcept override
     {
         std::_Exit(75);
     }
 
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate(std::string_view) noexcept override
     {
         std::_Exit(76);
@@ -38,38 +40,45 @@ class TestFatalHandler final : public cue::FatalHandler
 class ForeignWindow final : public cue::Window
 {
   public:
+    /// @brief 生成済み Window を表示可能な状態へ移し、Native 表示結果を返す
     [[nodiscard]] cue::Result<void> show() noexcept override
     {
         return cue::Result<void>::success();
     }
 
+    /// @brief WindowsWindowLifecycleTests Test を依存関係と完了条件を守って安全に解放または停止する
     [[nodiscard]] cue::Result<void> destroy() noexcept override
     {
         return cue::Result<void>::success();
     }
 
+    /// @brief WindowsWindowLifecycleTests Test が保持する State を呼び出し元へ返す
     [[nodiscard]] cue::WindowState state() const noexcept override
     {
         return cue::WindowState::Created;
     }
 
+    /// @brief WindowsWindowLifecycleTests Test が保持する Client Size を呼び出し元へ返す
     [[nodiscard]] cue::WindowSize client_size() const noexcept override
     {
         return {320, 180};
     }
 
+    /// @brief WindowsWindowLifecycleTests Test の Pop Event へ安全に Access できる場合だけ参照を返す
     [[nodiscard]] bool try_pop_event(cue::WindowEvent &) noexcept override
     {
         return false;
     }
 };
 
+/// @brief WindowsWindowLifecycleTests Test で使用する Logger を生成し、呼び出し元へ返す
 [[nodiscard]] std::unique_ptr<cue::Logger> create_logger(TestFatalHandler &a_handler)
 {
     std::vector<std::unique_ptr<cue::LogSink>> sinks;
     return std::make_unique<cue::Logger>(a_handler, std::move(sinks));
 }
 
+/// @brief WindowsWindowLifecycleTests Test の Expected Native Error 条件を判定して返す
 [[nodiscard]] bool has_expected_native_error(const cue::Error &a_error, DWORD a_nativeCode)
 {
     const cue::NativeError *nativeError = a_error.try_native_error();
@@ -77,8 +86,10 @@ class ForeignWindow final : public cue::Window
            nativeError->domain() == "Win32" && nativeError->value() == a_nativeCode;
 }
 
+/// @brief WindowsWindowLifecycleTests Test の Window Class Unregistered 条件を判定して返す
 [[nodiscard]] bool is_window_class_unregistered();
 
+/// @brief WindowsWindowLifecycleTests Test の Windows Argument Conversion が期待する契約を満たすか検証する
 [[nodiscard]] bool test_windows_argument_conversion(cue::AssertContext &a_context)
 {
     cue::Result<std::string> validResult = cue::convert_windows_argument_to_utf8(L"CueEngine 日本語", a_context);
@@ -95,6 +106,7 @@ class ForeignWindow final : public cue::Window
            has_expected_native_error(*invalidResult.try_error(), ERROR_NO_UNICODE_TRANSLATION);
 }
 
+/// @brief WindowsWindowLifecycleTests Test の Event 条件を判定して返す
 [[nodiscard]] bool has_event(cue::Window &a_window, cue::WindowEventType a_type, cue::WindowSize a_size = {})
 {
     cue::WindowEvent event = {};
@@ -112,6 +124,7 @@ class ForeignWindow final : public cue::Window
     return true;
 }
 
+/// @brief WindowsWindowLifecycleTests Test の Event Queue Empty 条件を判定して返す
 [[nodiscard]] bool is_event_queue_empty(cue::Window &a_window)
 {
     cue::WindowEvent event = {cue::WindowEventType::Resized, {123, 456}};
@@ -125,6 +138,7 @@ class ForeignWindow final : public cue::Window
            event.clientSize.height == 456;
 }
 
+/// @brief WindowsWindowLifecycleTests Test の Client を指定 Size へ再構築し、後続処理へ反映する
 [[nodiscard]] bool resize_client(HWND a_window, cue::WindowSize a_size)
 {
     RECT rectangle = {0, 0, static_cast<LONG>(a_size.width), static_cast<LONG>(a_size.height)};
@@ -150,6 +164,7 @@ class ForeignWindow final : public cue::Window
            static_cast<std::uint32_t>(clientRectangle.bottom - clientRectangle.top) == a_size.height;
 }
 
+/// @brief WindowsWindowLifecycleTests Test の Descriptor Failures が期待する契約を満たすか検証する
 [[nodiscard]] bool test_descriptor_failures(cue::WindowSystem &a_system)
 {
     cue::WindowDescriptor zeroSize = {"zero", {0, 360}};
@@ -184,6 +199,7 @@ class ForeignWindow final : public cue::Window
            oversizedResult.try_error()->try_native_error() == nullptr;
 }
 
+/// @brief WindowsWindowLifecycleTests Test の Class Registration Rollback が期待する契約を満たすか検証する
 [[nodiscard]] bool test_class_registration_rollback(cue::WindowSystem &a_system)
 {
     HINSTANCE instance = GetModuleHandleW(nullptr);
@@ -206,6 +222,7 @@ class ForeignWindow final : public cue::Window
     return didFailAsExpected && didUnregister;
 }
 
+/// @brief WindowsWindowLifecycleTests Test の Shared Window Class が期待する契約を満たすか検証する
 [[nodiscard]] bool test_shared_window_class(cue::WindowSystem &a_firstSystem, cue::AssertContext &a_context)
 {
     cue::WindowDescriptor firstDescriptor = {"first system", {320, 180}};
@@ -240,6 +257,7 @@ class ForeignWindow final : public cue::Window
     return is_window_class_unregistered();
 }
 
+/// @brief WindowsWindowLifecycleTests Test の Shared Window Class Across Threads が期待する契約を満たすか検証する
 [[nodiscard]] bool test_shared_window_class_across_threads(cue::AssertContext &a_context)
 {
     std::barrier createBarrier(2);
@@ -278,6 +296,7 @@ class ForeignWindow final : public cue::Window
     return didSucceed[0] && didSucceed[1] && is_window_class_unregistered();
 }
 
+/// @brief WindowsWindowLifecycleTests Test の Window Lifecycle が期待する契約を満たすか検証する
 [[nodiscard]] bool test_window_lifecycle(cue::WindowSystem &a_system, cue::AssertContext &a_context)
 {
     constexpr std::uint32_t k_width = 640;
@@ -383,6 +402,7 @@ class ForeignWindow final : public cue::Window
     return didFindClass == FALSE && GetLastError() == ERROR_CLASS_DOES_NOT_EXIST;
 }
 
+/// @brief WindowsWindowLifecycleTests Test の LifecycleScenario を実行し、検証結果を返す
 [[nodiscard]] int run_lifecycle()
 {
     TestFatalHandler handler;
@@ -437,6 +457,7 @@ class ForeignWindow final : public cue::Window
     return is_window_class_unregistered() ? 0 : 8;
 }
 
+/// @brief WindowsWindowLifecycleTests Test の EventsScenario を実行し、検証結果を返す
 [[nodiscard]] int run_events()
 {
     TestFatalHandler handler;
@@ -567,6 +588,7 @@ class ForeignWindow final : public cue::Window
     return is_window_class_unregistered() ? 0 : 44;
 }
 
+/// @brief WindowsWindowLifecycleTests Test の Invalid ShowScenario を実行し、検証結果を返す
 [[nodiscard]] int run_invalid_show()
 {
     TestFatalHandler handler;
@@ -604,6 +626,7 @@ class ForeignWindow final : public cue::Window
 #endif
 }
 
+/// @brief WindowsWindowLifecycleTests Test の Lifecycle Probe ValidationScenario を実行し、検証結果を返す
 [[nodiscard]] int run_lifecycle_probe_validation()
 {
     TestFatalHandler handler;
@@ -652,6 +675,7 @@ class ForeignWindow final : public cue::Window
     return window->destroy() ? 0 : 49;
 }
 
+/// @brief WindowsWindowLifecycleTests Test の Invalid Native ViewScenario を実行し、検証結果を返す
 [[nodiscard]] int run_invalid_native_view()
 {
     TestFatalHandler handler;
@@ -688,6 +712,7 @@ class ForeignWindow final : public cue::Window
 #endif
 }
 
+/// @brief WindowsWindowLifecycleTests Test の Thread ViolationScenario を実行し、検証結果を返す
 [[nodiscard]] int run_thread_violation()
 {
     TestFatalHandler handler;

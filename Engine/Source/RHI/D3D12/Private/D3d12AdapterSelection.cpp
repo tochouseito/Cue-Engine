@@ -29,12 +29,14 @@ constexpr std::int64_t k_warpUnavailable = 26;
 constexpr std::int64_t k_adapterLogFailed = 27;
 constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
 
+/// @brief Allocation 失敗経路が追加 Allocation なしで Process を終了することを検証する
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
 {
     a_context.fatal_handler().terminate("D3D12 adapter selection allocation failed");
     std::abort();
 }
 
+/// @brief 現在の Module Domain で診断可能な Error を生成する
 [[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                     std::string_view a_summary) noexcept
 {
@@ -42,6 +44,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
     return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary);
 }
 
+/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
 [[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                            std::string_view a_summary, HRESULT a_nativeCode,
                                            std::string_view a_nativeDomain = "DXGI") noexcept
@@ -52,6 +55,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
     return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(nativeError));
 }
 
+/// @brief D3D12 Adapter 選択で使用する Win32 Error を生成し、呼び出し元へ返す
 [[nodiscard]] cue::Error make_win32_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                           std::string_view a_summary, DWORD a_nativeCode) noexcept
 {
@@ -61,6 +65,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
     return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(nativeError));
 }
 
+/// @brief Log 出力結果を検証し、診断を継続できない場合は終了境界へ移す
 [[nodiscard]] cue::Result<void> validate_log_result(cue::LogResult a_result,
                                                     const cue::AssertContext &a_context) noexcept
 {
@@ -73,6 +78,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
         make_error(a_context, k_adapterLogFailed, "Foundation Logger could not record DXGI adapter diagnostics"));
 }
 
+/// @brief 入力を Adapter Name へ検証付きで変換し、変換結果を返す
 [[nodiscard]] cue::Result<std::string> convert_adapter_name(
     std::wstring_view a_name, const cue::AssertContext &a_context) noexcept
 {
@@ -115,6 +121,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
     }
 }
 
+/// @brief D3D12 Adapter 選択が保持する Get Adapter Name を呼び出し元へ返す
 [[nodiscard]] cue::Result<std::wstring_view> get_adapter_name(
     const DXGI_ADAPTER_DESC3 &a_description, const cue::AssertContext &a_context) noexcept
 {
@@ -135,6 +142,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
         std::wstring_view(a_description.Description, length));
 }
 
+/// @brief D3D12 Adapter 選択の Skipped Candidate を診断出力へ反映し、出力結果を返す
 [[nodiscard]] cue::Result<void> log_skipped_candidate(
     UINT a_index, HRESULT a_probeResult, const cue::AssertContext &a_context) noexcept
 {
@@ -156,6 +164,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
     return validate_log_result(logResult, a_context);
 }
 
+/// @brief D3D12 Adapter 選択の Software Candidate を診断出力へ反映し、出力結果を返す
 [[nodiscard]] cue::Result<void> log_software_candidate(
     UINT a_index, const cue::AssertContext &a_context) noexcept
 {
@@ -176,6 +185,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
     return validate_log_result(logResult, a_context);
 }
 
+/// @brief Probe で収集した状態を呼び出し元が検証可能な Report へまとめる
 [[nodiscard]] cue::Result<cue::D3d12AdapterReport> make_report(
     const DXGI_ADAPTER_DESC3 &a_description, cue::GraphicsAdapterKind a_kind,
     const cue::AssertContext &a_context) noexcept
@@ -203,6 +213,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
     return cue::Result<cue::D3d12AdapterReport>::success(std::move(report));
 }
 
+/// @brief D3D12 Adapter 選択の Factory Debug Fallback を診断出力へ反映し、出力結果を返す
 [[nodiscard]] cue::Result<void> log_factory_debug_fallback(
     HRESULT a_nativeCode, const cue::AssertContext &a_context) noexcept
 {
@@ -215,6 +226,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
     return validate_log_result(logResult, a_context);
 }
 
+/// @brief D3D12 Adapter 選択の Selection を診断出力へ反映し、出力結果を返す
 [[nodiscard]] cue::Result<void> log_selection(
     const cue::D3d12AdapterReport &a_report, const cue::AssertContext &a_context) noexcept
 {
@@ -242,6 +254,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
     return validate_log_result(logResult, a_context);
 }
 
+/// @brief D3D12 Adapter 選択で使用する Selection を生成し、呼び出し元へ返す
 [[nodiscard]] cue::Result<cue::D3d12AdapterSelection> make_selection(
     Microsoft::WRL::ComPtr<IDXGIFactory6> a_factory,
     Microsoft::WRL::ComPtr<IDXGIAdapter4> a_adapter, const DXGI_ADAPTER_DESC3 &a_description,
@@ -269,6 +282,7 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
     return cue::Result<cue::D3d12AdapterSelection>::success(std::move(selection));
 }
 
+/// @brief D3D12 Adapter 選択で使用する DXGI Factory を生成し、呼び出し元へ返す
 HRESULT WINAPI create_dxgi_factory(UINT a_flags, REFIID a_interfaceId, void **a_factory) noexcept
 {
     return CreateDXGIFactory2(a_flags, a_interfaceId, a_factory);

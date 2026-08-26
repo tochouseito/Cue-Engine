@@ -16,6 +16,7 @@ struct AssertState
     bool didWriteFatal = false;
 };
 
+/// @brief Assert が Debugger Break を要求したことを Callback へ通知する
 void try_break() noexcept
 {
     ++breakCount;
@@ -24,16 +25,19 @@ void try_break() noexcept
 class AssertSink final : public cue::LogSink
 {
   public:
+    /// @brief AssertSink を必要な依存と初期状態から構築する
     explicit AssertSink(AssertState &a_state) noexcept : m_state(a_state)
     {
     }
 
+    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
     [[nodiscard]] bool write(const cue::LogRecord &a_record) override
     {
         m_state.didWriteFatal = a_record.level() == cue::LogLevel::Fatal;
         return true;
     }
 
+    /// @brief 対象 Sink に保留中の Log 出力を反映し、完了成否を返す
     [[nodiscard]] bool flush() override
     {
         return true;
@@ -46,10 +50,12 @@ class AssertSink final : public cue::LogSink
 class AssertFatalHandler final : public cue::FatalHandler
 {
   public:
+    /// @brief AssertFatalHandler を必要な依存と初期状態から構築する
     explicit AssertFatalHandler(AssertState &a_state) noexcept : m_state(a_state)
     {
     }
 
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate() noexcept override
     {
         constexpr int k_expectedBreakCount = CUE_ENABLE_DEBUG_BREAK ? 1 : 0;
@@ -57,6 +63,7 @@ class AssertFatalHandler final : public cue::FatalHandler
         std::_Exit(isValid ? 75 : 77);
     }
 
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate(std::string_view) noexcept override
     {
         std::_Exit(76);
@@ -66,6 +73,7 @@ class AssertFatalHandler final : public cue::FatalHandler
     AssertState &m_state;
 };
 
+/// @brief AssertBehaviorTests Test の SuccessScenario を実行し、検証結果を返す
 [[nodiscard]] int run_success()
 {
     AssertState state;
@@ -81,6 +89,7 @@ class AssertFatalHandler final : public cue::FatalHandler
     return conditionEvaluationCount == k_expectedEvaluationCount && !state.didWriteFatal ? 0 : 1;
 }
 
+/// @brief AssertBehaviorTests Test の FailureScenario を実行し、検証結果を返す
 [[nodiscard]] int run_failure()
 {
     AssertState state;
@@ -95,6 +104,7 @@ class AssertFatalHandler final : public cue::FatalHandler
 }
 } // namespace
 
+/// @brief 対象の検証 Scenario を実行し、合否を Process 終了 Code で返す
 int main(int a_argumentCount, char **a_arguments)
 {
     if (a_argumentCount != 2)

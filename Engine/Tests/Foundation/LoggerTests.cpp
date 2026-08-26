@@ -14,6 +14,7 @@ namespace
 class TestEmergencyHandler final : public cue::EmergencyHandler
 {
   public:
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate(std::string_view) noexcept override
     {
         std::_Exit(76);
@@ -31,10 +32,12 @@ struct RecordSnapshot
 class RecordingSink final : public cue::LogSink
 {
   public:
+    /// @brief RecordingSink を必要な依存と初期状態から構築する
     explicit RecordingSink(bool a_shouldFail = false) noexcept : m_shouldFail(a_shouldFail)
     {
     }
 
+    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
     [[nodiscard]] bool write(const cue::LogRecord &a_record) override
     {
         RecordSnapshot snapshot{a_record.level(), std::string(a_record.message()), std::string(), 0};
@@ -47,6 +50,7 @@ class RecordingSink final : public cue::LogSink
         return !m_shouldFail;
     }
 
+    /// @brief 対象 Sink に保留中の Log 出力を反映し、完了成否を返す
     [[nodiscard]] bool flush() override
     {
         ++flushCount;
@@ -60,6 +64,7 @@ class RecordingSink final : public cue::LogSink
     bool m_shouldFail;
 };
 
+/// @brief LoggerTests Test の Records And Error が期待する契約を満たすか検証する
 [[nodiscard]] bool test_records_and_error(TestEmergencyHandler &a_emergencyHandler)
 {
     auto firstSink = std::make_unique<RecordingSink>();
@@ -93,6 +98,7 @@ class RecordingSink final : public cue::LogSink
            first->flushCount == 1 && second->flushCount == 1;
 }
 
+/// @brief LoggerTests Test の Sink Failure Continues が期待する契約を満たすか検証する
 [[nodiscard]] bool test_sink_failure_continues(TestEmergencyHandler &a_emergencyHandler)
 {
     auto failingSink = std::make_unique<RecordingSink>(true);
@@ -108,6 +114,7 @@ class RecordingSink final : public cue::LogSink
            recorder->records.size() == 1;
 }
 
+/// @brief LoggerTests Test の Multiple Threads が期待する契約を満たすか検証する
 [[nodiscard]] bool test_multiple_threads(TestEmergencyHandler &a_emergencyHandler)
 {
     auto recordingSink = std::make_unique<RecordingSink>();
@@ -141,6 +148,7 @@ class RecordingSink final : public cue::LogSink
     return recorder->records.size() == k_threadCount * k_recordsPerThread;
 }
 
+/// @brief LoggerTests Test の Console Sink が期待する契約を満たすか検証する
 [[nodiscard]] bool test_console_sink(TestEmergencyHandler &a_emergencyHandler)
 {
     std::vector<std::unique_ptr<cue::LogSink>> sinks;

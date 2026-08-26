@@ -9,6 +9,7 @@ namespace
 // Sink から同じ Thread の Logger へ再入すると Mutex 再取得で停止するため、Dispatch 中かを Thread 単位で追跡する
 thread_local unsigned int sinkDispatchDepth = 0;
 
+/// @brief 通常診断を継続できない失敗を Emergency Handler へ委譲して Process を終了する
 [[noreturn]] void terminate_emergency(cue::EmergencyHandler &a_emergencyHandler, std::string_view a_message) noexcept
 {
     a_emergencyHandler.terminate(a_message);
@@ -20,19 +21,25 @@ thread_local unsigned int sinkDispatchDepth = 0;
 class SinkDispatchGuard final
 {
   public:
+    /// @brief SinkDispatchGuard を必要な依存と初期状態から構築する
     SinkDispatchGuard() noexcept
     {
         ++sinkDispatchDepth;
     }
 
+    /// @brief SinkDispatchGuard が保持する Resource を所有権規則に従って破棄する
     ~SinkDispatchGuard()
     {
         --sinkDispatchDepth;
     }
 
+    /// @brief SinkDispatchGuard の一意所有を保つため Copy 構築を禁止する
     SinkDispatchGuard(const SinkDispatchGuard &) = delete;
+    /// @brief SinkDispatchGuard の一意所有を保つため Copy 代入を禁止する
     SinkDispatchGuard &operator=(const SinkDispatchGuard &) = delete;
+    /// @brief SinkDispatchGuard の所有状態を移動させないため Move 構築を禁止する
     SinkDispatchGuard(SinkDispatchGuard &&) = delete;
+    /// @brief SinkDispatchGuard の所有状態を移動させないため Move 代入を禁止する
     SinkDispatchGuard &operator=(SinkDispatchGuard &&) = delete;
 };
 } // namespace
@@ -42,11 +49,13 @@ namespace cue
 class Logger::Impl final
 {
   public:
+    /// @brief Impl を必要な依存と初期状態から構築する
     Impl(EmergencyHandler &a_emergencyHandler, std::vector<std::unique_ptr<LogSink>> &&a_sinks) noexcept
         : emergencyHandler(a_emergencyHandler), sinks(std::move(a_sinks))
     {
     }
 
+    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
     [[nodiscard]] LogResult write(const LogRecord &a_record)
     {
         LogResult result = LogResult::Success;
@@ -62,6 +71,7 @@ class Logger::Impl final
         return result;
     }
 
+    /// @brief Foundation Logger の Sinks を診断出力へ反映し、出力結果を返す
     [[nodiscard]] LogResult flush_sinks()
     {
         LogResult result = LogResult::Success;
