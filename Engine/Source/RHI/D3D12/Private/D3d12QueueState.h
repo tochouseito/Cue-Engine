@@ -67,7 +67,7 @@ class D3d12FenceEvent final
     /// @brief D3d12FenceEvent が保持する Resource を所有権規則に従って破棄する
     ~D3d12FenceEvent() noexcept;
 
-    /// @brief D3D12 Queue State が保持する Get を呼び出し元へ返す
+    /// @brief 所有中の Native Event HANDLE を所有権を移さない参照値として返す
     [[nodiscard]] HANDLE get() const noexcept;
     /// @brief D3D12 Queue State の Open 条件を判定して返す
     [[nodiscard]] bool is_open() const noexcept;

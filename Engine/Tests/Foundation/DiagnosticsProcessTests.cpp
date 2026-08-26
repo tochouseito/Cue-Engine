@@ -55,7 +55,7 @@ class StateSink final : public cue::LogSink
     {
     }
 
-    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
+    /// @brief Log 出力時に例外を注入し、Logger から Emergency 終了へ移行する経路を再現する
     [[nodiscard]] bool write(const cue::LogRecord &) override
     {
         m_state.didWrite = true;
@@ -93,13 +93,13 @@ class ThrowingSink final : public cue::LogSink
 class ReentrantSink final : public cue::LogSink
 {
   public:
-    /// @brief DiagnosticsProcessTests Test の Logger を整合性を保って更新する
+    /// @brief Sink 内から再入 Log を発生させる Logger の非所有参照を設定する
     void set_logger(cue::Logger &a_logger) noexcept
     {
         m_logger = &a_logger;
     }
 
-    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
+    /// @brief Sink 処理中に同じ Logger へ再入し、再入防止の Emergency 経路を再現する
     [[nodiscard]] bool write(const cue::LogRecord &) override
     {
         [[maybe_unused]] const cue::LogResult result = m_logger->log(cue::LogLevel::Info, "reentry");
@@ -119,7 +119,7 @@ class ReentrantSink final : public cue::LogSink
 class BlockingSink final : public cue::LogSink
 {
   public:
-    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
+    /// @brief Logger の排他区間を意図的に保持し、競合中の Fatal 診断を再現する
     [[nodiscard]] bool write(const cue::LogRecord &) override
     {
         std::unique_lock lock(m_mutex);
