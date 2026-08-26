@@ -28,7 +28,7 @@ constexpr std::int64_t k_windowDestroyFailed = 8;
 constexpr std::int64_t k_windowAlreadyExists = 9;
 constexpr std::int64_t k_classUnregistrationFailed = 10;
 
-/// @brief Allocation 失敗経路が追加 Allocation なしで Process を終了することを検証する
+/// @brief Allocation 失敗を追加 Allocation なしで Fatal 終了境界へ渡し、復帰時も Process を停止する
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
 {
     a_context.fatal_handler().terminate("Windows Window allocation failed");

@@ -74,9 +74,9 @@ template <typename T> class Result final
         return std::get_if<0>(&m_storage);
     }
 
-    /// @brief 成功状態の Value へ非所有 Access を提供し、Error 状態では Null を返す
+    /// @brief Temporary Result から寿命切れになる Value Pointer を取得させない
     T *try_value() && = delete;
-    /// @brief 成功状態の Value へ非所有 Access を提供し、Error 状態では Null を返す
+    /// @brief Const Temporary Result から寿命切れになる Value Pointer を取得させない
     const T *try_value() const && = delete;
 
     /// @brief Error への非所有 Pointer を返す
@@ -93,9 +93,9 @@ template <typename T> class Result final
         return std::get_if<1>(&m_storage);
     }
 
-    /// @brief Error 状態の Error へ非所有 Access を提供し、成功状態では Null を返す
+    /// @brief Temporary Result から寿命切れになる Error Pointer を取得させない
     Error *try_error() && = delete;
-    /// @brief Error 状態の Error へ非所有 Access を提供し、成功状態では Null を返す
+    /// @brief Const Temporary Result から寿命切れになる Error Pointer を取得させない
     const Error *try_error() const && = delete;
 
   private:
@@ -166,9 +166,9 @@ template <> class Result<void> final
         return m_error ? &m_error.value() : nullptr;
     }
 
-    /// @brief Error 状態の Error へ非所有 Access を提供し、成功状態では Null を返す
+    /// @brief Temporary Result から寿命切れになる Error Pointer を取得させない
     Error *try_error() && = delete;
-    /// @brief Error 状態の Error へ非所有 Access を提供し、成功状態では Null を返す
+    /// @brief Const Temporary Result から寿命切れになる Error Pointer を取得させない
     const Error *try_error() const && = delete;
 
   private:

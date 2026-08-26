@@ -151,7 +151,7 @@ class BlockingSink final : public cue::LogSink
     bool m_canExit = false;
 };
 
-/// @brief DiagnosticsProcessTests Test の FatalScenario を実行し、検証結果を返す
+/// @brief 通常または Sink 失敗状態で Fatal 終了を発生させ、親 Process が終了 Code を検証できるようにする
 [[noreturn]] void run_fatal(bool a_shouldSinkFail)
 {
     SinkState state;
@@ -162,7 +162,7 @@ class BlockingSink final : public cue::LogSink
     cue::report_fatal(logger, handler, "fatal test");
 }
 
-/// @brief DiagnosticsProcessTests Test の Throwing SinkScenario を実行し、検証結果を返す
+/// @brief 例外を送出する Sink でも Fatal Handler により規定終了する Scenario を発生させる
 [[noreturn]] void run_throwing_sink()
 {
     TestFatalHandler handler;
@@ -173,7 +173,7 @@ class BlockingSink final : public cue::LogSink
     std::_Exit(78);
 }
 
-/// @brief DiagnosticsProcessTests Test の ReentryScenario を実行し、検証結果を返す
+/// @brief Log Sink から Fatal 診断へ再入し、Emergency 終了へ移行する Scenario を発生させる
 [[noreturn]] void run_reentry()
 {
     TestFatalHandler handler;
@@ -187,7 +187,7 @@ class BlockingSink final : public cue::LogSink
     std::_Exit(78);
 }
 
-/// @brief DiagnosticsProcessTests Test の Fatal ContendedScenario を実行し、検証結果を返す
+/// @brief Logger 競合中でも Fatal 診断が停止せず規定終了する Scenario を発生させる
 [[noreturn]] void run_fatal_contended()
 {
     TestFatalHandler handler;

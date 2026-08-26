@@ -29,7 +29,7 @@ constexpr std::int64_t k_warpUnavailable = 26;
 constexpr std::int64_t k_adapterLogFailed = 27;
 constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
 
-/// @brief Allocation 失敗経路が追加 Allocation なしで Process を終了することを検証する
+/// @brief Allocation 失敗を追加 Allocation なしで Fatal 終了境界へ渡し、復帰時も Process を停止する
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
 {
     a_context.fatal_handler().terminate("D3D12 adapter selection allocation failed");

@@ -252,7 +252,7 @@ HRESULT present_for_lifecycle_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInt
     return functions;
 }
 
-/// @brief Allocation 失敗経路が追加 Allocation なしで Process を終了することを検証する
+/// @brief Allocation 失敗を追加 Allocation なしで Fatal 終了境界へ渡し、復帰時も Process を停止する
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
 {
     a_context.fatal_handler().terminate("D3D12 Backend allocation failed");
