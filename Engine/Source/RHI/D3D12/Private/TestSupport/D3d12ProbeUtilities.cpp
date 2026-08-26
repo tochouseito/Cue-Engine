@@ -9,7 +9,7 @@
 
 namespace cue::d3d12_test_private
 {
-/// @brief Probe完了時のInfo Queueを走査し、取得失敗も診断異常として数える
+/// @brief Probe 完了時の Info Queue を走査し、取得失敗も診断異常として数える
 std::uint64_t count_info_queue_errors(ID3D12Device *a_device) noexcept
 {
     Microsoft::WRL::ComPtr<ID3D12InfoQueue> infoQueue;
