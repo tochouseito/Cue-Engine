@@ -12,11 +12,13 @@ namespace
 class ProcessFatalHandler final : public cue::FatalHandler
 {
   public:
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate() noexcept override
     {
         std::_Exit(90);
     }
 
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate(std::string_view) noexcept override
     {
         std::_Exit(91);
@@ -26,22 +28,26 @@ class ProcessFatalHandler final : public cue::FatalHandler
 class ProcessLogSink final : public cue::LogSink
 {
   public:
+    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
     [[nodiscard]] bool write(const cue::LogRecord &) override
     {
         return true;
     }
 
+    /// @brief 対象 Sink に保留中の Log 出力を反映し、完了成否を返す
     [[nodiscard]] bool flush() override
     {
         return true;
     }
 };
 
+/// @brief D3d12DiagnosticsProcess Test の Disabled が期待する契約を満たすか検証する
 [[nodiscard]] int validate_disabled(const cue::D3d12DiagnosticsProbeReport &a_report) noexcept
 {
     return !a_report.isDebugLayerEnabled && !a_report.isDredEnabled ? 0 : 10;
 }
 
+/// @brief D3d12DiagnosticsProcess Test の Configured が期待する契約を満たすか検証する
 [[nodiscard]] int validate_configured(const cue::D3d12DiagnosticsProbeReport &a_report) noexcept
 {
     if (!a_report.isAllowedByBuild)
@@ -58,6 +64,7 @@ class ProcessLogSink final : public cue::LogSink
 }
 } // namespace
 
+/// @brief 指定 Scenario で D3D12 診断機能を実行し、Info Queue と Error 変換を Process 単位で検証する
 int main(int a_argumentCount, char **a_arguments)
 {
     if (a_argumentCount != 2)

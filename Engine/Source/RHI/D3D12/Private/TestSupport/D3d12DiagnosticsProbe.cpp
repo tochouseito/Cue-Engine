@@ -9,6 +9,7 @@
 
 namespace
 {
+/// @brief Probe で収集した状態を呼び出し元が検証可能な Report へまとめる
 [[nodiscard]] cue::D3d12DiagnosticsProbeReport make_report(
     const cue::D3d12DiagnosticsStatus &a_status) noexcept
 {

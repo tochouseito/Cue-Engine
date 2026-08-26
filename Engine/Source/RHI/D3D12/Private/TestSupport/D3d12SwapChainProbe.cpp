@@ -66,6 +66,7 @@ struct ProbeNativeState final
 
 struct ProbeObjects final
 {
+    /// @brief D3D12 Swap Chain Probe に必要な Native Object と State の所有権を束ねる
     ProbeObjects(Microsoft::WRL::ComPtr<IDXGIFactory6> a_factory, Microsoft::WRL::ComPtr<ID3D12Device> a_device,
                  cue::D3d12QueueState &&a_queueState, cue::D3d12DiagnosticsStatus a_diagnostics) noexcept
         : factory(std::move(a_factory)), device(std::move(a_device)), queueState(std::move(a_queueState)),
@@ -73,10 +74,15 @@ struct ProbeObjects final
     {
     }
 
+    /// @brief ProbeObjects の一意所有を保つため Copy 構築を禁止する
     ProbeObjects(const ProbeObjects &) = delete;
+    /// @brief ProbeObjects の一意所有を保つため Copy 代入を禁止する
     ProbeObjects &operator=(const ProbeObjects &) = delete;
+    /// @brief ProbeObjects の所有状態を移動させないため Move 構築を禁止する
     ProbeObjects(ProbeObjects &&) noexcept = delete;
+    /// @brief ProbeObjects の所有状態を移動させないため Move 代入を禁止する
     ProbeObjects &operator=(ProbeObjects &&) noexcept = delete;
+    /// @brief ProbeObjects が保持する Resource を所有権規則に従って破棄する
     ~ProbeObjects() noexcept = default;
 
     Microsoft::WRL::ComPtr<IDXGIFactory6> factory;
@@ -87,6 +93,7 @@ struct ProbeObjects final
 
 thread_local ProbeNativeState g_probeState;
 
+/// @brief Probe 間で状態が混ざらないよう Fault Injection 用 Global 状態を初期化する
 void reset_probe_state(ProbeFault a_fault, ProbeTearingOverride a_tearingOverride = ProbeTearingOverride::Native,
                        ProbePresentOverride a_presentOverride = ProbePresentOverride::Native) noexcept
 {
@@ -96,6 +103,7 @@ void reset_probe_state(ProbeFault a_fault, ProbeTearingOverride a_tearingOverrid
     g_probeState.presentOverride = a_presentOverride;
 }
 
+/// @brief Tearing Query 失敗または対応可否を注入し、未指定時は Native Feature Query へ転送する
 HRESULT check_tearing_for_probe(IDXGIFactory6 *a_factory, BOOL *a_isSupported) noexcept
 {
     if (g_probeState.fault == ProbeFault::TearingQuery)
@@ -118,6 +126,7 @@ HRESULT check_tearing_for_probe(IDXGIFactory6 *a_factory, BOOL *a_isSupported) n
     return a_factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, a_isSupported, sizeof(*a_isSupported));
 }
 
+/// @brief Swap Chain Descriptor を記録し、指定時は生成失敗を注入して Rollback 経路を再現する
 HRESULT create_swap_chain_for_probe(IDXGIFactory6 *a_factory, ID3D12CommandQueue *a_queue, HWND a_window,
                                     const DXGI_SWAP_CHAIN_DESC1 *a_descriptor, IDXGISwapChain1 **a_swapChain) noexcept
 {
@@ -132,6 +141,7 @@ HRESULT create_swap_chain_for_probe(IDXGIFactory6 *a_factory, ID3D12CommandQueue
     return a_factory->CreateSwapChainForHwnd(a_queue, a_window, a_descriptor, nullptr, nullptr, a_swapChain);
 }
 
+/// @brief Alt+Enter 無効化失敗を指定時に注入し、通常時は Native 設定結果を記録する
 HRESULT disable_alt_enter_for_probe(IDXGIFactory6 *a_factory, HWND a_window) noexcept
 {
     if (g_probeState.fault == ProbeFault::AltEnter)
@@ -144,6 +154,7 @@ HRESULT disable_alt_enter_for_probe(IDXGIFactory6 *a_factory, HWND a_window) noe
     return result;
 }
 
+/// @brief Swap Chain 3 Interface 取得失敗を指定時に注入し、通常時は Native QueryInterface へ転送する
 HRESULT query_swap_chain_for_probe(IDXGISwapChain1 *a_swapChain, IDXGISwapChain3 **a_swapChain3) noexcept
 {
     if (g_probeState.fault == ProbeFault::Interface)
@@ -154,6 +165,7 @@ HRESULT query_swap_chain_for_probe(IDXGISwapChain1 *a_swapChain, IDXGISwapChain3
     return a_swapChain->QueryInterface(IID_PPV_ARGS(a_swapChain3));
 }
 
+/// @brief 指定 Buffer または再取得時の GetBuffer 失敗を注入し、通常時は Native Back Buffer を返す
 HRESULT get_back_buffer_for_probe(IDXGISwapChain3 *a_swapChain, std::uint32_t a_index,
                                   ID3D12Resource **a_backBuffer) noexcept
 {
@@ -167,6 +179,7 @@ HRESULT get_back_buffer_for_probe(IDXGISwapChain3 *a_swapChain, std::uint32_t a_
     return a_swapChain->GetBuffer(a_index, IID_PPV_ARGS(a_backBuffer));
 }
 
+/// @brief InvalidCurrentIndex 時は範囲外 Index を注入し、通常時は Native Back Buffer Index を返す
 std::uint32_t get_current_index_for_probe(IDXGISwapChain3 *a_swapChain) noexcept
 {
     if (g_probeState.fault == ProbeFault::InvalidCurrentIndex)
@@ -177,6 +190,7 @@ std::uint32_t get_current_index_for_probe(IDXGISwapChain3 *a_swapChain) noexcept
     return a_swapChain->GetCurrentBackBufferIndex();
 }
 
+/// @brief Back Buffer Name 設定失敗を指定時に注入し、通常時は Native SetName へ転送する
 HRESULT set_name_for_probe(ID3D12Object *a_object, LPCWSTR a_name) noexcept
 {
     if (g_probeState.fault == ProbeFault::BackBufferName)
@@ -187,6 +201,7 @@ HRESULT set_name_for_probe(ID3D12Object *a_object, LPCWSTR a_name) noexcept
     return a_object->SetName(a_name);
 }
 
+/// @brief Resize 失敗を指定時に注入し、通常時は Native ResizeBuffers へ転送する
 HRESULT resize_buffers_for_probe(IDXGISwapChain3 *a_swapChain, std::uint32_t a_bufferCount, std::uint32_t a_width,
                                  std::uint32_t a_height, DXGI_FORMAT a_format, std::uint32_t a_flags) noexcept
 {
@@ -198,6 +213,7 @@ HRESULT resize_buffers_for_probe(IDXGISwapChain3 *a_swapChain, std::uint32_t a_b
     return a_swapChain->ResizeBuffers(a_bufferCount, a_width, a_height, a_format, a_flags);
 }
 
+/// @brief Present 引数を記録し、成功または Occluded 結果を注入して通常時は Native Present へ転送する
 HRESULT present_for_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInterval, UINT a_flags) noexcept
 {
     g_probeState.presentCaptured = true;
@@ -217,6 +233,7 @@ HRESULT present_for_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInterval, UIN
     return a_swapChain->Present(a_syncInterval, a_flags);
 }
 
+/// @brief Swap Chain の全 Native 境界を Fault Injection Callback へ差し替える関数 Table を返す
 [[nodiscard]] cue::D3d12SwapChainNativeFunctions make_probe_functions() noexcept
 {
     return {
@@ -226,6 +243,7 @@ HRESULT present_for_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInterval, UIN
     };
 }
 
+/// @brief D3D12 Swap Chain Probe の Native Failure For Probe を規定された順序と失敗規則で処理する
 cue::Result<void> handle_native_failure_for_probe(void *, cue::Error &&a_error,
                                                   const cue::D3d12SwapChainFailureResources &a_resources) noexcept
 {
@@ -268,6 +286,7 @@ cue::Result<void> handle_native_failure_for_probe(void *, cue::Error &&a_error,
     return cue::Result<void>::failure(std::move(a_error));
 }
 
+/// @brief D3D12 Swap Chain Probe で使用する Probe Objects を生成し、呼び出し元へ返す
 [[nodiscard]] cue::Result<std::unique_ptr<ProbeObjects>> create_probe_objects(
     bool a_enableDiagnostics, const cue::AssertContext &a_assertContext) noexcept
 {
@@ -326,6 +345,7 @@ cue::Result<void> handle_native_failure_for_probe(void *, cue::Error &&a_error,
     return cue::Result<std::unique_ptr<ProbeObjects>>::success(std::move(objects));
 }
 
+/// @brief D3D12 Info Queue に記録された Error Severity 以上の Message 数を返す
 [[nodiscard]] std::uint64_t count_info_queue_errors(ID3D12Device *a_device) noexcept
 {
     Microsoft::WRL::ComPtr<ID3D12InfoQueue> infoQueue;
@@ -369,11 +389,13 @@ cue::Result<void> handle_native_failure_for_probe(void *, cue::Error &&a_error,
     return errorCount;
 }
 
+/// @brief Error が指定された Domain と Code を保持しているかを判定する
 [[nodiscard]] bool has_error_code(const cue::Error *a_error, std::int64_t a_value) noexcept
 {
     return a_error != nullptr && a_error->code().domain() == "Cue.RHI.D3D12" && a_error->code().value() == a_value;
 }
 
+/// @brief D3D12 Swap Chain Probe の Native Error Domain 条件を判定して返す
 [[nodiscard]] bool has_native_error_domain(const cue::Error *a_error, std::string_view a_domain) noexcept
 {
     if (a_error == nullptr)
@@ -385,6 +407,7 @@ cue::Result<void> handle_native_failure_for_probe(void *, cue::Error &&a_error,
     return nativeError != nullptr && nativeError->domain() == a_domain;
 }
 
+/// @brief D3D12 Swap Chain Probe で使用する Descriptor を生成し、呼び出し元へ返す
 [[nodiscard]] cue::D3d12SwapChainDescriptor make_descriptor(const void *a_nativeWindow, std::uint32_t a_width,
                                                             std::uint32_t a_height, bool a_isVsyncEnabled) noexcept
 {
@@ -397,6 +420,7 @@ cue::Result<void> handle_native_failure_for_probe(void *, cue::Error &&a_error,
     };
 }
 
+/// @brief D3D12 Swap Chain Probe の Probe Objects を依存関係と完了条件を守って安全に解放または停止する
 [[nodiscard]] bool shutdown_probe_objects(std::unique_ptr<ProbeObjects> &a_objects) noexcept
 {
     cue::Result<void> queueResult = a_objects->queueState.shutdown();

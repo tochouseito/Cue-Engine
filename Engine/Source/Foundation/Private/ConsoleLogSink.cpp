@@ -6,6 +6,7 @@
 namespace
 {
 // 外部 Tool がなくても人が重要度を識別できる安定した表示名へ変換する
+/// @brief Log Level を Console 表示用の固定文字列へ変換する
 [[nodiscard]] const char *level_name(cue::LogLevel a_level) noexcept
 {
     switch (a_level)
@@ -26,6 +27,7 @@ namespace
     return "Unknown";
 }
 
+/// @brief Console Log Sink の View を診断出力へ反映し、出力結果を返す
 [[nodiscard]] bool write_view(FILE *a_stream, std::string_view a_value) noexcept
 {
     // 一時的な null 終端 String を生成せず、障害時の追加 Allocation を避けて出力する

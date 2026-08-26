@@ -5,6 +5,7 @@
 
 namespace
 {
+/// @brief Fatal 診断経路を実行して Process を終了する
 [[noreturn]] void terminate_fatal(cue::FatalHandler &a_fatalHandler) noexcept
 {
     a_fatalHandler.terminate();
@@ -12,6 +13,7 @@ namespace
     std::abort();
 }
 
+/// @brief 通常診断を継続できない失敗を Emergency Handler へ委譲して Process を終了する
 [[noreturn]] void terminate_emergency(cue::FatalHandler &a_fatalHandler, std::string_view a_message) noexcept
 {
     a_fatalHandler.terminate(a_message);

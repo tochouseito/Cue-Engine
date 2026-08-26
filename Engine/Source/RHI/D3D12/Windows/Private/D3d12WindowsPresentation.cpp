@@ -13,11 +13,13 @@ namespace cue
 class D3d12WindowsPresentationAccess final
 {
   public:
+    /// @brief D3D12 Windows Presentation が保持する Assert Context を呼び出し元へ返す
     [[nodiscard]] static const AssertContext &assert_context(const D3d12Backend &a_backend) noexcept
     {
         return a_backend.assert_context_for_presentation();
     }
 
+    /// @brief D3D12 Backend と Native Window から Windows Presentation Context を生成する
     [[nodiscard]] static Result<std::unique_ptr<PresentationContext>> create(
         D3d12Backend &a_backend, const NativeWindowView &a_window, WindowSize a_size,
         const PresentationDescriptor &a_descriptor) noexcept

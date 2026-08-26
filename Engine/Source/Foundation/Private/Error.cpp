@@ -5,6 +5,7 @@
 
 namespace
 {
+/// @brief 通常診断を継続できない失敗を Emergency Handler へ委譲して Process を終了する
 [[noreturn]] void terminate_emergency(cue::EmergencyHandler &a_emergencyHandler, std::string_view a_message) noexcept
 {
     a_emergencyHandler.terminate(a_message);

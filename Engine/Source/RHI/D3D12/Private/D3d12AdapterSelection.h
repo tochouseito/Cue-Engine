@@ -47,16 +47,21 @@ struct D3d12AdapterSelection final
 // Native 生成関数を注入可能にし、OS や GPU に依存する失敗経路を検証可能にする
 using D3d12FactoryCreator = HRESULT(WINAPI *)(UINT, REFIID, void **);
 
+/// @brief D3D12 Adapter 選択の Supported Hardware Candidate 条件を判定して返す
 [[nodiscard]] bool is_supported_hardware_candidate(D3d12AdapterCandidateFacts a_candidate) noexcept;
 
+/// @brief Debug DXGI Factory 生成失敗を通常 Factory で再試行可能か判定する
 [[nodiscard]] bool should_retry_without_debug_factory(HRESULT a_result, bool a_wasDebugRequested) noexcept;
 
+/// @brief D3D12 Adapter 選択で使用する D3D12 Factory を生成し、呼び出し元へ返す
 [[nodiscard]] Result<Microsoft::WRL::ComPtr<IDXGIFactory6>> create_d3d12_factory(
     UINT a_flags, D3d12FactoryCreator a_creator, const AssertContext &a_assertContext) noexcept;
 
+/// @brief D3D12 Adapter 選択で使用する D3D12 Capability Report を生成し、呼び出し元へ返す
 [[nodiscard]] Result<CapabilityReport> make_d3d12_capability_report(
     const D3d12AdapterReport &a_report, bool a_isUma, const AssertContext &a_assertContext) noexcept;
 
+/// @brief D3D12 Adapter 選択の D3D12 Adapter を条件に従って選択または取得し、診断可能な結果を返す
 [[nodiscard]] Result<D3d12AdapterSelection> select_d3d12_adapter(
     D3d12AdapterPolicy a_policy, const D3d12DiagnosticsStatus &a_diagnostics,
     const AssertContext &a_assertContext) noexcept;

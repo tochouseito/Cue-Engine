@@ -4,10 +4,9 @@
 
 namespace cue
 {
-/** @name Engine 全体で使用する固定幅整数型
- *
- * Compiler ごとに基本整数型の幅が異なっても、Module 間で数値の幅を同じ意味として扱うための共通 Alias
- */
+/// @name Engine 全体で使用する固定幅整数型
+///
+/// Compiler ごとに基本整数型の幅が異なっても、Module 間で数値の幅を同じ意味として扱うための共通 Alias
 /// @{
 using int8 = std::int8_t;
 using int16 = std::int16_t;

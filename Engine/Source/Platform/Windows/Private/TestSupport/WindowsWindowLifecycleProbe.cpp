@@ -15,6 +15,7 @@ namespace
 {
 constexpr std::int64_t k_windowOperationFailed = 1;
 
+/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
 [[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_assertContext,
                                            std::string_view a_summary, DWORD a_nativeCode) noexcept
 {
@@ -25,6 +26,7 @@ constexpr std::int64_t k_windowOperationFailed = 1;
                               std::move(nativeError));
 }
 
+/// @brief Win32 Window Lifecycle Probe の Client Area を指定 Size へ再構築し、後続処理へ反映する
 [[nodiscard]] cue::Result<void> resize_client_area(HWND a_window, cue::WindowSize a_size,
                                                    const cue::AssertContext &a_assertContext) noexcept
 {

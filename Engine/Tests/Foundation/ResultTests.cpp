@@ -12,6 +12,7 @@ namespace
 class TestEmergencyHandler final : public cue::EmergencyHandler
 {
   public:
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate(std::string_view) noexcept override
     {
         std::abort();
@@ -24,6 +25,7 @@ concept HasRvalueValueProbe = requires(T &&a_result) { std::move(a_result).try_v
 template <typename T>
 concept HasRvalueErrorProbe = requires(T &&a_result) { std::move(a_result).try_error(); };
 
+/// @brief ResultTests Test の Success が期待する契約を満たすか検証する
 [[nodiscard]] bool test_success()
 {
     cue::Result<int> result = cue::Result<int>::success(42);
@@ -32,6 +34,7 @@ concept HasRvalueErrorProbe = requires(T &&a_result) { std::move(a_result).try_e
            result.try_error() == nullptr;
 }
 
+/// @brief ResultTests Test の Failure が期待する契約を満たすか検証する
 [[nodiscard]] bool test_failure(TestEmergencyHandler &a_emergencyHandler)
 {
     cue::ErrorCode code = cue::ErrorCode::create(a_emergencyHandler, "Cue.Foundation.Test", 7);
@@ -53,6 +56,7 @@ concept HasRvalueErrorProbe = requires(T &&a_result) { std::move(a_result).try_e
            storedError->try_native_error()->value() == 8;
 }
 
+/// @brief ResultTests Test の Reclassification が期待する契約を満たすか検証する
 [[nodiscard]] bool test_reclassification(TestEmergencyHandler &a_emergencyHandler)
 {
     cue::ErrorCode rootCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Root", 11);
@@ -68,6 +72,7 @@ concept HasRvalueErrorProbe = requires(T &&a_result) { std::move(a_result).try_e
            primaryError.causes()[0].contexts().size() == 1;
 }
 
+/// @brief ResultTests Test の Native Reclassification が期待する契約を満たすか検証する
 [[nodiscard]] bool test_native_reclassification(TestEmergencyHandler &a_emergencyHandler)
 {
     cue::ErrorCode rootCode = cue::ErrorCode::create(a_emergencyHandler, "Cue.Root", 31);
@@ -96,6 +101,7 @@ concept HasRvalueErrorProbe = requires(T &&a_result) { std::move(a_result).try_e
            primaryError.causes()[1].contexts().size() == 1 && primaryError.root_code().domain() == "Cue.Root";
 }
 
+/// @brief ResultTests Test の Void Result が期待する契約を満たすか検証する
 [[nodiscard]] bool test_void_result(TestEmergencyHandler &a_emergencyHandler)
 {
     cue::Result<void> success = cue::Result<void>::success();
@@ -108,6 +114,7 @@ concept HasRvalueErrorProbe = requires(T &&a_result) { std::move(a_result).try_e
            failure.try_error() != nullptr;
 }
 
+/// @brief ResultTests Test の Move が期待する契約を満たすか検証する
 [[nodiscard]] bool test_move()
 {
     cue::Result<std::string> original = cue::Result<std::string>::success(std::string("moved value"));
@@ -124,6 +131,7 @@ static_assert(std::is_nothrow_move_constructible_v<cue::Result<int>>);
 static_assert(!HasRvalueValueProbe<cue::Result<int>>);
 static_assert(!HasRvalueErrorProbe<cue::Result<int>>);
 
+/// @brief Result の成功・失敗・Move 所有権契約を実行時に検証して終了 Code を返す
 int main()
 {
     TestEmergencyHandler emergencyHandler;

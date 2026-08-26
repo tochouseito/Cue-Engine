@@ -21,11 +21,13 @@ constexpr std::int64_t k_adapterLogFailed = 27;
 class ProcessFatalHandler final : public cue::FatalHandler
 {
   public:
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate() noexcept override
     {
         std::_Exit(90);
     }
 
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate(std::string_view) noexcept override
     {
         std::_Exit(91);
@@ -35,11 +37,13 @@ class ProcessFatalHandler final : public cue::FatalHandler
 class ProcessLogSink final : public cue::LogSink
 {
   public:
+    /// @brief ProcessLogSink を必要な依存と初期状態から構築する
     explicit ProcessLogSink(bool &a_sawFactoryFallbackWarning) noexcept
         : m_sawFactoryFallbackWarning(a_sawFactoryFallbackWarning)
     {
     }
 
+    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
     [[nodiscard]] bool write(const cue::LogRecord &a_record) override
     {
         if (a_record.level() == cue::LogLevel::Warning &&
@@ -51,6 +55,7 @@ class ProcessLogSink final : public cue::LogSink
         return true;
     }
 
+    /// @brief 対象 Sink に保留中の Log 出力を反映し、完了成否を返す
     [[nodiscard]] bool flush() override
     {
         return true;
@@ -63,17 +68,20 @@ class ProcessLogSink final : public cue::LogSink
 class FailingLogSink final : public cue::LogSink
 {
   public:
+    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
     [[nodiscard]] bool write(const cue::LogRecord &) override
     {
         return false;
     }
 
+    /// @brief 対象 Sink に保留中の Log 出力を反映し、完了成否を返す
     [[nodiscard]] bool flush() override
     {
         return true;
     }
 };
 
+/// @brief D3d12AdapterSelectionProcess Test の Selection が期待する契約を満たすか検証する
 [[nodiscard]] int validate_selection(
     const cue::D3d12AdapterSelectionProbeReport &a_report, cue::GraphicsAdapterKind a_expectedKind) noexcept
 {
@@ -91,6 +99,7 @@ class FailingLogSink final : public cue::LogSink
 }
 
 
+/// @brief D3d12AdapterSelectionProcess Test の Independent Supported Hardware Adapter 条件を判定して返す
 [[nodiscard]] bool has_independent_supported_hardware_adapter() noexcept
 {
     Microsoft::WRL::ComPtr<IDXGIFactory6> factory;
@@ -132,6 +141,7 @@ class FailingLogSink final : public cue::LogSink
 }
 } // namespace
 
+/// @brief 指定 Scenario で Adapter 選択を実行し、選択結果と失敗診断を Process 単位で検証する
 int main(int a_argumentCount, char **a_arguments)
 {
     if (a_argumentCount != 2)

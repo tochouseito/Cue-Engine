@@ -16,6 +16,7 @@ struct FactoryProbeState final
 
 thread_local FactoryProbeState g_factoryProbeState = {};
 
+/// @brief D3D12 Adapter 選択 Probe で使用する Factory For Probe を生成し、呼び出し元へ返す
 HRESULT WINAPI create_factory_for_probe(UINT a_flags, REFIID a_interfaceId, void **a_factory) noexcept
 {
     if (a_flags == DXGI_CREATE_FACTORY_DEBUG)

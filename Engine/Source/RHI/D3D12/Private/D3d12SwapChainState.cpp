@@ -27,23 +27,27 @@ constexpr std::int64_t k_swapChainShutdown = 86;
 constexpr std::int64_t k_swapChainResizeFailed = 90;
 constexpr std::int64_t k_swapChainPresentFailed = 98;
 
+/// @brief Allocation 失敗を追加 Allocation なしで Fatal 終了境界へ渡し、復帰時も Process を停止する
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
 {
     a_context.fatal_handler().terminate("D3D12 Swap Chain diagnostic allocation failed");
     std::abort();
 }
 
+/// @brief 現在の Module Domain と識別値から Error Code を生成する
 [[nodiscard]] cue::ErrorCode make_code(const cue::AssertContext &a_context, std::int64_t a_value) noexcept
 {
     return cue::ErrorCode::create(a_context.fatal_handler(), "Cue.RHI.D3D12", a_value);
 }
 
+/// @brief 現在の Module Domain で診断可能な Error を生成する
 [[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                     std::string_view a_summary) noexcept
 {
     return cue::Error::create(a_context.fatal_handler(), make_code(a_context, a_code), a_summary);
 }
 
+/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
 [[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                            std::string_view a_summary, std::string_view a_nativeDomain,
                                            HRESULT a_nativeCode) noexcept
@@ -54,6 +58,7 @@ constexpr std::int64_t k_swapChainPresentFailed = 98;
                               std::move(nativeError));
 }
 
+/// @brief D3D12 Swap Chain State で使用する Failure Resources を生成し、呼び出し元へ返す
 [[nodiscard]] cue::D3d12SwapChainFailureResources make_failure_resources(
     IDXGISwapChain1 *a_baseSwapChain, IDXGISwapChain3 *a_swapChain,
     const std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, cue::k_d3d12SwapChainBufferCount> &a_backBuffers) noexcept
@@ -70,6 +75,7 @@ constexpr std::int64_t k_swapChainPresentFailed = 98;
     return resources;
 }
 
+/// @brief D3D12 Swap Chain State で回復不能な Native Creation を診断し、規定の終了境界へ移す
 [[nodiscard]] cue::Result<cue::D3d12SwapChainState> fail_native_creation(
     cue::Error &&a_error, const cue::D3d12SwapChainFailureHandler &a_failureHandler,
     const cue::D3d12SwapChainFailureResources &a_resources, const cue::AssertContext &a_assertContext) noexcept
@@ -90,53 +96,63 @@ constexpr std::int64_t k_swapChainPresentFailed = 98;
     return cue::Result<cue::D3d12SwapChainState>::failure(std::move(*handlerResult.try_error()));
 }
 
+/// @brief D3D12 Swap Chain State の Tearing Support 条件を判定して返す
 HRESULT check_tearing_support(IDXGIFactory6 *a_factory, BOOL *a_isSupported) noexcept
 {
     return a_factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, a_isSupported, sizeof(*a_isSupported));
 }
 
+/// @brief D3D12 Swap Chain State で使用する Swap Chain For Window を生成し、呼び出し元へ返す
 HRESULT create_swap_chain_for_window(IDXGIFactory6 *a_factory, ID3D12CommandQueue *a_queue, HWND a_window,
                                      const DXGI_SWAP_CHAIN_DESC1 *a_descriptor, IDXGISwapChain1 **a_swapChain) noexcept
 {
     return a_factory->CreateSwapChainForHwnd(a_queue, a_window, a_descriptor, nullptr, nullptr, a_swapChain);
 }
 
+/// @brief D3D12 Swap Chain State の Alt Enter を診断と Lifecycle の規則に従って更新する
 HRESULT disable_alt_enter(IDXGIFactory6 *a_factory, HWND a_window) noexcept
 {
     return a_factory->MakeWindowAssociation(a_window, DXGI_MWA_NO_ALT_ENTER);
 }
 
+/// @brief D3D12 Swap Chain State の Swap Chain 3 を条件に従って選択または取得し、診断可能な結果を返す
 HRESULT query_swap_chain_3(IDXGISwapChain1 *a_swapChain, IDXGISwapChain3 **a_swapChain3) noexcept
 {
     return a_swapChain->QueryInterface(IID_PPV_ARGS(a_swapChain3));
 }
 
+/// @brief D3D12 Swap Chain State が保持する Get Back Buffer を呼び出し元へ返す
 HRESULT get_back_buffer(IDXGISwapChain3 *a_swapChain, std::uint32_t a_index, ID3D12Resource **a_backBuffer) noexcept
 {
     return a_swapChain->GetBuffer(a_index, IID_PPV_ARGS(a_backBuffer));
 }
 
+/// @brief D3D12 Swap Chain State が保持する Get Current Back Buffer Index を呼び出し元へ返す
 std::uint32_t get_current_back_buffer_index(IDXGISwapChain3 *a_swapChain) noexcept
 {
     return a_swapChain->GetCurrentBackBufferIndex();
 }
 
+/// @brief D3D12 Swap Chain State の Object Name を整合性を保って更新する
 HRESULT set_object_name(ID3D12Object *a_object, LPCWSTR a_name) noexcept
 {
     return a_object->SetName(a_name);
 }
 
+/// @brief D3D12 Swap Chain State の Buffers を指定 Size へ再構築し、後続処理へ反映する
 HRESULT resize_buffers(IDXGISwapChain3 *a_swapChain, std::uint32_t a_bufferCount, std::uint32_t a_width,
                        std::uint32_t a_height, DXGI_FORMAT a_format, std::uint32_t a_flags) noexcept
 {
     return a_swapChain->ResizeBuffers(a_bufferCount, a_width, a_height, a_format, a_flags);
 }
 
+/// @brief D3D12 Swap Chain State の Swap Chain を GPU 実行順と Resource State を守って投入する
 HRESULT present_swap_chain(IDXGISwapChain3 *a_swapChain, UINT a_syncInterval, UINT a_flags) noexcept
 {
     return a_swapChain->Present(a_syncInterval, a_flags);
 }
 
+/// @brief D3D12 Swap Chain State の Swap Chain を診断出力へ反映し、出力結果を返す
 [[nodiscard]] cue::Result<void> log_swap_chain(const cue::D3d12SwapChainDescriptor &a_descriptor,
                                                std::uint32_t a_currentBackBufferIndex, bool a_isTearingSupported,
                                                bool a_isTearingEnabled,

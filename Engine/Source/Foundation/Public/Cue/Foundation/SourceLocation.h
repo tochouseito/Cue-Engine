@@ -6,56 +6,53 @@
 
 namespace cue
 {
-/**
- * @brief 診断情報へ埋め込む Platform 非依存な Source 位置
- *
- * Error、Log、Assert が共通の形式で呼び出し元を保持し、上位 Module が Compiler 固有の取得方法を意識しないために使用する
- */
+/// @brief 診断情報へ埋め込む Platform 非依存な Source 位置
+///
+/// Error、Log、Assert が共通の形式で呼び出し元を保持し、上位 Module が Compiler 固有の取得方法を意識しないために使用する
 class SourceLocation final
 {
   public:
-    /**
-     * @brief この API を呼び出した位置を取得する
-     *
-     * Default 引数で取得することで、関数本体ではなく実際の呼び出し元を記録する
-     */
+    /// @brief この API を呼び出した位置を取得する
+    ///
+    /// Default 引数で取得することで、関数本体ではなく実際の呼び出し元を記録する
     [[nodiscard]] static constexpr SourceLocation current(
         std::source_location a_location = std::source_location::current()) noexcept
     {
         return SourceLocation(a_location);
     }
 
-    /** @brief 上位 API が受け取った標準 Source 位置を共通表現へ変換する */
+    /// @brief 上位 API が受け取った標準 Source 位置を共通表現へ変換する
     [[nodiscard]] static constexpr SourceLocation from(std::source_location a_location) noexcept
     {
         return SourceLocation(a_location);
     }
 
-    /** @brief File 名を返す */
+    /// @brief File 名を返す
     [[nodiscard]] constexpr std::string_view file_name() const noexcept
     {
         return m_location.file_name();
     }
 
-    /** @brief Function 名を返す */
+    /// @brief Function 名を返す
     [[nodiscard]] constexpr std::string_view function_name() const noexcept
     {
         return m_location.function_name();
     }
 
-    /** @brief 1始まりの行番号を返す */
+    /// @brief 1始まりの行番号を返す
     [[nodiscard]] constexpr std::uint_least32_t line() const noexcept
     {
         return m_location.line();
     }
 
-    /** @brief 1始まりの列番号を返す */
+    /// @brief 1始まりの列番号を返す
     [[nodiscard]] constexpr std::uint_least32_t column() const noexcept
     {
         return m_location.column();
     }
 
   private:
+    /// @brief SourceLocation を必要な依存と初期状態から構築する
     explicit constexpr SourceLocation(std::source_location a_location) noexcept : m_location(a_location)
     {
     }

@@ -76,12 +76,14 @@ thread_local PresentationFrameProbeState g_presentationFrameProbeState = {};
 thread_local bool g_deviceRemovalProbeUnavailable = false;
 thread_local bool g_reportDeviceRemovedForProbe = false;
 
+/// @brief D3D12 Backend の Command Lists For Lifecycle Probe を GPU 実行順と Resource State を守って投入する
 void execute_command_lists_for_lifecycle_probe(ID3D12CommandQueue *a_queue, UINT a_count,
                                                 ID3D12CommandList *const *a_lists) noexcept
 {
     cue::default_d3d12_queue_native_functions().executeCommandLists(a_queue, a_count, a_lists);
 }
 
+/// @brief D3D12 Backend の For Lifecycle Probe へ完了通知を発行し、追跡する Fence 値を確定する
 HRESULT signal_for_lifecycle_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence,
                                    std::uint64_t a_value) noexcept
 {
@@ -103,6 +105,7 @@ HRESULT signal_for_lifecycle_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_f
     return SUCCEEDED(result) && g_queueLifecycleProbeState.failSignalAfterForwarding ? E_FAIL : result;
 }
 
+/// @brief Lifecycle Probe が使用する Fence 完了値を Native Queue 経路へ返す
 std::uint64_t completed_value_for_lifecycle_probe(ID3D12Fence *a_fence) noexcept
 {
     if (g_queueLifecycleProbeState.hiddenCompletedValueCount > 0)
@@ -135,11 +138,13 @@ std::uint64_t completed_value_for_lifecycle_probe(ID3D12Fence *a_fence) noexcept
     return cue::default_d3d12_queue_native_functions().getCompletedValue(a_fence);
 }
 
+/// @brief D3D12 Backend の Event For Lifecycle Probe を整合性を保って更新する
 HRESULT set_event_for_lifecycle_probe(ID3D12Fence *a_fence, std::uint64_t a_value, HANDLE a_event) noexcept
 {
     return cue::default_d3d12_queue_native_functions().setEventOnCompletion(a_fence, a_value, a_event);
 }
 
+/// @brief D3D12 Backend の For Lifecycle Probe 完了を待機し、後続処理を安全に進められる状態を返す
 DWORD WINAPI wait_for_lifecycle_probe(HANDLE a_event, DWORD a_timeout)
 {
     if (g_queueLifecycleProbeState.failWaitWithoutCompletion ||
@@ -151,6 +156,7 @@ DWORD WINAPI wait_for_lifecycle_probe(HANDLE a_event, DWORD a_timeout)
     return cue::default_d3d12_queue_native_functions().waitForSingleObject(a_event, a_timeout);
 }
 
+/// @brief D3D12 Backend が保持する Get Device Removed Reason For Lifecycle Probe を呼び出し元へ返す
 HRESULT get_device_removed_reason_for_lifecycle_probe(ID3D12Device *a_device) noexcept
 {
     return g_reportDeviceRemovedForProbe
@@ -158,6 +164,7 @@ HRESULT get_device_removed_reason_for_lifecycle_probe(ID3D12Device *a_device) no
                : cue::default_d3d12_queue_native_functions().getDeviceRemovedReason(a_device);
 }
 
+/// @brief D3D12 Backend で使用する Queue Lifecycle Probe Functions を生成し、呼び出し元へ返す
 [[nodiscard]] cue::D3d12QueueNativeFunctions make_queue_lifecycle_probe_functions() noexcept
 {
     cue::D3d12QueueNativeFunctions functions = cue::default_d3d12_queue_native_functions();
@@ -170,6 +177,7 @@ HRESULT get_device_removed_reason_for_lifecycle_probe(ID3D12Device *a_device) no
     return functions;
 }
 
+/// @brief D3D12 Backend の Command List For Lifecycle Probe を依存関係と完了条件を守って安全に解放または停止する
 HRESULT close_command_list_for_lifecycle_probe(ID3D12GraphicsCommandList *a_commandList) noexcept
 {
     ++g_presentationFrameProbeState.closeCommandListCallCount;
@@ -184,6 +192,7 @@ HRESULT close_command_list_for_lifecycle_probe(ID3D12GraphicsCommandList *a_comm
     return cue::default_d3d12_frame_command_native_functions().closeCommandList(a_commandList);
 }
 
+/// @brief D3D12 Backend で使用する Frame Command Lifecycle Probe Functions を生成し、呼び出し元へ返す
 [[nodiscard]] cue::D3d12FrameCommandNativeFunctions make_frame_command_lifecycle_probe_functions() noexcept
 {
     cue::D3d12FrameCommandNativeFunctions functions = cue::default_d3d12_frame_command_native_functions();
@@ -191,6 +200,7 @@ HRESULT close_command_list_for_lifecycle_probe(ID3D12GraphicsCommandList *a_comm
     return functions;
 }
 
+/// @brief D3D12 Backend の For Lifecycle Probe を GPU 実行順と Resource State を守って投入する
 HRESULT present_for_lifecycle_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInterval, UINT a_flags) noexcept
 {
     if (g_presentationFrameProbeState.removeDeviceBeforePresent)
@@ -234,6 +244,7 @@ HRESULT present_for_lifecycle_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInt
     return cue::default_d3d12_swap_chain_native_functions().present(a_swapChain, a_syncInterval, a_flags);
 }
 
+/// @brief D3D12 Backend で使用する Swap Chain Lifecycle Probe Functions を生成し、呼び出し元へ返す
 [[nodiscard]] cue::D3d12SwapChainNativeFunctions make_swap_chain_lifecycle_probe_functions() noexcept
 {
     cue::D3d12SwapChainNativeFunctions functions = cue::default_d3d12_swap_chain_native_functions();
@@ -241,12 +252,14 @@ HRESULT present_for_lifecycle_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInt
     return functions;
 }
 
+/// @brief Allocation 失敗を追加 Allocation なしで Fatal 終了境界へ渡し、復帰時も Process を停止する
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
 {
     a_context.fatal_handler().terminate("D3D12 Backend allocation failed");
     std::abort();
 }
 
+/// @brief 現在の Module Domain で診断可能な Error を生成する
 [[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                     std::string_view a_summary) noexcept
 {
@@ -254,6 +267,7 @@ HRESULT present_for_lifecycle_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInt
     return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary);
 }
 
+/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
 [[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                            std::string_view a_summary, HRESULT a_nativeCode) noexcept
 {
@@ -263,6 +277,7 @@ HRESULT present_for_lifecycle_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInt
     return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(nativeError));
 }
 
+/// @brief Error の Domain、Code、Native 情報を追跡可能な Context として追加する
 void add_error_identity_context(cue::Error &a_primaryError, std::string_view a_label, const cue::ErrorCode &a_code,
                                 const cue::NativeError *a_nativeError,
                                 const cue::AssertContext &a_assertContext) noexcept
@@ -292,6 +307,7 @@ void add_error_identity_context(cue::Error &a_primaryError, std::string_view a_l
     }
 }
 
+/// @brief 主因 Error を失わず Secondary Error の識別情報を Context へ追加する
 void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a_secondaryError,
                                  std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
 {
@@ -319,6 +335,7 @@ void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a
     }
 }
 
+/// @brief Error に指定された診断 Context が含まれるかを判定する
 [[nodiscard]] bool has_error_context(const cue::Error &a_error, std::string_view a_expected) noexcept
 {
     for (const cue::ErrorContext &context : a_error.contexts())
@@ -332,6 +349,7 @@ void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a
     return false;
 }
 
+/// @brief D3D12 Backend の Error Contexts In Order 条件を判定して返す
 [[nodiscard]] bool has_error_contexts_in_order(const cue::Error &a_error, std::string_view a_first,
                                                std::string_view a_second, std::string_view a_third = {}) noexcept
 {
@@ -358,6 +376,7 @@ void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a
     return expectedIndex == 3;
 }
 
+/// @brief D3D12 Backend で使用する Device Removed Error With Present Cause を生成し、呼び出し元へ返す
 [[nodiscard]] cue::Error make_device_removed_error_with_present_cause(
     cue::Error &&a_deviceRemovedError, cue::Error &&a_presentError,
     const cue::AssertContext &a_assertContext) noexcept
@@ -381,6 +400,7 @@ void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a
     return reorderedError;
 }
 
+/// @brief D3D12 Backend の Shutdown Error を診断と Lifecycle の規則に従って更新する
 void retain_shutdown_error(std::optional<cue::Error> &a_firstError, cue::Result<void> &a_result,
                            std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
 {
@@ -414,6 +434,7 @@ struct PresentationCleanupOwnerShape final
 
 using PreparePresentationCleanup = cue::Result<void> (*)(void *, const PresentationCleanupOwnerShape &) noexcept;
 
+/// @brief D3D12 Backend で使用する Render Target View を生成し、呼び出し元へ返す
 [[nodiscard]] HRESULT create_render_target_view(ID3D12Device *a_device, ID3D12Resource *a_resource,
                                                 const D3D12_RENDER_TARGET_VIEW_DESC *a_descriptor,
                                                 D3D12_CPU_DESCRIPTOR_HANDLE a_handle) noexcept
@@ -430,6 +451,7 @@ using PreparePresentationCleanup = cue::Result<void> (*)(void *, const Presentat
     return S_OK;
 }
 
+/// @brief D3D12 Backend の Swap Chain Back Buffers を所有権と Lifecycle 規則を守って関連付ける
 [[nodiscard]] cue::Result<void> bind_swap_chain_back_buffers(cue::D3d12SwapChainState &a_swapChain,
                                                               cue::D3d12FrameCommandState &a_frameState) noexcept
 {
@@ -443,6 +465,7 @@ using PreparePresentationCleanup = cue::Result<void> (*)(void *, const Presentat
     return a_frameState.bind_back_buffers(std::move(*backBuffersResult.try_value()));
 }
 
+/// @brief D3D12 Backend で使用する Back Buffer Rtvs を生成し、呼び出し元へ返す
 [[nodiscard]] cue::Result<void> create_back_buffer_rtvs(ID3D12Device *a_device,
                                                          cue::D3d12FrameCommandState &a_frameState,
                                                          DXGI_FORMAT a_format, cue::D3d12RtvHeap &a_heap,
@@ -525,6 +548,7 @@ using PreparePresentationCleanup = cue::Result<void> (*)(void *, const Presentat
 class D3d12PresentationContext final : public cue::PresentationContext
 {
   public:
+    /// @brief D3d12PresentationContext を必要な依存と初期状態から構築する
     D3d12PresentationContext(cue::D3d12SwapChainState &&a_swapChain,
                              cue::D3d12FrameCommandState &&a_frameCommandState, cue::D3d12RtvHeap &&a_rtvHeap,
                              ID3D12Device *a_device,
@@ -541,6 +565,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
     {
     }
 
+    /// @brief D3d12PresentationContext が保持する Resource を所有権規則に従って破棄する
     ~D3d12PresentationContext() noexcept override
     {
         CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_creationThread,
@@ -555,54 +580,63 @@ class D3d12PresentationContext final : public cue::PresentationContext
         }
     }
 
+    /// @brief D3D12 Backend が保持する State を呼び出し元へ返す
     [[nodiscard]] cue::PresentationContextState state() const noexcept override
     {
         assert_thread("D3D12 Presentation state must be queried on the creation thread");
         return m_state;
     }
 
+    /// @brief D3D12 Backend が保持する Width を呼び出し元へ返す
     [[nodiscard]] std::uint32_t width() const noexcept override
     {
         assert_thread("D3D12 Presentation width must be queried on the creation thread");
         return m_swapChain.width();
     }
 
+    /// @brief D3D12 Backend が保持する Height を呼び出し元へ返す
     [[nodiscard]] std::uint32_t height() const noexcept override
     {
         assert_thread("D3D12 Presentation height must be queried on the creation thread");
         return m_swapChain.height();
     }
 
+    /// @brief D3D12 Backend が保持する Buffer Count を呼び出し元へ返す
     [[nodiscard]] std::uint32_t buffer_count() const noexcept override
     {
         assert_thread("D3D12 Presentation buffer count must be queried on the creation thread");
         return m_swapChain.buffer_count();
     }
 
+    /// @brief D3D12 Backend が保持する Current Back Buffer Index を呼び出し元へ返す
     [[nodiscard]] std::uint32_t current_back_buffer_index() const noexcept override
     {
         assert_thread("D3D12 Presentation index must be queried on the creation thread");
         return m_swapChain.current_back_buffer_index();
     }
 
+    /// @brief D3D12 Backend の VSync Enabled 条件を判定して返す
     [[nodiscard]] bool is_vsync_enabled() const noexcept override
     {
         assert_thread("D3D12 Presentation VSync state must be queried on the creation thread");
         return m_swapChain.is_vsync_enabled();
     }
 
+    /// @brief D3D12 Backend の Tearing Supported 条件を判定して返す
     [[nodiscard]] bool is_tearing_supported() const noexcept override
     {
         assert_thread("D3D12 Presentation tearing capability must be queried on the creation thread");
         return m_swapChain.is_tearing_supported();
     }
 
+    /// @brief D3D12 Backend の Tearing Enabled 条件を判定して返す
     [[nodiscard]] bool is_tearing_enabled() const noexcept override
     {
         assert_thread("D3D12 Presentation tearing state must be queried on the creation thread");
         return m_swapChain.is_tearing_enabled();
     }
 
+    /// @brief D3D12 Backend の Resize Pending 条件を判定して返す
     [[nodiscard]] bool is_resize_pending() const noexcept override
     {
         assert_thread("D3D12 Presentation Resize pending state must be queried on the creation thread");
@@ -610,6 +644,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
     }
 
     // Fence 待機から Signal までを一連の Frame 処理として順序付ける
+    /// @brief D3D12 Backend の Frame を GPU 実行順と Resource State を守って投入する
     [[nodiscard]] cue::Result<cue::PresentationFrameStatus> present_frame(
         const cue::PresentationFrameDescriptor &a_descriptor) noexcept override
     {
@@ -622,6 +657,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
                 make_error(*m_assertContext, k_presentationUnavailable, "D3D12 Presentation Frame is unavailable"));
         }
 
+        /// @brief Frame 操作失敗を Device Removal 状態と統合し、最初の失敗を失わずに呼び出し元へ返す
         const auto failFrameOperation = [&](cue::Error &&a_error,
                                             std::string_view a_operation) noexcept {
             if (m_frameCommandState.status() == cue::D3d12FrameCommandStatus::DeviceRemoved)
@@ -840,6 +876,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
     }
 
     // 有効な Size 変更では Frame 受付停止と GPU Idle 証明後に旧 Resource を解放して再構築する
+    /// @brief D3D12 Backend を指定 Size へ再構築し、後続処理へ反映する
     [[nodiscard]] cue::Result<void> resize(std::uint32_t a_width, std::uint32_t a_height) noexcept override
     {
         assert_thread("D3D12 Presentation Resize must run on the creation thread");
@@ -1007,6 +1044,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
     // 通常終了では Fence による GPU 完了証明を要求し、Device Removal では有効な場合に DRED 収集を試行する
     // GPU 完了を証明できた通常終了と Device Removal 専用解放の成功経路では、Frame State を
     // CleanupPending へ移してから RTV、Back Buffer、Allocator の依存順で解放する
+    /// @brief 保持する Native Resource を依存関係と完了条件に従って停止し、安全な解放結果を返す
     [[nodiscard]] cue::Result<void> shutdown() noexcept override
     {
         assert_thread("D3D12 Presentation shutdown must run on the creation thread");
@@ -1105,6 +1143,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
         return cue::Result<void>::success();
     }
 
+    /// @brief D3D12 Backend が保持する Probe Report を呼び出し元へ返す
     [[nodiscard]] cue::D3d12PresentationProbeReport probe_report() const noexcept
     {
         cue::D3d12PresentationProbeReport report = {};
@@ -1143,6 +1182,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
         return report;
     }
 
+    /// @brief D3D12 Backend の Transition Frame For Probe を GPU 実行順と Resource State を守って投入する
     [[nodiscard]] cue::Result<std::uint64_t> submit_transition_frame_for_probe() noexcept
     {
         const std::uint32_t frameIndex = m_swapChain.current_back_buffer_index();
@@ -1193,6 +1233,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
         return m_frameCommandState.signal_frame();
     }
 
+    /// @brief D3D12 Backend の Clear Frame For Probe を GPU 実行順と Resource State を守って投入する
     [[nodiscard]] cue::Result<std::uint64_t> submit_clear_frame_for_probe(
         const std::array<float, 4> &a_color) noexcept
     {
@@ -1252,6 +1293,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
     }
 
   private:
+    /// @brief D3D12 Backend を Backend Cleanup へ安全に移行できる所有状態へ整える
     [[nodiscard]] cue::Result<void> prepare_backend_cleanup() noexcept
     {
         PresentationCleanupOwnerShape shape = {
@@ -1265,6 +1307,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
         return m_preparePresentationCleanup(m_backendOwner, shape);
     }
 
+    /// @brief D3D12 Backend の After Resize Failure を依存関係と完了条件を守って安全に解放または停止する
     [[nodiscard]] cue::Result<void> shutdown_after_resize_failure(cue::Error &&a_error,
                                                                   bool a_isDeviceRemoved) noexcept
     {
@@ -1304,12 +1347,14 @@ class D3d12PresentationContext final : public cue::PresentationContext
         return cue::Result<void>::failure(std::move(*firstError));
     }
 
+    /// @brief 生成 Thread 以外からの D3D12 Backend 操作を検出して診断する
     void assert_thread(std::string_view a_message) const noexcept
     {
         static_cast<void>(a_message);
         CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_creationThread, a_message);
     }
 
+    /// @brief D3D12 Backend の From Backend を依存関係と完了条件を守って安全に解放または停止する
     void unregister_from_backend() noexcept
     {
         CUE_ASSERT(*m_assertContext, m_isRegistered, "D3D12 Presentation registration was already released");
@@ -1336,6 +1381,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
 class D3d12BackendImpl final : public cue::D3d12Backend
 {
   public:
+    /// @brief D3d12BackendImpl を必要な依存と初期状態から構築する
     D3d12BackendImpl(cue::D3d12AdapterSelection &&a_selection, Microsoft::WRL::ComPtr<ID3D12Device> a_device,
                      cue::D3d12QueueState &&a_queueState, cue::D3d12DiagnosticsStatus a_diagnostics,
                      cue::CapabilityReport &&a_capabilities, cue::AssertContext &a_assertContext) noexcept
@@ -1347,6 +1393,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
     {
     }
 
+    /// @brief D3d12BackendImpl が保持する Resource を所有権規則に従って破棄する
     ~D3d12BackendImpl() noexcept override
     {
         CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_creationThread,
@@ -1359,6 +1406,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         }
     }
 
+    /// @brief 選択 Adapter と D3D12 Device から確定した Graphics 能力 Report を返す
     [[nodiscard]] const cue::CapabilityReport &capabilities() const noexcept override
     {
         CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_creationThread,
@@ -1366,6 +1414,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         return m_capabilities;
     }
 
+    /// @brief D3D12 Backend が保持する State を呼び出し元へ返す
     [[nodiscard]] cue::GraphicsBackendState state() const noexcept override
     {
         CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_creationThread,
@@ -1373,6 +1422,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         return m_state;
     }
 
+    /// @brief D3D12 Backend の Device Removal For Probe を診断と Lifecycle の規則に従って更新する
     [[nodiscard]] cue::Result<void> force_device_removal_for_probe() noexcept
     {
         cue::Result<void> removalResult = remove_device_without_classification_for_probe();
@@ -1387,6 +1437,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         return classify_presentation_native_failure(std::move(removalError));
     }
 
+    /// @brief D3D12 Backend の Device Without Classification For Probe を依存関係と完了条件を守って安全に解放または停止する
     [[nodiscard]] cue::Result<void> remove_device_without_classification_for_probe() noexcept
     {
         CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_creationThread,
@@ -1405,11 +1456,13 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         return cue::Result<void>::success();
     }
 
+    /// @brief DRED 収集が試行された回数を Probe 検証用に返す
     [[nodiscard]] std::uint32_t dred_attempt_count_for_probe() const noexcept
     {
         return m_dredCollectionAttemptCount;
     }
 
+    /// @brief D3D12 Backend が保持する Native Owner 状態を Probe Report として返す
     [[nodiscard]] cue::D3d12BackendOwnerProbeReport owner_report_for_probe() const noexcept
     {
         return {
@@ -1423,6 +1476,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         };
     }
 
+    /// @brief 直近 DRED 収集時点の Native Owner 状態を Probe Report として返す
     [[nodiscard]] cue::D3d12DredOwnerProbeReport dred_owner_report_for_probe() const noexcept
     {
         return m_lastDredOwnerReport;
@@ -1431,6 +1485,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
     // Active Presentation が残る間は借用先が存在するため Shutdown を拒否し、先行解放を防ぐ
     // Device Removal 時は有効な診断だけ収集を試行する
     // DRED は Queue と Fence の解放前、InfoQueue は両者の解放後かつ Device 解放前に扱う
+    /// @brief 保持する Native Resource を依存関係と完了条件に従って停止し、安全な解放結果を返す
     [[nodiscard]] cue::Result<void> shutdown() noexcept override
     {
         CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_creationThread,
@@ -1547,6 +1602,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
     }
 
   private:
+    /// @brief Device Removal 診断を一度だけ収集し、後続 Cleanup から再利用できる状態にする
     [[nodiscard]] cue::Result<void> ensure_device_removed_diagnostics(
         const PresentationCleanupOwnerShape *a_presentationShape = nullptr) noexcept
     {
@@ -1574,12 +1630,14 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         return cue::collect_d3d12_device_removed_diagnostics(m_device.Get(), m_diagnostics, *m_assertContext);
     }
 
+    /// @brief Presentation が Backend 診断へ使用する非所有 Assert Context を返す
     [[nodiscard]] const cue::AssertContext &assert_context_for_presentation() const noexcept override
     {
         return *m_assertContext;
     }
 
     // Swap Chain、RTV Heap、Frame State、Back Buffer Binding、RTV 生成の依存順で Presentation を構築する
+    /// @brief D3D12 Backend で使用する Windows Presentation を生成し、呼び出し元へ返す
     [[nodiscard]] cue::Result<std::unique_ptr<cue::PresentationContext>> create_windows_presentation(
         const void *a_nativeWindow, std::uint32_t a_width, std::uint32_t a_height,
         const cue::PresentationDescriptor &a_descriptor) noexcept override
@@ -1736,6 +1794,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         }
     }
 
+    /// @brief Presentation の Native 失敗を Device Removal または通常 Error へ分類する
     [[nodiscard]] cue::Result<void> classify_presentation_native_failure(cue::Error &&a_error) noexcept
     {
         cue::Result<void> classificationResult = m_queueState.reclassify_device_failure(std::move(a_error));
@@ -1759,6 +1818,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         return cue::Result<void>::failure(std::move(*firstError));
     }
 
+    /// @brief D3D12 Backend の Swap Chain Native Failure を規定された順序と失敗規則で処理する
     [[nodiscard]] static cue::Result<void> handle_swap_chain_native_failure(
         void *a_backend, cue::Error &&a_error, const cue::D3d12SwapChainFailureResources &a_resources) noexcept
     {
@@ -1769,6 +1829,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         return backend.classify_presentation_native_failure(std::move(a_error));
     }
 
+    /// @brief D3D12 Backend の RTV Heap Native Failure を規定された順序と失敗規則で処理する
     [[nodiscard]] static cue::Result<void> handle_rtv_heap_native_failure(
         void *a_backend, cue::Error &&a_error, const cue::D3d12RtvHeapFailureResources &a_resources) noexcept
     {
@@ -1779,6 +1840,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         return backend.classify_presentation_native_failure(std::move(a_error));
     }
 
+    /// @brief D3D12 Backend の Presentation を依存関係と完了条件を守って安全に解放または停止する
     static void unregister_presentation(void *a_backend) noexcept
     {
         D3d12BackendImpl &backend = *static_cast<D3d12BackendImpl *>(a_backend);
@@ -1789,6 +1851,7 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         --backend.m_activePresentationCount;
     }
 
+    /// @brief D3D12 Backend を Presentation Cleanup へ安全に移行できる所有状態へ整える
     [[nodiscard]] static cue::Result<void> prepare_presentation_cleanup(
         void *a_backend, const PresentationCleanupOwnerShape &a_shape) noexcept
     {
@@ -1952,6 +2015,7 @@ bool verify_d3d12_rtv_rebuild_failure_for_probe(const void *a_nativeWindow, std:
 {
     struct ProbeReset final
     {
+        /// @brief RTV 再構築 Probe の Fault Injection 状態を検証終了時に必ず初期化する
         ~ProbeReset() noexcept
         {
             g_rtvCreationProbeState = {};
@@ -2009,6 +2073,7 @@ bool verify_d3d12_terminal_resize_rejection_for_probe(const void *a_nativeWindow
 {
     struct ProbeReset final
     {
+        /// @brief Queue Lifecycle Probe の Fault Injection 状態を検証終了時に必ず初期化する
         ~ProbeReset() noexcept
         {
             g_queueLifecycleProbeState = {};
@@ -2087,6 +2152,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
 
     struct ProbeReset final
     {
+        /// @brief Present と Queue の Fault Injection 状態を各検証 Case 後に必ず初期化する
         ~ProbeReset() noexcept
         {
             g_presentationFrameProbeState = {};
@@ -2096,6 +2162,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
     } probeReset;
 
     static_cast<void>(probeReset);
+    /// @brief Present、Signal、完了待機の失敗組み合わせが期待した主 Error を保持するか検証する
     const auto runCase = [&](bool a_failPresent, bool a_failSignal, bool a_failWaitAfterCompletion,
                              std::int64_t a_expectedCode) noexcept {
         g_presentationFrameProbeState = {true, false, false};
@@ -2171,6 +2238,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
         return frameValid && cleanupValid;
     };
 
+    /// @brief Begin Frame が利用不能な場合に既存 Frame 状態が保持されることを検証する
     const auto runBeginFrameUnavailableCase = [&]() noexcept {
         g_presentationFrameProbeState = {true, false, false};
         g_queueLifecycleProbeState = {true, false, false, false, false, 0};
@@ -2236,6 +2304,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
         return valid;
     };
 
+    /// @brief Command List Close 中の Device Removal が Backend 状態へ伝播することを検証する
     const auto runCloseFrameDeviceRemovedCase = [&]() noexcept {
         g_presentationFrameProbeState = {true, false, false, true, 0};
         g_queueLifecycleProbeState = {true, false, false, false, false, 0};
@@ -2306,6 +2375,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
         return frameValid && cleanupValid;
     };
 
+    /// @brief Present 経路が利用不能でも Frame 所有状態と期待 Error が保持されることを検証する
     const auto runUnavailableCase = [&](bool a_failPresent, std::int64_t a_expectedCode) noexcept {
         g_presentationFrameProbeState = {true, false, false};
         g_queueLifecycleProbeState = {true, false, false, false, false, 0};
@@ -2375,6 +2445,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
         return valid;
     };
 
+    /// @brief Present 前後の Device Removal 位置ごとに原因 Code と Backend 状態を検証する
     const auto runDeviceRemovedCase = [&](bool a_removeBeforePresent, bool a_failPresent,
                                           bool a_removeBeforeSignal, std::int64_t a_expectedCauseCode) noexcept {
         g_presentationFrameProbeState = {true, false, false};
@@ -2506,6 +2577,7 @@ bool verify_d3d12_resize_unavailable_retention_for_probe(const void *a_nativeWin
 {
     struct ProbeReset final
     {
+        /// @brief Queue Lifecycle Probe の状態を Signal Recovery 検証終了時に必ず初期化する
         ~ProbeReset() noexcept
         {
             g_queueLifecycleProbeState = {};

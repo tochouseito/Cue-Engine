@@ -8,6 +8,7 @@ namespace
 {
 constexpr HRESULT k_expectedFailure = DXGI_ERROR_DEVICE_REMOVED;
 
+/// @brief D3D12 Backend Probe で回復不能な Device Creation を診断し、規定の終了境界へ移す
 HRESULT WINAPI fail_device_creation(IUnknown *, D3D_FEATURE_LEVEL, REFIID, void **) noexcept
 {
     return k_expectedFailure;

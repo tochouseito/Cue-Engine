@@ -65,6 +65,7 @@ struct RuntimeOptions final
     cue::D3d12AdapterPolicy graphicsAdapterPolicy = cue::D3d12AdapterPolicy::HighPerformanceHardware;
 };
 
+/// @brief Window Size 引数を正の 32-bit 整数へ安全に変換する
 [[nodiscard]] bool parse_size(std::wstring_view a_text, std::uint32_t &a_value) noexcept
 {
     if (a_text.empty())
@@ -100,6 +101,7 @@ struct RuntimeOptions final
     return true;
 }
 
+/// @brief Command Line を実行 Mode と Window 設定へ変換し、排他的な Mode 指定を検証する
 [[nodiscard]] cue::Result<bool> parse_options(int a_argumentCount, wchar_t **a_arguments, RuntimeOptions &a_options,
                                               const cue::AssertContext &a_assertContext) noexcept
 {
@@ -208,6 +210,7 @@ struct RuntimeOptions final
     return cue::Result<bool>::success(modeCount <= 1);
 }
 
+/// @brief 無効な Command Line に対して利用可能な Runtime Host 引数を標準 Error へ表示する
 void print_usage() noexcept
 {
 #if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
@@ -224,9 +227,11 @@ void print_usage() noexcept
 #endif
 }
 
+/// @brief Runtime Error を Logger へ記録し、呼び出し元へ対応する終了 Code を返す
 [[nodiscard]] int report_error(cue::Logger &a_logger, std::string_view a_message, cue::Error &&a_error,
                                int a_exitCode) noexcept;
 
+/// @brief Runtime Option と Build 設定から再現可能な D3D12 Backend 生成条件を構築する
 [[nodiscard]] cue::D3d12BackendDescriptor make_backend_descriptor(const RuntimeOptions &a_options) noexcept
 {
     // 同じ Build の診断条件を再現できるよう、Graphics 診断の既定値は Target 定義から一元的に決める
@@ -241,6 +246,7 @@ void print_usage() noexcept
 
 #if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
 // === Resize Smoke Test Probe ===
+/// @brief Resize Smoke 失敗を Runtime Host Domain の診断可能な Error へ変換する
 [[nodiscard]] cue::Error make_runtime_error(const cue::AssertContext &a_assertContext,
                                             std::string_view a_summary) noexcept
 {
@@ -249,6 +255,7 @@ void print_usage() noexcept
     return cue::Error::create(a_assertContext.fatal_handler(), std::move(code), a_summary);
 }
 
+/// @brief Resize Smoke の Action 番号を Resize、Minimize、Restore、Close 操作へ変換して発行する
 [[nodiscard]] cue::Result<void> issue_resize_smoke_action(cue::Window &a_window, std::uint32_t a_actionIndex,
                                                           const cue::AssertContext &a_assertContext) noexcept
 {
@@ -278,6 +285,7 @@ void print_usage() noexcept
 // === Resize Smoke Test Probe End ===
 #endif
 
+/// @brief 主因 Error を保持したまま Cleanup 中の Secondary Error を診断 Context へ追加する
 void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a_secondaryError,
                                  std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
 {
@@ -340,6 +348,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
     }
 }
 
+/// @brief Window を生成せず D3D12 Backend の生成、能力取得、停止経路を検証する
 [[nodiscard]] int run_graphics_smoke(const RuntimeOptions &a_options, cue::Logger &a_logger,
                                      cue::AssertContext &a_assertContext)
 {
@@ -391,6 +400,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
                                                                                                   : k_graphicsLogFailed;
 }
 
+/// @brief Win32 Window に対する D3D12 Presentation の生成と停止経路を検証する
 [[nodiscard]] int run_presentation_smoke(const RuntimeOptions &a_options, cue::Window &a_window, cue::Logger &a_logger,
                                          cue::AssertContext &a_assertContext)
 {
@@ -479,6 +489,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
                : k_presentationShutdownFailed;
 }
 
+/// @brief Window Event、Resize、Frame 投入、GPU 停止を規定順で処理する Render Loop を実行する
 [[nodiscard]] int run_render_loop(const RuntimeOptions &a_options, cue::WindowSystem &a_windowSystem,
                                   cue::Window &a_window, cue::Logger &a_logger,
                                   cue::AssertContext &a_assertContext)
@@ -879,6 +890,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
     return a_exitCode;
 }
 
+/// @brief 選択された Runtime Mode に必要な Platform と RHI を組み立て、安全な終了まで実行する
 [[nodiscard]] int run(const RuntimeOptions &a_options, cue::Logger &a_logger, cue::AssertContext &a_assertContext)
 {
     static_cast<void>(a_logger.log(cue::LogLevel::Info, "Runtime Host initialization started"));
@@ -1021,6 +1033,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 }
 } // namespace
 
+/// @brief Runtime Host の依存を構築し、Command Line 解析から終了 Code 返却までを統括する
 int wmain(int a_argumentCount, wchar_t **a_arguments)
 {
     // FatalHandler を最外側に置き、Logger と AssertContext の構築から破棄まで異常終了先を存続させる

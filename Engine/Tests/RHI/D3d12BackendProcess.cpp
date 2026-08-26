@@ -14,11 +14,13 @@ namespace
 class ProcessFatalHandler final : public cue::FatalHandler
 {
   public:
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate() noexcept override
     {
         std::_Exit(90);
     }
 
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate(std::string_view) noexcept override
     {
         std::_Exit(91);
@@ -28,17 +30,20 @@ class ProcessFatalHandler final : public cue::FatalHandler
 class ProcessLogSink final : public cue::LogSink
 {
   public:
+    /// @brief 受け取った Log Record を対象 Sink へ書き込み、出力成否を返す
     [[nodiscard]] bool write(const cue::LogRecord &) override
     {
         return true;
     }
 
+    /// @brief 対象 Sink に保留中の Log 出力を反映し、完了成否を返す
     [[nodiscard]] bool flush() override
     {
         return true;
     }
 };
 
+/// @brief D3d12BackendProcess Test の Backend LifecycleScenario を実行し、検証結果を返す
 [[nodiscard]] int run_backend_lifecycle(
     cue::D3d12AdapterPolicy a_policy, cue::GraphicsAdapterKind a_expectedKind,
     cue::AssertContext &a_assertContext) noexcept
@@ -86,6 +91,7 @@ class ProcessLogSink final : public cue::LogSink
     return 0;
 }
 
+/// @brief D3d12BackendProcess Test の Backend Thread DestructionScenario を実行し、検証結果を返す
 [[nodiscard]] int run_backend_thread_destruction(cue::AssertContext &a_assertContext)
 {
     cue::D3d12BackendDescriptor descriptor = {
@@ -110,6 +116,7 @@ class ProcessLogSink final : public cue::LogSink
     }
 
 #if CUE_ENABLE_ASSERTS
+    /// @brief 所有 Thread 外で Backend を破棄し、Thread Affinity Assert が発火することを検証する
     std::thread invalidThread(
         [backend = std::move(backend)]() mutable { backend.reset(); });
     invalidThread.join();
@@ -120,6 +127,7 @@ class ProcessLogSink final : public cue::LogSink
 #endif
 }
 
+/// @brief D3d12BackendProcess Test の Invalid Wait TimeoutScenario を実行し、検証結果を返す
 [[nodiscard]] int run_invalid_wait_timeout(cue::AssertContext &a_assertContext) noexcept
 {
     cue::D3d12BackendDescriptor descriptor = {
@@ -137,6 +145,7 @@ class ProcessLogSink final : public cue::LogSink
 }
 } // namespace
 
+/// @brief 指定 Scenario で D3D12 Backend の所有権と Thread Affinity を Process 単位で検証する
 int main(int a_argumentCount, char **a_arguments)
 {
     if (a_argumentCount != 2)

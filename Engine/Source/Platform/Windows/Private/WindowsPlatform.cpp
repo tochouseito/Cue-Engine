@@ -15,12 +15,14 @@ namespace
 {
 constexpr std::int64_t k_moduleHandleUnavailable = 1;
 
+/// @brief Allocation 失敗を追加 Allocation なしで Fatal 終了境界へ渡し、復帰時も Process を停止する
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
 {
     a_context.fatal_handler().terminate("Windows Window System allocation failed");
     std::abort();
 }
 
+/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
 [[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                            std::string_view a_summary, DWORD a_nativeCode) noexcept
 {

@@ -25,16 +25,19 @@ struct SinkState
 class TestFatalHandler final : public cue::FatalHandler
 {
   public:
+    /// @brief TestFatalHandler を必要な依存と初期状態から構築する
     explicit TestFatalHandler(SinkState *a_state = nullptr) noexcept : m_state(a_state)
     {
     }
 
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate() noexcept override
     {
         const bool isValid = m_state == nullptr || (m_state->didWrite && m_state->didFlush);
         std::_Exit(isValid ? k_fatalExitCode : 77);
     }
 
+    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
     [[noreturn]] void terminate(std::string_view) noexcept override
     {
         std::_Exit(k_emergencyExitCode);
@@ -47,16 +50,19 @@ class TestFatalHandler final : public cue::FatalHandler
 class StateSink final : public cue::LogSink
 {
   public:
+    /// @brief StateSink を必要な依存と初期状態から構築する
     StateSink(SinkState &a_state, bool a_shouldFail) noexcept : m_state(a_state), m_shouldFail(a_shouldFail)
     {
     }
 
+    /// @brief Log Record を受領した事実を記録し、指定された成功または失敗結果を Logger へ返す
     [[nodiscard]] bool write(const cue::LogRecord &) override
     {
         m_state.didWrite = true;
         return !m_shouldFail;
     }
 
+    /// @brief 対象 Sink に保留中の Log 出力を反映し、完了成否を返す
     [[nodiscard]] bool flush() override
     {
         m_state.didFlush = true;
@@ -71,11 +77,13 @@ class StateSink final : public cue::LogSink
 class ThrowingSink final : public cue::LogSink
 {
   public:
+    /// @brief Log 出力時に例外を注入し、Logger から Emergency 終了へ移行する経路を再現する
     [[nodiscard]] bool write(const cue::LogRecord &) override
     {
         throw std::runtime_error("sink failure");
     }
 
+    /// @brief 対象 Sink に保留中の Log 出力を反映し、完了成否を返す
     [[nodiscard]] bool flush() override
     {
         return true;
@@ -85,17 +93,20 @@ class ThrowingSink final : public cue::LogSink
 class ReentrantSink final : public cue::LogSink
 {
   public:
+    /// @brief Sink 内から再入 Log を発生させる Logger の非所有参照を設定する
     void set_logger(cue::Logger &a_logger) noexcept
     {
         m_logger = &a_logger;
     }
 
+    /// @brief Sink 処理中に同じ Logger へ再入し、再入防止の Emergency 経路を再現する
     [[nodiscard]] bool write(const cue::LogRecord &) override
     {
         [[maybe_unused]] const cue::LogResult result = m_logger->log(cue::LogLevel::Info, "reentry");
         return true;
     }
 
+    /// @brief 対象 Sink に保留中の Log 出力を反映し、完了成否を返す
     [[nodiscard]] bool flush() override
     {
         return true;
@@ -108,23 +119,28 @@ class ReentrantSink final : public cue::LogSink
 class BlockingSink final : public cue::LogSink
 {
   public:
+    /// @brief Logger の排他区間を意図的に保持し、競合中の Fatal 診断を再現する
     [[nodiscard]] bool write(const cue::LogRecord &) override
     {
         std::unique_lock lock(m_mutex);
         m_didEnter = true;
         m_condition.notify_all();
+        /// @brief Test Sink の解放許可が届くまで Log 呼び出しを意図的に Block する
         m_condition.wait(lock, [this]() { return m_canExit; });
         return true;
     }
 
+    /// @brief 対象 Sink に保留中の Log 出力を反映し、完了成否を返す
     [[nodiscard]] bool flush() override
     {
         return true;
     }
 
+    /// @brief DiagnosticsProcessTests Test の Until Entered 完了を待機し、後続処理を安全に進められる状態を返す
     void wait_until_entered()
     {
         std::unique_lock lock(m_mutex);
+        /// @brief 別 Thread が Test Sink へ進入済みかを待機解除条件として判定する
         m_condition.wait(lock, [this]() { return m_didEnter; });
     }
 
@@ -135,6 +151,7 @@ class BlockingSink final : public cue::LogSink
     bool m_canExit = false;
 };
 
+/// @brief 通常または Sink 失敗状態で Fatal 終了を発生させ、親 Process が終了 Code を検証できるようにする
 [[noreturn]] void run_fatal(bool a_shouldSinkFail)
 {
     SinkState state;
@@ -145,6 +162,7 @@ class BlockingSink final : public cue::LogSink
     cue::report_fatal(logger, handler, "fatal test");
 }
 
+/// @brief 例外を送出する Sink でも Fatal Handler により規定終了する Scenario を発生させる
 [[noreturn]] void run_throwing_sink()
 {
     TestFatalHandler handler;
@@ -155,6 +173,7 @@ class BlockingSink final : public cue::LogSink
     std::_Exit(78);
 }
 
+/// @brief Log Sink から Fatal 診断へ再入し、Emergency 終了へ移行する Scenario を発生させる
 [[noreturn]] void run_reentry()
 {
     TestFatalHandler handler;
@@ -168,6 +187,7 @@ class BlockingSink final : public cue::LogSink
     std::_Exit(78);
 }
 
+/// @brief Logger 競合中でも Fatal 診断が停止せず規定終了する Scenario を発生させる
 [[noreturn]] void run_fatal_contended()
 {
     TestFatalHandler handler;
@@ -177,6 +197,7 @@ class BlockingSink final : public cue::LogSink
     sinks.push_back(std::move(sink));
     cue::Logger logger(handler, std::move(sinks));
 
+    /// @brief Logger を占有する Thread を作り、競合中の Fatal 診断経路を再現する
     std::thread loggingThread(
         [&logger]() { [[maybe_unused]] const cue::LogResult result = logger.log(cue::LogLevel::Info, "blocking"); });
     sinkPointer->wait_until_entered();
@@ -184,6 +205,7 @@ class BlockingSink final : public cue::LogSink
 }
 } // namespace
 
+/// @brief 指定 Scenario を別 Process で実行し、Fatal 診断と競合時の終了動作を検証する
 int main(int a_argumentCount, char **a_arguments)
 {
     if (a_argumentCount != 2)

@@ -11,12 +11,14 @@ namespace
 {
 constexpr std::int64_t k_deviceCreationFailed = 30;
 
+/// @brief D3D12 Device 生成で使用する Native Device を生成し、呼び出し元へ返す
 HRESULT WINAPI create_native_device(IUnknown *a_adapter, D3D_FEATURE_LEVEL a_featureLevel,
                                     REFIID a_interfaceId, void **a_device) noexcept
 {
     return D3D12CreateDevice(a_adapter, a_featureLevel, a_interfaceId, a_device);
 }
 
+/// @brief D3D12 Device 生成で使用する Device Creation Error を生成し、呼び出し元へ返す
 [[nodiscard]] cue::Error make_device_creation_error(
     const cue::AssertContext &a_context, HRESULT a_nativeCode) noexcept
 {

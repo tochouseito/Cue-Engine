@@ -31,17 +31,20 @@ constexpr std::int64_t k_invalidFenceReservation = 53;
 constexpr std::uint64_t k_deviceRemovedCompletedValue = (std::numeric_limits<std::uint64_t>::max)();
 constexpr std::uint64_t k_maximumSignalValue = k_deviceRemovedCompletedValue - 1;
 
+/// @brief 現在の Module Domain と識別値から Error Code を生成する
 [[nodiscard]] cue::ErrorCode make_code(const cue::AssertContext &a_context, std::int64_t a_value) noexcept
 {
     return cue::ErrorCode::create(a_context.fatal_handler(), "Cue.RHI.D3D12", a_value);
 }
 
+/// @brief 現在の Module Domain で診断可能な Error を生成する
 [[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                     std::string_view a_summary) noexcept
 {
     return cue::Error::create(a_context.fatal_handler(), make_code(a_context, a_code), a_summary);
 }
 
+/// @brief Native API 失敗を Platform 固有情報付きの診断 Error へ変換する
 [[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, std::int64_t a_code,
                                            std::string_view a_summary, std::string_view a_nativeDomain,
                                            std::int64_t a_nativeCode) noexcept
@@ -51,6 +54,7 @@ constexpr std::uint64_t k_maximumSignalValue = k_deviceRemovedCompletedValue - 1
                               std::move(nativeError));
 }
 
+/// @brief D3D12 Queue State で使用する Device Removed Error を生成し、呼び出し元へ返す
 [[nodiscard]] cue::Error make_device_removed_error(const cue::AssertContext &a_context, HRESULT a_reason,
                                                    cue::Error &&a_cause) noexcept
 {
@@ -60,6 +64,7 @@ constexpr std::uint64_t k_maximumSignalValue = k_deviceRemovedCompletedValue - 1
                                   "D3D12 Device was removed", std::move(nativeError), std::move(a_cause));
 }
 
+/// @brief Error の Domain、Code、Native 情報を追跡可能な Context として追加する
 void add_error_identity_context(cue::Error &a_primaryError, std::string_view a_label, const cue::ErrorCode &a_code,
                                 const cue::NativeError *a_nativeError,
                                 const cue::AssertContext &a_assertContext) noexcept
@@ -89,6 +94,7 @@ void add_error_identity_context(cue::Error &a_primaryError, std::string_view a_l
     }
 }
 
+/// @brief 主因 Error を失わず Secondary Error の識別情報を Context へ追加する
 void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a_secondaryError,
                                  std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
 {
@@ -116,6 +122,7 @@ void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a
     }
 }
 
+/// @brief 主 Error を維持したまま Secondary Cause の Summary、識別情報、Context を診断情報として転記する
 void add_secondary_cause_context(cue::Error &a_primaryError, const cue::ErrorCause &a_secondaryCause,
                                  std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
 {
@@ -130,6 +137,7 @@ void add_secondary_cause_context(cue::Error &a_primaryError, const cue::ErrorCau
     }
 }
 
+/// @brief D3D12 Queue State の Secondary Error を診断と Lifecycle の規則に従って更新する
 void retain_secondary_error(cue::Error &a_primaryError, cue::Result<void> &a_secondaryResult,
                             std::string_view a_context, const cue::AssertContext &a_assertContext) noexcept
 {
@@ -139,26 +147,31 @@ void retain_secondary_error(cue::Error &a_primaryError, cue::Result<void> &a_sec
     }
 }
 
+/// @brief D3D12 Queue State の Command Lists を GPU 実行順と Resource State を守って投入する
 void execute_command_lists(ID3D12CommandQueue *a_queue, UINT a_count, ID3D12CommandList *const *a_commandLists) noexcept
 {
     a_queue->ExecuteCommandLists(a_count, a_commandLists);
 }
 
+/// @brief D3D12 Queue State の Queue へ完了通知を発行し、追跡する Fence 値を確定する
 HRESULT signal_queue(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence, std::uint64_t a_value) noexcept
 {
     return a_queue->Signal(a_fence, a_value);
 }
 
+/// @brief D3D12 Queue State が保持する Get Completed Value を呼び出し元へ返す
 std::uint64_t get_completed_value(ID3D12Fence *a_fence) noexcept
 {
     return a_fence->GetCompletedValue();
 }
 
+/// @brief D3D12 Queue State の Event On Completion を整合性を保って更新する
 HRESULT set_event_on_completion(ID3D12Fence *a_fence, std::uint64_t a_value, HANDLE a_event) noexcept
 {
     return a_fence->SetEventOnCompletion(a_value, a_event);
 }
 
+/// @brief D3D12 Queue State が保持する Get Device Removed Reason を呼び出し元へ返す
 HRESULT get_device_removed_reason(ID3D12Device *a_device) noexcept
 {
     return a_device->GetDeviceRemovedReason();
