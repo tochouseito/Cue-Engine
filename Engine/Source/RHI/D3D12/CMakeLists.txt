@@ -90,6 +90,8 @@ if(BUILD_TESTING)
             Private/TestSupport/D3d12BackendProbe.cpp
             Private/TestSupport/D3d12DiagnosticsProbe.cpp
             Private/TestSupport/D3d12FrameCommandProbe.cpp
+            Private/TestSupport/D3d12ProbeUtilities.cpp
+            Private/TestSupport/D3d12ProbeUtilities.h
             Private/TestSupport/D3d12QueueStateProbe.cpp
             Private/TestSupport/D3d12RtvHeapProbe.cpp
             Private/TestSupport/D3d12SwapChainProbe.cpp
