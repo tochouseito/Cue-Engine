@@ -88,8 +88,9 @@ PR #124ではPrimary Contextを`a_label`として渡した場合の無効参照R
 
 Windows CIはM07前半のPRで成功を確認した。M07後半では、完了済みRunが長時間`queued`表示されることと、
 PR #124の`pull_request` EventにCheck Runが生成されないActions基盤側の異常が発生した。PR作成、空Commit、
-実装修正Pushの各Eventを試しても`no checks reported`だったため、PR #118／#120では最新Codeと同一内容を
-ローカルWindows環境でDebug／Development／Releaseの全Buildと全CTestを再実行し、例外理由と結果をPRへ記録した。
+実装修正Pushの各Eventを試しても`no checks reported`だったため、Issue #118／#120（PR #123／#124）では
+最新Codeと同一内容をローカルWindows環境でDebug／Development／Releaseの全Buildと全CTestを再実行し、
+例外理由と結果をPRへ記録した。
 Completion Gate PRでもWindows CIの生成を再試行し、成否を最終監査へ追記する。
 
 ## Acceptance Gates
@@ -109,6 +110,9 @@ Completion Gate PRでもWindows CIの生成を再試行し、成否を最終監�
 - `Cue.Foundation.Windows`はWindows x64だけで検証しており、非Windows Hostは未実装である。
 - UTF変換APIとSecondary Error APIは内部C++境界であり、安定ABIとしては未保証である。
 - Secondary Errorは構造化FieldではなくContextへ展開するため、将来のEditor診断UIでは再設計余地がある。
+- Secondary ErrorのContext数、Cause数、文字列長には上限がなく、入力全体の転記に比例するAllocationと走査Costが
+  発生する。Allocation失敗時はEmergency HandlerのFatal経路へ移行するため、容量上限とTruncation Policyは
+  将来のResearchで決定する必要がある。
 - CMake Utilityは現在の依存検証に必要なComment／Token走査であり、完全なC++ Parserではない。
 - `Cue.RHI.D3D12.SwapChain.RecoverySignalDeviceRemoved`はWindows CIで過去に一度不安定終了したが、
   同一CodeのローカルDebug／Development／Releaseと反復確認では成功している。
