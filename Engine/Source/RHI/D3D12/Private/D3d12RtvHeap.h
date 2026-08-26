@@ -62,9 +62,9 @@ class D3d12RtvHeap final
     /// @brief D3d12RtvHeap が保持する Resource を所有権規則に従って破棄する
     ~D3d12RtvHeap() noexcept;
 
-    /// @brief Allocation 経路の設定に従って Memory を確保し、確保結果を返す
+    /// @brief 未使用 RTV Descriptor Slot の Generation と使用数を更新し、論理 Slot Token を返す
     [[nodiscard]] Result<D3d12RtvSlot> allocate() noexcept;
-    /// @brief 保持する Native Resource を完了条件と所有権規則に従って解放する
+    /// @brief 指定 RTV Descriptor Slot の Generation を検証し、再利用可能な論理 Slot へ戻す
     [[nodiscard]] Result<void> release(D3d12RtvSlot a_slot) noexcept;
     /// @brief D3D12 RTV Heap が保持する CPU Handle を呼び出し元へ返す
     [[nodiscard]] Result<D3D12_CPU_DESCRIPTOR_HANDLE> cpu_handle(D3d12RtvSlot a_slot) const noexcept;

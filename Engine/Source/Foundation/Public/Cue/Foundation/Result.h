@@ -176,12 +176,12 @@ template <> class Result<void> final
     {
     };
 
-    /// @brief 成功 Value または Error の正確に一方を保持する Result 状態を構築する
+    /// @brief Error を持たない空の成功状態として Result<void> を構築する
     explicit Result(SuccessTag) noexcept
     {
     }
 
-    /// @brief 成功 Value または Error の正確に一方を保持する Result 状態を構築する
+    /// @brief Error の所有権を保持する失敗状態として Result<void> を構築する
     explicit Result(Error &&a_error) noexcept : m_error(std::move(a_error))
     {
     }
