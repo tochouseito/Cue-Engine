@@ -5,7 +5,7 @@
 - Decision Owners: CueEngine Project
 - Research Issue: [#109](https://github.com/tochouseito/CueEngine/issues/109)
 - Implementation Issue: [#118](https://github.com/tochouseito/CueEngine/issues/118)
-- Supersedes in part: ADR-0004 の Windows 実装 Target 依存規則、ADR-0006 の UTF-8 and UTF-16 Boundary
+- Supersedes in part: ADR-0004 の Windows 実装 Target 依存規則、ADR-0006 の UTF-8 and UTF-16 Boundary、ADR-0007 の `Cue.RHI.D3D12` Allowed Dependencies
 
 ## Context
 
@@ -29,7 +29,7 @@
 - Platform 固有型を Platform 非依存の公開 API へ漏らさない
 - 呼び出し側固有の Error identity と DRED の Best-effort 診断を維持する
 
-ADR-0004 は Windows 実装 Target が契約 Target 以外へ実装依存を持たない規則を、ADR-0006 は UTF 変換を Cue.Platform.Windows だけが担当する規則を定めていました。本 ADR は UTF 変換の重複が Platform Windowing と RHI の双方で確認されたため、この二つの規則の UTF 変換に関する部分だけを置き換えます。その他の責務、依存方向、Window 契約は引き続き ADR-0004 と ADR-0006 に従います。
+ADR-0004 は Windows 実装 Target が契約 Target 以外へ実装依存を持たない規則を、ADR-0006 は UTF 変換を Cue.Platform.Windows だけが担当する規則を、ADR-0007 は `Cue.RHI.D3D12` の Allowed Dependencies を定めていました。本 ADR は UTF 変換の重複が Platform Windowing と RHI の双方で確認されたため、UTF 変換に関する三つの規則だけを置き換えます。その他の責務、依存方向、Window 契約は引き続き ADR-0004、ADR-0006、ADR-0007 に従います。
 
 ## Decision
 
