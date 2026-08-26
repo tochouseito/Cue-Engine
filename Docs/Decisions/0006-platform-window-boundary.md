@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-22
 - Decision Owners: CueEngine Project
+- Superseded in part by: ADR-0009（UTF-8 and UTF-16 Boundary の変換 Primitive 所有者）
 
 ## Context
 
@@ -223,6 +224,8 @@ struct WindowEvent
 
 ### UTF-8 and UTF-16 Boundary
 
+この節の変換 Primitive の所有者は ADR-0009 により更新されています。Cue.Platform.Windows は Window Title と Command Line の Error 変換および機能固有の事前条件を所有し、機械的な UTF 変換には Cue.Foundation.Windows を Private 利用します。
+
 - Engine側の文字列契約はUTF-8とする
 - Windows RuntimeHostは`wmain`でOSのUTF-16 Command Line Argumentを受け、`Cue.Platform.Windows`の変換APIを通してUTF-8へ変換する
 - RuntimeHostはWindows SDK HeaderをIncludeせず、Unicode Win32 APIを直接呼ばない
@@ -231,7 +234,7 @@ struct WindowEvent
 - UTF-16からUTF-8への変換中にAllocationが失敗した場合は、`AssertContext`のFatal HandlerでProcessを終了する
 - Windows実装はUnicode版Win32 APIを明示的に呼び、Encoding-neutral Macroへ依存しない
 - UTF-8からUTF-16への変換は`Cue.Platform.Windows`のPrivate Helperだけが担当する
-- UTF-16からUTF-8への変換はWindows RuntimeHost入口向けの`Cue.Platform.Windows`公開Helperだけが担当する
+- UTF-16からUTF-8へのWindows RuntimeHost入口向け公開Helperは`Cue.Platform.Windows`が所有し、機械的な変換は ADR-0009 の`Cue.Foundation.Windows`へ委譲する
 - 無効なUTF-8、変換失敗、長さOverflowはWindow生成前に`Result` Errorとして返す
 - 無効なUTF-16 Command Line Argument、変換失敗、長さOverflowも`Result` Errorとして返す
 - 変換後のBufferはWindow生成呼出中だけ保持し、Platform公開型へ`std::wstring`を出さない

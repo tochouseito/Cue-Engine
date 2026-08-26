@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-21
 - Decision Owners: CueEngine Project
+- Superseded in part by: ADR-0009（Windows UTF 変換に必要な Cue.Foundation.Windows Target と依存規則）
 
 ## Context
 
@@ -87,6 +88,7 @@ Target名は責務を表す`Cue.<Module>`形式を使用し、PlatformまたはB
 | Target | Kind | Responsibility |
 | --- | --- | --- |
 | `Cue.Foundation` | Static Library | Platform非依存な基本契約と実装 |
+| `Cue.Foundation.Windows` | Static Library | Windows UTF 変換の低層 Primitive。詳細は ADR-0009 |
 | `Cue.Platform` | Static Library | Platform非依存なPlatform契約 |
 | `Cue.Platform.Windows` | Static Library | Windows固有実装と変換境界 |
 | `Cue.RHI` | Static Library | Graphics API非依存なRHI契約 |
@@ -131,6 +133,11 @@ Engine/Source/<Module>/
 ```text
 Cue.Foundation
     ^
+    +-- Cue.Foundation.Windows
+    |       ^
+    |       +-- Cue.Platform.Windows (Private)
+    |       +-- Cue.RHI.D3D12 (Private)
+    |
     +-- Cue.Platform <--- Cue.Platform.Windows
     |
     +-- Cue.RHI <-------- Cue.RHI.D3D12
@@ -150,7 +157,7 @@ CueRuntimeHost
 
 - `Cue.Foundation`は他のEngine Moduleへ依存しない
 - `Cue.Platform`と`Cue.RHI`は相互に依存しない
-- Platform実装は`Cue.Platform`へ、RHI Backendは`Cue.RHI`へだけ実装依存を持つ
+- Platform実装は`Cue.Platform`へ、RHI Backendは`Cue.RHI`へ実装依存を持つ。Windows UTF 変換に限り、ADR-0009 に従って両実装 Target から`Cue.Foundation.Windows`へ Private 依存できる
 - RHI BackendはWindow実装やNative Window型を直接要求しない。必要な連携契約はPlatform非依存な値または後続ADRで定義する明示的なBoundaryへ置く
 - RuntimeHostはComposition Rootとして具体実装を選択できるが、具体型を他Moduleの公開APIへ渡さない
 - `CueRuntimeHost`は最終Executableであり、他TargetからLinkしない
@@ -227,9 +234,10 @@ Module側では、利用する最小依存だけを宣言します。
 
 ```cmake
 target_link_libraries(Cue.Platform PUBLIC Cue.Foundation)
-target_link_libraries(Cue.Platform.Windows PUBLIC Cue.Platform)
+target_link_libraries(Cue.Foundation.Windows PUBLIC Cue.Foundation)
+target_link_libraries(Cue.Platform.Windows PUBLIC Cue.Platform PRIVATE Cue.Foundation.Windows)
 target_link_libraries(Cue.RHI PUBLIC Cue.Foundation)
-target_link_libraries(Cue.RHI.D3D12 PUBLIC Cue.RHI)
+target_link_libraries(Cue.RHI.D3D12 PUBLIC Cue.RHI PRIVATE Cue.Foundation.Windows)
 
 target_link_libraries(
     CueRuntimeHost
