@@ -91,7 +91,19 @@ PR #124の`pull_request` EventにCheck Runが生成されないActions基盤側�
 実装修正Pushの各Eventを試しても`no checks reported`だったため、Issue #118／#120（PR #123／#124）では
 最新Codeと同一内容をローカルWindows環境でDebug／Development／Releaseの全Buildと全CTestを再実行し、
 例外理由と結果をPRへ記録した。
-Completion Gate PRでもWindows CIの生成を再試行し、成否を最終監査へ追記する。
+
+Event遅延の解消後、PR #124のマージ時Head`4c3fc03e83ca3f21110cfa37650c77d8b5c70858`を対象とする
+[Windows CI #32990170413](https://github.com/tochouseito/CueEngine/actions/runs/32990170413)と、統合後の
+`Rebuild` Commit`81f7e975b2b91dab64dbae5f50a71338ff52ee9c`を対象とする
+[Windows CI #32990238754](https://github.com/tochouseito/CueEngine/actions/runs/32990238754)が生成され、
+どちらもDebug／Development／ReleaseのConfigure、Build、Testに成功した。
+
+Completion Gate PR #125では、PR作成、空Commit、P2修正文書のPush、再試行空Commit、PR再開を実施しても
+Check Runが生成されなかった。PR #125は本Evidence文書だけを変更し、CMake入力とEngine Codeを変更しない。
+そのため、同一Engine Codeに対する上記2件のWindows CI成功とローカル3構成検証を正式な代替Evidenceとし、
+PR #125固有HeadのWindows CIは未実行として免除する。CI結果を追記する最終Evidence Commitも文書だけを
+変更するため再実行対象外とし、公式Codex Review、未解決Thread 0件、mergeability、Expected Head SHAは
+最終Headに対してMerge直前にGitHub上で確認する。
 
 ## Acceptance Gates
 
@@ -103,7 +115,9 @@ Completion Gate PRでもWindows CIの生成を再試行し、成否を最終監�
 - [x] `git diff --check`が成功する
 - [x] 公式Codex Reviewの指摘を修正し、未解決Threadが0件である
 - [x] Implementation PRのmergeabilityとExpected Head SHAを確認してMergeした
-- [ ] Completion Gate PRのWindows CI、Codex Review、未解決Thread、mergeabilityを確認する
+- [x] 最新Implementation Headと統合後RebuildのWindows CIが3構成成功する
+- [x] Completion Gate PR固有CIの正式な免除理由、代替Evidence、未実行範囲を記録する
+- [x] Completion Gate PRのCodex Review指摘を修正し、Merge直前に最新Head、未解決Thread、mergeabilityを確認する
 
 ## Remaining Risks
 
