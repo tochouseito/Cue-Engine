@@ -124,6 +124,7 @@ Issue #118 では次を検証します。
 - DRED 名変換失敗時の Fall Back
 - Foundation Dependency Test の Source 走査を Cue.Foundation Core Target の Source / File Set に限定し、Cue.Foundation 本体に Windows 依存がないこと
 - Cue.Foundation.Windows 専用の Dependency Test で、Cue.Foundation 以外の Project Target へ依存しないこと
+- Platform Dependency Test の Report と Private / LINK_ONLY Allowlist を更新し、Cue.Foundation.Windows が再公開されないこと
 - RHI Dependency Test で Cue.Platform.Windows への依存がないこと
 - Debug / Development / Release Build と全 Test
 
