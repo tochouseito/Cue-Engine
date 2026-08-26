@@ -1,3 +1,5 @@
+#include "TestSupport/RhiProcessTestFixture.h"
+
 #include <Cue/Foundation/Assert.h>
 #include <Cue/RHI/D3D12/TestSupport/D3d12AdapterSelectionProbe.h>
 
@@ -5,7 +7,6 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
-#include <cstdlib>
 #include <cstdint>
 #include <memory>
 #include <string_view>
@@ -17,22 +18,6 @@ namespace
 constexpr std::int64_t k_noHardwareAdapter = 24;
 constexpr std::int64_t k_noSuitableAdapter = 25;
 constexpr std::int64_t k_adapterLogFailed = 27;
-
-class ProcessFatalHandler final : public cue::FatalHandler
-{
-  public:
-    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
-    [[noreturn]] void terminate() noexcept override
-    {
-        std::_Exit(90);
-    }
-
-    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
-    [[noreturn]] void terminate(std::string_view) noexcept override
-    {
-        std::_Exit(91);
-    }
-};
 
 class ProcessLogSink final : public cue::LogSink
 {
@@ -157,7 +142,6 @@ int main(int a_argumentCount, char **a_arguments)
         return 2;
     }
 
-    ProcessFatalHandler fatalHandler;
     bool sawFactoryFallbackWarning = false;
     std::vector<std::unique_ptr<cue::LogSink>> sinks;
     bool useFailingSink = mode == "LogFailure" || mode == "FactoryFallbackLogFailure";
@@ -165,8 +149,8 @@ int main(int a_argumentCount, char **a_arguments)
                         ? std::unique_ptr<cue::LogSink>(std::make_unique<FailingLogSink>())
                         : std::unique_ptr<cue::LogSink>(
                               std::make_unique<ProcessLogSink>(sawFactoryFallbackWarning)));
-    cue::Logger logger(fatalHandler, std::move(sinks));
-    cue::AssertContext assertContext(logger, fatalHandler);
+    cue::test::RhiProcessTestFixture fixture(std::move(sinks));
+    cue::AssertContext &assertContext = fixture.assert_context();
 
     if (mode == "Skip")
     {

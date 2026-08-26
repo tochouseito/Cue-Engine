@@ -160,6 +160,24 @@ if(WIN32)
     target_compile_features(CueRhiD3d12SwapChainProcess PRIVATE cxx_std_20)
     target_link_libraries(CueRhiD3d12WindowsPublicHeaderTest PRIVATE Cue.RHI.D3D12.Windows)
     target_compile_features(CueRhiD3d12WindowsPublicHeaderTest PRIVATE cxx_std_20)
+    set(
+        cueRhiProcessTestTargets
+        CueRhiD3d12AdapterSelectionProcess
+        CueRhiD3d12BackendProcess
+        CueRhiD3d12DiagnosticsProcess
+        CueRhiD3d12FrameCommandProcess
+        CueRhiD3d12QueueStateProcess
+        CueRhiD3d12RtvHeapProcess
+        CueRhiD3d12SwapChainProcess
+    )
+
+    foreach(processTestTarget IN LISTS cueRhiProcessTestTargets)
+        target_sources(
+            ${processTestTarget}
+            PRIVATE
+                TestSupport/RhiProcessTestFixture.h
+        )
+    endforeach()
     list(
         APPEND
         cueRhiTestTargets

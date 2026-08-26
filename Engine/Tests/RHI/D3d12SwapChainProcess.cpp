@@ -1,3 +1,5 @@
+#include "TestSupport/RhiProcessTestFixture.h"
+
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Platform/WindowSystem.h>
 #include <Cue/Platform/Windows/WindowsPlatform.h>
@@ -8,7 +10,6 @@
 #include <Cue/RHI/D3D12/Windows/D3d12WindowsPresentation.h>
 
 #include <array>
-#include <cstdlib>
 #include <memory>
 #include <string_view>
 #include <utility>
@@ -16,22 +17,6 @@
 
 namespace
 {
-class ProcessFatalHandler final : public cue::FatalHandler
-{
-  public:
-    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
-    [[noreturn]] void terminate() noexcept override
-    {
-        std::_Exit(90);
-    }
-
-    /// @brief 回復不能な失敗の終了要求を処理し、実装が定める Process 終了動作を実行する
-    [[noreturn]] void terminate(std::string_view) noexcept override
-    {
-        std::_Exit(91);
-    }
-};
-
 class ProcessLogSink final : public cue::LogSink
 {
   public:
@@ -555,13 +540,12 @@ int main(int a_argumentCount, char **a_arguments)
         return 1;
     }
 
-    ProcessFatalHandler fatalHandler;
     std::vector<std::unique_ptr<cue::LogSink>> sinks;
     std::unique_ptr<ProcessLogSink> processSink = std::make_unique<ProcessLogSink>();
     ProcessLogSink *processSinkView = processSink.get();
     sinks.push_back(std::move(processSink));
-    cue::Logger logger(fatalHandler, std::move(sinks));
-    cue::AssertContext assertContext(logger, fatalHandler);
+    cue::test::RhiProcessTestFixture fixture(std::move(sinks));
+    cue::AssertContext &assertContext = fixture.assert_context();
     cue::Result<std::unique_ptr<cue::WindowSystem>> systemResult = cue::create_windows_window_system(assertContext);
 
     if (!systemResult)
@@ -629,8 +613,8 @@ int main(int a_argumentCount, char **a_arguments)
     {
         std::vector<std::unique_ptr<cue::LogSink>> failingSinks;
         failingSinks.push_back(std::make_unique<FailingLogSink>());
-        cue::Logger failingLogger(fatalHandler, std::move(failingSinks));
-        cue::AssertContext failingAssertContext(failingLogger, fatalHandler);
+        cue::test::RhiProcessTestFixture failingFixture(std::move(failingSinks));
+        cue::AssertContext &failingAssertContext = failingFixture.assert_context();
         valid = cue::verify_d3d12_swap_chain_log_failure_for_probe(nativeWindow, 640, 360, assertContext,
                                                                    failingAssertContext);
         failureCode = valid ? 0 : 12;
