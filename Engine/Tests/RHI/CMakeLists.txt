@@ -199,6 +199,7 @@ if(WIN32)
         Cue.RHI.D3D12.AdapterSelection.Warp
         Cue.RHI.D3D12.AdapterSelection.Skip
         Cue.RHI.D3D12.AdapterSelection.Mapping
+        Cue.RHI.D3D12.AdapterSelection.EmptyName
         Cue.RHI.D3D12.AdapterSelection.FactoryFallback
         Cue.RHI.D3D12.AdapterSelection.FactoryFallbackLogFailure
         Cue.RHI.D3D12.AdapterSelection.LogFailure
@@ -208,6 +209,7 @@ if(WIN32)
         Cue.RHI.D3D12.Backend.InvalidWaitTimeout
         Cue.RHI.D3D12.Diagnostics.Disabled
         Cue.RHI.D3D12.Diagnostics.Configured
+        Cue.RHI.D3D12.Diagnostics.EmptyDredFallback
         Cue.RHI.D3D12.FrameCommand.Smoke300
         Cue.RHI.D3D12.FrameCommand.InfoQueue300
         Cue.RHI.D3D12.FrameCommand.ClearTwoColors
@@ -460,6 +462,10 @@ if(WIN32)
         COMMAND CueRhiD3d12AdapterSelectionProcess Mapping
     )
     add_test(
+        NAME Cue.RHI.D3D12.AdapterSelection.EmptyName
+        COMMAND CueRhiD3d12AdapterSelectionProcess EmptyName
+    )
+    add_test(
         NAME Cue.RHI.D3D12.AdapterSelection.FactoryFallback
         COMMAND CueRhiD3d12AdapterSelectionProcess FactoryFallback
     )
@@ -494,6 +500,10 @@ if(WIN32)
     add_test(
         NAME Cue.RHI.D3D12.Diagnostics.Configured
         COMMAND CueRhiD3d12DiagnosticsProcess Configured
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.Diagnostics.EmptyDredFallback
+        COMMAND CueRhiD3d12DiagnosticsProcess EmptyDredFallback
     )
     add_test(
         NAME Cue.RHI.D3D12.Backend.InvalidWaitTimeout

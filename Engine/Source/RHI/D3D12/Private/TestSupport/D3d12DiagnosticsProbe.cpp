@@ -27,11 +27,24 @@ namespace
 
 namespace cue
 {
+/// @brief 現在の Build で D3D12 診断を許可できるか Probe から確認する
 bool are_d3d12_diagnostics_allowed_for_probe() noexcept
 {
     return are_d3d12_diagnostics_allowed();
 }
 
+/// @brief 空の DRED UTF-16 名が既定名へ Fall Back する既存契約を検証する
+bool verify_d3d12_empty_dred_name_fallback_for_probe(
+    const AssertContext &a_assertContext) noexcept
+{
+    constexpr std::string_view fallback = "Expected DRED fallback";
+    std::string storage;
+    const std::string_view selected = select_d3d12_dred_name(
+        nullptr, L"", fallback, storage, a_assertContext);
+    return selected == fallback && storage.empty();
+}
+
+/// @brief 診断無効設定を Device 生成前経路へ適用して結果を返す
 Result<D3d12DiagnosticsProbeReport> probe_disabled_d3d12_diagnostics(
     const AssertContext &a_assertContext) noexcept
 {
@@ -50,6 +63,7 @@ Result<D3d12DiagnosticsProbeReport> probe_disabled_d3d12_diagnostics(
     return Result<D3d12DiagnosticsProbeReport>::success(make_report(*result.try_value()));
 }
 
+/// @brief Standard Validation と DRED 設定を Device 生成前経路へ適用して結果を返す
 Result<D3d12DiagnosticsProbeReport> probe_configured_d3d12_diagnostics(
     const AssertContext &a_assertContext) noexcept
 {

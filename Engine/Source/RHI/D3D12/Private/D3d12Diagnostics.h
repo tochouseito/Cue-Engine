@@ -6,6 +6,7 @@
 #include <Cue/Foundation/Result.h>
 #include <Cue/RHI/D3D12/D3d12Backend.h>
 
+#include <string>
 #include <string_view>
 
 struct ID3D12Device;
@@ -20,6 +21,11 @@ struct D3d12DiagnosticsStatus final
     bool isDredEnabled;
     bool isInfoQueueEnabled;
 };
+
+/// @brief DRED 診断で利用可能な Object 名表現を優先順位に従って選択する
+[[nodiscard]] std::string_view select_d3d12_dred_name(
+    const char *a_utf8Name, const wchar_t *a_utf16Name, std::string_view a_fallback,
+    std::string &a_storage, const AssertContext &a_assertContext) noexcept;
 
 // Process の診断許可だけを副作用なしで問い合わせ、Release Build の既定無効化を一箇所へ集約する
 /// @brief Build 設定と実行 Mode から D3D12 診断を有効化できるか判定する

@@ -39,6 +39,10 @@ struct D3d12FactoryFallbackProbeReport final
 /// @brief Software候補と未対応Hardware候補をSkipするProduction選択Logicを検証する
 [[nodiscard]] bool verify_d3d12_unsupported_candidate_skip_for_probe() noexcept;
 
+/// @brief 空の DXGI Adapter 名が既存の D3D12 Error Code 23 で拒否されることを検証する
+[[nodiscard]] bool verify_d3d12_empty_adapter_name_rejection_for_probe(
+    const AssertContext &a_assertContext) noexcept;
+
 /// @brief Debug component不足を強制してFactory fallback本体を検証する
 [[nodiscard]] Result<D3d12FactoryFallbackProbeReport> probe_d3d12_factory_fallback(
     const AssertContext &a_assertContext) noexcept;

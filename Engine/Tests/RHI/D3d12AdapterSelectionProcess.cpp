@@ -137,7 +137,8 @@ int main(int a_argumentCount, char **a_arguments)
     std::string_view mode = a_arguments[1];
 
     if (mode != "Hardware" && mode != "Warp" && mode != "Skip" && mode != "Mapping" &&
-        mode != "FactoryFallback" && mode != "FactoryFallbackLogFailure" && mode != "LogFailure")
+        mode != "EmptyName" && mode != "FactoryFallback" && mode != "FactoryFallbackLogFailure" &&
+        mode != "LogFailure")
     {
         return 2;
     }
@@ -160,6 +161,11 @@ int main(int a_argumentCount, char **a_arguments)
     if (mode == "Mapping")
     {
         return cue::verify_d3d12_capability_mapping_for_probe(assertContext) ? 0 : 4;
+    }
+
+    if (mode == "EmptyName")
+    {
+        return cue::verify_d3d12_empty_adapter_name_rejection_for_probe(assertContext) ? 0 : 5;
     }
 
     if (mode == "FactoryFallback")

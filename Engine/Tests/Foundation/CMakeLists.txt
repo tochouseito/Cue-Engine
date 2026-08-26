@@ -28,6 +28,13 @@ add_executable(CueFoundationAssertTests AssertBehaviorTests.cpp)
 target_link_libraries(CueFoundationAssertTests PRIVATE Cue.Foundation)
 target_compile_features(CueFoundationAssertTests PRIVATE cxx_std_20)
 
+if(WIN32)
+    add_executable(CueFoundationWindowsUtfConversionTests WindowsUtfConversionTests.cpp)
+
+    target_link_libraries(CueFoundationWindowsUtfConversionTests PRIVATE Cue.Foundation.Windows)
+    target_compile_features(CueFoundationWindowsUtfConversionTests PRIVATE cxx_std_20)
+endif()
+
 get_target_property(cueFoundationLinkLibraries Cue.Foundation LINK_LIBRARIES)
 
 if(cueFoundationLinkLibraries MATCHES "-NOTFOUND$")
@@ -616,6 +623,39 @@ configure_file(
     @ONLY
 )
 
+if(WIN32)
+    get_target_property(cueFoundationWindowsLinks Cue.Foundation.Windows LINK_LIBRARIES)
+    get_target_property(
+        cueFoundationWindowsInterfaceLinks
+        Cue.Foundation.Windows
+        INTERFACE_LINK_LIBRARIES
+    )
+
+    if(NOT "${cueFoundationWindowsLinks}" STREQUAL "Cue.Foundation")
+        message(
+            FATAL_ERROR
+            "Cue.Foundation.Windows must directly link only Cue.Foundation: ${cueFoundationWindowsLinks}"
+        )
+    endif()
+
+    if(NOT "${cueFoundationWindowsInterfaceLinks}" STREQUAL "Cue.Foundation")
+        message(
+            FATAL_ERROR
+            "Cue.Foundation.Windows must expose only Cue.Foundation: ${cueFoundationWindowsInterfaceLinks}"
+        )
+    endif()
+
+    set(
+        cueFoundationWindowsDependencyReport
+        "${CMAKE_CURRENT_BINARY_DIR}/Cue.Foundation.Windows.Dependencies.txt"
+    )
+    configure_file(
+        FoundationWindowsDependencyReport.txt.in
+        "${cueFoundationWindowsDependencyReport}"
+        @ONLY
+    )
+endif()
+
 configure_file(
     CMakeGraphVizOptions.cmake
     "${CMAKE_BINARY_DIR}/CMakeGraphVizOptions.cmake"
@@ -639,17 +679,22 @@ add_executable(
 target_link_libraries(CueFoundationPublicHeaderTest PRIVATE Cue.Foundation)
 target_compile_features(CueFoundationPublicHeaderTest PRIVATE cxx_std_20)
 
-foreach(
-    testTarget
-    IN ITEMS
-        CueFoundationEmergencyTests
-        CueFoundationLoggerTests
-        CueFoundationDiagnosticsProcessTests
-        CueFoundationAssertTests
-        CueFoundationResultTests
-        CueFoundationNumberParsingTests
-        CueFoundationPublicHeaderTest
+set(
+    cueFoundationTestTargets
+    CueFoundationEmergencyTests
+    CueFoundationLoggerTests
+    CueFoundationDiagnosticsProcessTests
+    CueFoundationAssertTests
+    CueFoundationResultTests
+    CueFoundationNumberParsingTests
+    CueFoundationPublicHeaderTest
 )
+
+if(WIN32)
+    list(APPEND cueFoundationTestTargets CueFoundationWindowsUtfConversionTests)
+endif()
+
+foreach(testTarget IN LISTS cueFoundationTestTargets)
     set_target_properties(
         ${testTarget}
         PROPERTIES
@@ -680,14 +725,7 @@ endforeach()
 
 add_custom_target(
     Cue.Foundation.Tests
-    DEPENDS
-        CueFoundationEmergencyTests
-        CueFoundationLoggerTests
-        CueFoundationDiagnosticsProcessTests
-        CueFoundationAssertTests
-        CueFoundationResultTests
-        CueFoundationNumberParsingTests
-        CueFoundationPublicHeaderTest
+    DEPENDS ${cueFoundationTestTargets}
 )
 
 add_test(NAME Cue.Foundation.Result COMMAND CueFoundationResultTests)
@@ -695,6 +733,10 @@ add_test(NAME Cue.Foundation.NumberParsing COMMAND CueFoundationNumberParsingTes
 add_test(NAME Cue.Foundation.PublicHeaders COMMAND CueFoundationPublicHeaderTest)
 add_test(NAME Cue.Foundation.Logger COMMAND CueFoundationLoggerTests)
 add_test(NAME Cue.Foundation.Assert.Success COMMAND CueFoundationAssertTests Success)
+
+if(WIN32)
+    add_test(NAME Cue.Foundation.Windows.UtfConversion COMMAND CueFoundationWindowsUtfConversionTests)
+endif()
 
 get_filename_component(cueFoundationToolDirectory "${CMAKE_LINKER}" DIRECTORY)
 find_program(
@@ -789,6 +831,26 @@ set_tests_properties(
         LABELS Foundation
         TIMEOUT 10
 )
+
+if(WIN32)
+    add_test(
+        NAME Cue.Foundation.Windows.Dependencies
+        COMMAND
+            ${CMAKE_COMMAND}
+            -DREPORT_FILE=${cueFoundationWindowsDependencyReport}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyFoundationWindowsDependencies.cmake
+    )
+endif()
+
+if(WIN32)
+    set_tests_properties(
+        Cue.Foundation.Windows.UtfConversion
+        Cue.Foundation.Windows.Dependencies
+        PROPERTIES
+            LABELS "Foundation;Windows"
+            TIMEOUT 10
+    )
+endif()
 
 set_tests_properties(
     Cue.Foundation.Assert.Failure

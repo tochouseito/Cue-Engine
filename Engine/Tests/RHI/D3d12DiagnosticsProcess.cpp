@@ -41,6 +41,12 @@ int main(int a_argumentCount, char **a_arguments)
     cue::test::RhiProcessTestFixture fixture;
     cue::AssertContext &assertContext = fixture.assert_context();
     std::string_view mode = a_arguments[1];
+
+    if (mode == "EmptyDredFallback")
+    {
+        return cue::verify_d3d12_empty_dred_name_fallback_for_probe(assertContext) ? 0 : 5;
+    }
+
     cue::Result<cue::D3d12DiagnosticsProbeReport> result =
         mode == "Disabled" ? cue::probe_disabled_d3d12_diagnostics(assertContext)
                            : cue::probe_configured_d3d12_diagnostics(assertContext);

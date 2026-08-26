@@ -1,0 +1,5 @@
+Cue.Foundation.Windows LINK_LIBRARIES: @cueFoundationWindowsLinks@
+Cue.Foundation.Windows INTERFACE_LINK_LIBRARIES: @cueFoundationWindowsInterfaceLinks@
+Allowed graph: Cue.Foundation.Windows->Cue.Foundation
+Cue.Foundation core Windows dependency: forbidden
+Upper module dependencies: forbidden

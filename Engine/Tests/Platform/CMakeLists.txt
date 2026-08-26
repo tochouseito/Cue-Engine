@@ -435,8 +435,8 @@ if(NOT "${cuePlatformInterfaceLinks}" STREQUAL "Cue.Foundation")
     )
 endif()
 
-set(cuePlatformWindowsAllowedLinks Cue.Platform User32)
-set(cuePlatformWindowsAllowedLinkOnlyLibraries User32)
+set(cuePlatformWindowsAllowedLinks Cue.Platform Cue.Foundation.Windows User32)
+set(cuePlatformWindowsAllowedLinkOnlyLibraries Cue.Foundation.Windows User32)
 
 foreach(cuePlatformWindowsInterfaceLink IN LISTS cuePlatformWindowsInterfaceLinks)
     if(cuePlatformWindowsInterfaceLink STREQUAL "Cue.Platform")
@@ -493,6 +493,28 @@ list(FIND cuePlatformWindowsLinks Cue.Platform cuePlatformWindowsPlatformLinkInd
 
 if(cuePlatformWindowsPlatformLinkIndex EQUAL -1)
     message(FATAL_ERROR "Cue.Platform.Windows must link Cue.Platform")
+endif()
+
+list(
+    FIND
+    cuePlatformWindowsLinks
+    Cue.Foundation.Windows
+    cuePlatformWindowsFoundationWindowsLinkIndex
+)
+
+if(cuePlatformWindowsFoundationWindowsLinkIndex EQUAL -1)
+    message(FATAL_ERROR "Cue.Platform.Windows must privately link Cue.Foundation.Windows")
+endif()
+
+list(
+    FIND
+    cuePlatformWindowsInterfaceLinks
+    "$<LINK_ONLY:Cue.Foundation.Windows>"
+    cuePlatformWindowsFoundationWindowsLinkOnlyIndex
+)
+
+if(cuePlatformWindowsFoundationWindowsLinkOnlyIndex EQUAL -1)
+    message(FATAL_ERROR "Cue.Platform.Windows must expose Cue.Foundation.Windows only through LINK_ONLY")
 endif()
 
 foreach(

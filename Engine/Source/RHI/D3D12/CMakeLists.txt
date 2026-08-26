@@ -58,6 +58,7 @@ target_link_libraries(
     PUBLIC
         Cue.RHI
     PRIVATE
+        Cue.Foundation.Windows
         D3D12
         DXGI
         DXGUID

@@ -70,3 +70,7 @@ if(MSVC)
             $<$<CONFIG:Development>:/DEBUG>
     )
 endif()
+
+if(WIN32)
+    add_subdirectory(Windows)
+endif()

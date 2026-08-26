@@ -137,22 +137,10 @@ foreach(
     )
 endforeach()
 
-file(
-    GLOB_RECURSE
-    foundationSources
-    LIST_DIRECTORIES FALSE
-    "${FOUNDATION_SOURCE_DIR}/*.cc"
-    "${FOUNDATION_SOURCE_DIR}/*.cpp"
-    "${FOUNDATION_SOURCE_DIR}/*.cxx"
-    "${FOUNDATION_SOURCE_DIR}/*.h"
-    "${FOUNDATION_SOURCE_DIR}/*.hpp"
-    "${FOUNDATION_SOURCE_DIR}/*.inl"
-)
 file(STRINGS "${FOUNDATION_HEADER_SET_FILE_LIST}" foundationHeaderSetFiles)
 file(STRINGS "${FOUNDATION_TARGET_SOURCE_FILE_LIST}" foundationTargetSourceFiles)
 file(STRINGS "${FOUNDATION_INCLUDE_DIRECTORY_LIST}" foundationIncludeDirectories)
-list(APPEND foundationSources ${foundationHeaderSetFiles})
-list(APPEND foundationSources ${foundationTargetSourceFiles})
+set(foundationSources ${foundationHeaderSetFiles} ${foundationTargetSourceFiles})
 list(REMOVE_DUPLICATES foundationSources)
 
 if(NOT WIN32)
