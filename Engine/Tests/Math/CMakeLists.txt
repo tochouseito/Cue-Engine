@@ -105,6 +105,34 @@ string(
     "CMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE}\n"
 )
 
+get_target_property(cueMathSources Cue.Math SOURCES)
+
+foreach(sourcePath IN LISTS cueMathSources)
+    foreach(
+        sourceProperty
+        COMPILE_DEFINITIONS
+        COMPILE_OPTIONS
+        COMPILE_FLAGS
+        INCLUDE_DIRECTORIES
+    )
+        get_source_file_property(
+            sourcePropertyValue
+            "${sourcePath}"
+            ${sourceProperty}
+        )
+
+        if(sourcePropertyValue STREQUAL "NOTFOUND")
+            set(sourcePropertyValue "")
+        endif()
+
+        string(
+            APPEND
+            cueMathBuildPropertiesContent
+            "SOURCE[${sourcePath}].${sourceProperty}=${sourcePropertyValue}\n"
+        )
+    endforeach()
+endforeach()
+
 file(
     GENERATE
     OUTPUT "${cueMathBuildPropertiesPath}"

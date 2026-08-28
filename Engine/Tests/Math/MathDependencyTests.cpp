@@ -1124,21 +1124,32 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     std::string_view a_manifest)
 {
     const auto normalized = lower_ascii(a_manifest);
-    constexpr std::array<std::string_view, 4> forbiddenHeaders = {
+    constexpr std::array<std::string_view, 15> forbiddenDependencies = {
         "directxmath",
         "directxpackedvector",
         "directxcollision",
         "directxcolors",
+        "windows.h",
+        "d3d12.h",
+        "intrin.h",
+        "cue/platform/",
+        "cue/rhi/",
+        "cue/runtimehost/",
+        "cue/editor/",
+        "cue.platform",
+        "cue.rhi",
+        "cue.runtimehost",
+        "cue.editor",
     };
-    const bool hasForbiddenHeader = std::any_of(
-        forbiddenHeaders.begin(), forbiddenHeaders.end(),
+    const bool hasForbiddenDependency = std::any_of(
+        forbiddenDependencies.begin(), forbiddenDependencies.end(),
         [&normalized](std::string_view a_header)
         {
             return normalized.find(a_header) != std::string::npos;
         });
     const bool hasDirectXDefinition =
         contains_ascii_identifier(a_manifest, "DirectX");
-    return hasForbiddenHeader || hasDirectXDefinition;
+    return hasForbiddenDependency || hasDirectXDefinition;
 }
 
 /// @brief CMakeが生成したCue.Math Build Property Manifestを検証する
@@ -1408,6 +1419,28 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         "COMPILE_DEFINITIONS=NS=DirectX\n";
 
     if (!has_forbidden_math_build_configuration(cmakeCompileDefinition))
+    {
+        return false;
+    }
+
+    constexpr std::array<std::string_view, 3> platformHeaderProperties = {
+        "PRECOMPILE_HEADERS=<windows.h>\n",
+        "PRECOMPILE_HEADERS=<d3d12.h>\n",
+        "PRECOMPILE_HEADERS=<intrin.h>\n",
+    };
+
+    for (const auto property : platformHeaderProperties)
+    {
+        if (!has_forbidden_math_build_configuration(property))
+        {
+            return false;
+        }
+    }
+
+    constexpr std::string_view sourceCompileOption =
+        "SOURCE[Private/Vector.cpp].COMPILE_OPTIONS=/FI:DirectXCollision.h\n";
+
+    if (!has_forbidden_math_build_configuration(sourceCompileOption))
     {
         return false;
     }
