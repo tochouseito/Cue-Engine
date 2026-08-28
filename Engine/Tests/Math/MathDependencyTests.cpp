@@ -1156,8 +1156,8 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     return true;
 }
 
-/// @brief Build PropertyがForced Include Optionを含む場合にtrueを返す
-[[nodiscard]] bool has_forced_include_option(
+/// @brief Build Propertyが未監査のSource注入またはInclude Path Optionを含む場合にtrueを返す
+[[nodiscard]] bool has_unaudited_compile_option(
     std::string_view a_manifest)
 {
     std::size_t lineStart = 0U;
@@ -1245,7 +1245,10 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                             return true;
                         }
 
-                        if (option.substr(candidate, 3U) == "/fi" ||
+                        if (option.substr(candidate, 2U) == "/i" ||
+                            option.substr(candidate, 2U) == "-i" ||
+                            option.substr(candidate, 11U) == "/external:i" ||
+                            option.substr(candidate, 3U) == "/fi" ||
                             option.substr(candidate, 3U) == "-fi" ||
                             option.substr(candidate, 8U) == "-include" ||
                             option.substr(candidate, 8U) == "-imacros")
@@ -1488,7 +1491,7 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     const bool hasDirectXDefinition =
         contains_ascii_identifier(a_manifest, "DirectX");
     return hasForbiddenDependency || hasDirectXDefinition ||
-           has_forced_include_option(a_manifest) ||
+           has_unaudited_compile_option(a_manifest) ||
            has_link_injection_option(a_manifest) ||
            has_implicit_include_directory(a_manifest);
 }
@@ -1884,7 +1887,7 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     constexpr std::string_view driveIncludeDirectory =
         "INCLUDE_DIRECTORIES=C:/FirstParty/include\n";
 
-    if (has_forced_include_option(driveIncludeDirectory))
+    if (has_unaudited_compile_option(driveIncludeDirectory))
     {
         return false;
     }
@@ -1892,7 +1895,7 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     constexpr std::string_view definitionWithShellPath =
         "COMPILE_DEFINITIONS=PATH=SHELL:/FirstParty/include\n";
 
-    if (has_forced_include_option(definitionWithShellPath))
+    if (has_unaudited_compile_option(definitionWithShellPath))
     {
         return false;
     }
@@ -1900,9 +1903,25 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     constexpr std::string_view compileOptionWithEmbeddedShellPath =
         "COMPILE_OPTIONS=/DPATH=SHELL:/FirstParty/include\n";
 
-    if (has_forced_include_option(compileOptionWithEmbeddedShellPath))
+    if (has_unaudited_compile_option(compileOptionWithEmbeddedShellPath))
     {
         return false;
+    }
+
+    constexpr std::array<std::string_view, 5> includePathOptions = {
+        "COMPILE_OPTIONS=/IC:/CueRepo/out/GeneratedInclude\n",
+        "COMPILE_OPTIONS=/imsvcC:/CueRepo/out/GeneratedInclude\n",
+        "COMPILE_OPTIONS=-isystem;C:/CueRepo/out/GeneratedInclude\n",
+        "COMPILE_OPTIONS=-iquote;C:/CueRepo/out/GeneratedInclude\n",
+        "COMPILE_OPTIONS=/external:IC:/CueRepo/out/GeneratedInclude\n",
+    };
+
+    for (const auto option : includePathOptions)
+    {
+        if (!has_forbidden_math_build_configuration(option))
+        {
+            return false;
+        }
     }
 
     constexpr std::string_view implicitBuildInclude =
