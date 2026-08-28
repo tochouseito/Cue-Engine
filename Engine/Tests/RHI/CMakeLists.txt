@@ -207,6 +207,8 @@ if(WIN32)
         Cue.RHI.D3D12.Backend.DeviceFailure
         Cue.RHI.D3D12.Backend.ThreadDestruction
         Cue.RHI.D3D12.Backend.InvalidWaitTimeout
+        Cue.RHI.D3D12.Backend.OptionalCapabilityFailure
+        Cue.RHI.D3D12.Backend.OptionalCapabilityLogFailure
         Cue.RHI.D3D12.Diagnostics.Disabled
         Cue.RHI.D3D12.Diagnostics.Configured
         Cue.RHI.D3D12.Diagnostics.EmptyDredFallback
@@ -482,6 +484,14 @@ if(WIN32)
         COMMAND CueRhiD3d12BackendProcess Warp
     )
     add_test(
+        NAME Cue.RHI.D3D12.Backend.OptionalCapabilityFailure
+        COMMAND CueRhiD3d12BackendProcess OptionalCapabilityFailure
+    )
+    add_test(
+        NAME Cue.RHI.D3D12.Backend.OptionalCapabilityLogFailure
+        COMMAND CueRhiD3d12BackendProcess OptionalCapabilityLogFailure
+    )
+    add_test(
         NAME Cue.RHI.D3D12.Backend.DeviceFailure
         COMMAND CueRhiD3d12BackendProcess DeviceFailure
     )
@@ -505,8 +515,8 @@ if(WIN32)
         NAME Cue.RHI.D3D12.Diagnostics.EmptyDredFallback
         COMMAND CueRhiD3d12DiagnosticsProcess EmptyDredFallback
     )
-add_test(
-    NAME Cue.RHI.D3D12.Backend.InvalidWaitTimeout
+    add_test(
+        NAME Cue.RHI.D3D12.Backend.InvalidWaitTimeout
         COMMAND CueRhiD3d12BackendProcess InvalidWaitTimeout
     )
     add_test(
@@ -833,16 +843,6 @@ set_tests_properties(
     PROPERTIES
         LABELS RHI
         TIMEOUT 10
-)
-
-add_test(
-    NAME Cue.RHI.D3D12.Backend.OptionalCapabilityFailure
-    COMMAND CueRhiD3d12BackendProcess OptionalCapabilityFailure
-)
-
-add_test(
-    NAME Cue.RHI.D3D12.Backend.OptionalCapabilityLogFailure
-    COMMAND CueRhiD3d12BackendProcess OptionalCapabilityLogFailure
 )
 
 if(WIN32)

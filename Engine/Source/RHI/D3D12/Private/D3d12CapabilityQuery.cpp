@@ -297,6 +297,12 @@ Result<CapabilityReport> query_d3d12_capability_report(
         report.rootSignature = value ? GraphicsCapabilityValue<CapabilityVersion>::supported(*value)
                                      : GraphicsCapabilityValue<CapabilityVersion>::query_failed();
     }
+    else if (result == E_INVALIDARG)
+    {
+        // Root Signature 1.1を認識しないRuntimeでもD3D12 Baselineの1.0は利用できる
+        report.rootSignature =
+            GraphicsCapabilityValue<CapabilityVersion>::supported(CapabilityVersion{1, 0});
+    }
     else
     {
         report.rootSignature = GraphicsCapabilityValue<CapabilityVersion>::query_failed();

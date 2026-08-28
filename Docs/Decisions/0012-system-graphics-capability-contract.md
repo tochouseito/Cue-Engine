@@ -299,6 +299,14 @@ Graphics Snapshotには次の種類を含める。
 - Wave Operation、Enhanced Barrier等のFeature State
 - UMAとCache Coherent UMA等のArchitecture State
 
+Issue #132で確定した公開APIでは、TierまたはVersionを伴う項目を`GraphicsCapabilityValue<T>`で保持する。`support_state()`は`NotQueried + Unknown`、`Failed + Unknown`、`Succeeded + Unsupported`、`Succeeded + Supported`を区別し、`try_value()`は最後の状態だけで型付きTierまたは`CapabilityVersion`を返す。Native enumとの数値互換は保証しない。
+
+既存の`CapabilityReport::isUma`は削除し、`uma`と`cacheCoherentUma`の`CapabilitySupportState`へ置き換える。利用側は単純な真偽値へ戻さず、少なくとも`query_status()`と`support()`を確認する。例えばQuery失敗をUnsupportedとしてFallback条件に使用してはならない。
+
+Feature Level、Shader Model、Root Signature、Resource Binding／Heap Tier、Raytracing、Mesh Shader、VRS、Sampler Feedbackは型付き値を保持する。Wave Operations、Enhanced Barriers、UMA、Cache Coherent UMAはTierを持たないため`CapabilitySupportState`を直接保持する。Hardware／WARPの区別は既存の`adapterKind`を継続して使用する。
+
+新しいD3D12 Runtime定数を古いRuntimeが認識しない場合は、APIが保証する既知Baselineへだけ段階的にFallbackして最大対応値を再照会または確定する。Shader Modelは6.8から6.0まで`E_INVALIDARG`時に再試行し、Root Signature 1.1が`E_INVALIDARG`の場合はD3D12 Baselineの1.0として記録する。それ以外の失敗を既知の下位Versionへ偽装しない。
+
 Optional `CheckFeatureSupport`が失敗しても、Baseline Backend生成条件を満たしていればBackend生成全体を失敗させない。そのFeatureだけを`Failed + Unknown`として記録し、Native失敗は診断Logへ残す。
 
 Optional Query失敗のNative Errorを`Logger::log()`へ渡し、`LogResult::Success`なら`Failed + Unknown`を保持したBackend生成を継続する。`LogResult::SinkFailure`の場合は、Optional Query失敗そのものではなく診断配送失敗をPrimary Errorとし、同じNative ErrorをCauseとして再構築した`Result`失敗を`create_d3d12_backend()`から返す。Native ErrorがMove済みになるため、既存D3D12診断Helperと同様にNative CodeからCauseを再構築する。
