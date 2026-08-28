@@ -718,7 +718,6 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     const std::filesystem::path &a_path, bool a_reportsFailure = true)
 {
     std::size_t lineStart = 0U;
-    std::vector<std::string> definedMacros;
 
     while (lineStart <= a_code.size())
     {
@@ -807,19 +806,16 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
             {
                 auto definition = trim_ascii_left(
                     line.substr(directiveStart + defineName.size()));
-                const auto macroNameStart = definition.data();
-
                 while (!definition.empty() &&
                        is_identifier_continue(definition.front()))
                 {
                     definition.remove_prefix(1U);
                 }
 
-                definedMacros.emplace_back(
-                    macroNameStart,
-                    static_cast<std::size_t>(definition.data() - macroNameStart));
+                const bool isFunctionLike =
+                    !definition.empty() && definition.front() == '(';
 
-                if (!definition.empty() && definition.front() == '(')
+                if (isFunctionLike)
                 {
                     const auto close = definition.find(')');
 
@@ -849,6 +845,30 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                     }
 
                     return false;
+                }
+
+                if (!isFunctionLike && !replacement.empty() &&
+                    replacement.front() == '<')
+                {
+                    const auto close = replacement.find('>', 1U);
+
+                    if (close == std::string_view::npos)
+                    {
+                        if (a_reportsFailure)
+                        {
+                            std::cerr << "Unterminated macro header operand: "
+                                      << a_path.string() << '\n';
+                        }
+
+                        return false;
+                    }
+
+                    if (!validate_header_operand(
+                            replacement.substr(1U, close - 1U),
+                            a_isMathSource, a_path, a_reportsFailure))
+                    {
+                        return false;
+                    }
                 }
             }
         }
@@ -892,31 +912,6 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                         operand.substr(1U, close - 1U), a_isMathSource,
                         a_path, a_reportsFailure))
                 {
-                    return false;
-                }
-            }
-            else if (!operand.empty() && is_identifier_start(operand.front()))
-            {
-                auto macroNameEnd = 1U;
-
-                while (macroNameEnd < operand.size() &&
-                       is_identifier_continue(operand[macroNameEnd]))
-                {
-                    ++macroNameEnd;
-                }
-
-                const auto macroName = operand.substr(0U, macroNameEnd);
-
-                if (std::find(
-                        definedMacros.begin(), definedMacros.end(), macroName) !=
-                    definedMacros.end())
-                {
-                    if (a_reportsFailure)
-                    {
-                        std::cerr << "Macro import operand is forbidden: "
-                                  << a_path.string() << '\n';
-                    }
-
                     return false;
                 }
             }
@@ -1130,6 +1125,16 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
     if (validate_include_directives(
             macroHeaderUnitImport, false, "MacroHeaderUnitProbe.cpp", false))
+    {
+        return false;
+    }
+
+    const auto inactiveImportMacros = sanitize_cpp_source(
+        "#define H() <DirectXMath.h>\nimport H;\n"
+        "#define M Cue.Math\n#undef M\nimport M;\n");
+
+    if (!validate_include_directives(
+            inactiveImportMacros, false, "InactiveImportMacroProbe.cpp", false))
     {
         return false;
     }
