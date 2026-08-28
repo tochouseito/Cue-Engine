@@ -225,6 +225,14 @@ template <typename T>
 [[nodiscard]] bool test_quaternion_failures(TestEmergencyHandler &a_handler,
                                             const cue::math::Tolerance &a_tolerance)
 {
+    auto strictToleranceResult = cue::math::Tolerance::create(a_handler, 0.0F, 0.0F);
+
+    if (!strictToleranceResult)
+    {
+        return false;
+    }
+
+    const auto strictTolerance = *strictToleranceResult.try_value();
     auto nonUnit = cue::math::to_matrix3(a_handler, cue::math::Quaternion{0.0F, 0.0F, 0.0F, 2.0F},
                                          a_tolerance);
     auto zero = cue::math::normalize(a_handler,
@@ -239,12 +247,21 @@ template <typename T>
     const auto maximum = std::numeric_limits<float>::max();
     auto extremeInverse = cue::math::inverse(
         a_handler, cue::math::Quaternion{maximum, maximum, 0.0F, 0.0F}, a_tolerance);
+    auto strictNormalized = cue::math::normalize(
+        a_handler, cue::math::Quaternion{1.0F, 1.0F, 1.0F, 0.0F}, strictTolerance);
+    auto strictAxisRotation = cue::math::from_axis_angle(
+        a_handler, cue::math::Vector3{1.0F, 1.0F, 1.0F}, cue::math::Radians(1.0F),
+        strictTolerance);
+    const auto strictAxisRotationUsable =
+        !strictAxisRotation ||
+        cue::math::is_unit_rotation(*strictAxisRotation.try_value(), strictTolerance);
 
     return has_math_error(nonUnit, 2) && has_math_error(zero, 2) &&
            has_math_error(nonFinite, 1) &&
            cue::math::is_same_rotation(identity, negatedIdentity, a_tolerance) &&
            extremeInverse && extremeInverse.try_value()->x < 0.0F &&
-           extremeInverse.try_value()->y < 0.0F;
+           extremeInverse.try_value()->y < 0.0F && has_math_error(strictNormalized, 2) &&
+           strictAxisRotationUsable;
 }
 
 /// @brief TransformがScale、Rotation、Translation順にPointとDirectionを変換することを検証する

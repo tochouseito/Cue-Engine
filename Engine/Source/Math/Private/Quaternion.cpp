@@ -112,6 +112,15 @@ cue::Result<Quaternion> normalize(cue::EmergencyHandler &a_emergencyHandler,
     const auto scaledLength = length(scaled);
     auto normalized = Quaternion{scaled.x / scaledLength, scaled.y / scaledLength,
                                  scaled.z / scaledLength, scaled.w / scaledLength};
+
+    if (!is_unit_rotation(normalized, a_tolerance))
+    {
+        auto error = make_quaternion_error(
+            a_emergencyHandler, 2,
+            "Normalized Quaternion is not unit length within the requested tolerance");
+        return cue::Result<Quaternion>::failure(std::move(error));
+    }
+
     return cue::Result<Quaternion>::success(std::move(normalized));
 }
 
