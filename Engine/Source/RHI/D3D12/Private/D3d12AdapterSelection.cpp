@@ -56,8 +56,8 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
 }
 
 /// @brief 入力を Adapter Name へ検証付きで変換し、変換結果を返す
-[[nodiscard]] cue::Result<std::string> convert_adapter_name_impl(
-    std::wstring_view a_name, const cue::AssertContext &a_context) noexcept
+[[nodiscard]] cue::Result<std::string> convert_adapter_name_impl(std::wstring_view a_name,
+                                                                 const cue::AssertContext &a_context) noexcept
 {
     if (a_name.empty() || a_name.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
     {
@@ -66,24 +66,24 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
     }
 
     std::string result;
-    const cue::WindowsUtfConversionResult conversion = cue::convert_windows_utf16_to_utf8(
-        a_name, result, a_context.fatal_handler());
+    const cue::WindowsUtfConversionResult conversion =
+        cue::convert_windows_utf16_to_utf8(a_name, result, a_context.fatal_handler());
 
     if (conversion.status != cue::WindowsUtfConversionStatus::Success)
     {
         const std::string_view summary = conversion.status == cue::WindowsUtfConversionStatus::InvalidSequence
                                              ? "DXGI adapter name is not valid UTF-16"
                                              : "DXGI adapter name conversion failed";
-        return cue::Result<std::string>::failure(make_win32_error(
-            a_context, k_adapterNameFailed, summary, static_cast<DWORD>(conversion.nativeCode)));
+        return cue::Result<std::string>::failure(
+            make_win32_error(a_context, k_adapterNameFailed, summary, static_cast<DWORD>(conversion.nativeCode)));
     }
 
     return cue::Result<std::string>::success(std::move(result));
 }
 
 /// @brief D3D12 Adapter 選択が保持する Get Adapter Name を呼び出し元へ返す
-[[nodiscard]] cue::Result<std::wstring_view> get_adapter_name(
-    const DXGI_ADAPTER_DESC3 &a_description, const cue::AssertContext &a_context) noexcept
+[[nodiscard]] cue::Result<std::wstring_view> get_adapter_name(const DXGI_ADAPTER_DESC3 &a_description,
+                                                              const cue::AssertContext &a_context) noexcept
 {
     std::size_t length = 0;
 
@@ -98,17 +98,15 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
             make_error(a_context, k_adapterNameFailed, "DXGI adapter name is not terminated"));
     }
 
-    return cue::Result<std::wstring_view>::success(
-        std::wstring_view(a_description.Description, length));
+    return cue::Result<std::wstring_view>::success(std::wstring_view(a_description.Description, length));
 }
 
 /// @brief D3D12 Adapter 選択の Skipped Candidate を診断出力へ反映し、出力結果を返す
-[[nodiscard]] cue::Result<void> log_skipped_candidate(
-    UINT a_index, HRESULT a_probeResult, const cue::AssertContext &a_context) noexcept
+[[nodiscard]] cue::Result<void> log_skipped_candidate(UINT a_index, HRESULT a_probeResult,
+                                                      const cue::AssertContext &a_context) noexcept
 {
-    cue::Error error = make_dxgi_error(
-        a_context, k_noSuitableAdapter, "DXGI adapter does not satisfy D3D Feature Level 12_0",
-        a_probeResult, "D3D12");
+    cue::Error error = make_dxgi_error(a_context, k_noSuitableAdapter,
+                                       "DXGI adapter does not satisfy D3D Feature Level 12_0", a_probeResult, "D3D12");
 
     try
     {
@@ -119,17 +117,16 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
         terminate_allocation(a_context);
     }
 
-    cue::LogResult logResult = a_context.logger().log(
-        cue::LogLevel::Info, "D3D12未対応AdapterをSkipします", std::move(error));
+    cue::LogResult logResult =
+        a_context.logger().log(cue::LogLevel::Info, "D3D12未対応AdapterをSkipします", std::move(error));
     return validate_log_result(logResult, a_context);
 }
 
 /// @brief D3D12 Adapter 選択の Software Candidate を診断出力へ反映し、出力結果を返す
-[[nodiscard]] cue::Result<void> log_software_candidate(
-    UINT a_index, const cue::AssertContext &a_context) noexcept
+[[nodiscard]] cue::Result<void> log_software_candidate(UINT a_index, const cue::AssertContext &a_context) noexcept
 {
-    cue::Error error = make_error(
-        a_context, k_noSuitableAdapter, "Software DXGI adapter is excluded by hardware policy");
+    cue::Error error =
+        make_error(a_context, k_noSuitableAdapter, "Software DXGI adapter is excluded by hardware policy");
 
     try
     {
@@ -140,15 +137,15 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
         terminate_allocation(a_context);
     }
 
-    cue::LogResult logResult = a_context.logger().log(
-        cue::LogLevel::Debug, "Software AdapterをHardware候補から除外します", std::move(error));
+    cue::LogResult logResult =
+        a_context.logger().log(cue::LogLevel::Debug, "Software AdapterをHardware候補から除外します", std::move(error));
     return validate_log_result(logResult, a_context);
 }
 
 /// @brief Probe で収集した状態を呼び出し元が検証可能な Report へまとめる
-[[nodiscard]] cue::Result<cue::D3d12AdapterReport> make_report(
-    const DXGI_ADAPTER_DESC3 &a_description, cue::GraphicsAdapterKind a_kind,
-    const cue::AssertContext &a_context) noexcept
+[[nodiscard]] cue::Result<cue::D3d12AdapterReport> make_report(const DXGI_ADAPTER_DESC3 &a_description,
+                                                               cue::GraphicsAdapterKind a_kind,
+                                                               const cue::AssertContext &a_context) noexcept
 {
     cue::Result<std::wstring_view> nameViewResult = get_adapter_name(a_description, a_context);
 
@@ -174,34 +171,32 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
 }
 
 /// @brief D3D12 Adapter 選択の Factory Debug Fallback を診断出力へ反映し、出力結果を返す
-[[nodiscard]] cue::Result<void> log_factory_debug_fallback(
-    HRESULT a_nativeCode, const cue::AssertContext &a_context) noexcept
+[[nodiscard]] cue::Result<void> log_factory_debug_fallback(HRESULT a_nativeCode,
+                                                           const cue::AssertContext &a_context) noexcept
 {
     cue::Error error = make_dxgi_error(
         a_context, k_factoryCreationFailed,
-        "DXGI debug component is unavailable; factory creation will continue without debug",
-        a_nativeCode);
+        "DXGI debug component is unavailable; factory creation will continue without debug", a_nativeCode);
     cue::LogResult logResult = a_context.logger().log(
         cue::LogLevel::Warning, "DXGI Debug Factoryを利用できないため診断なしで続行します", std::move(error));
     return validate_log_result(logResult, a_context);
 }
 
 /// @brief D3D12 Adapter 選択の Selection を診断出力へ反映し、出力結果を返す
-[[nodiscard]] cue::Result<void> log_selection(
-    const cue::D3d12AdapterReport &a_report, const cue::AssertContext &a_context) noexcept
+[[nodiscard]] cue::Result<void> log_selection(const cue::D3d12AdapterReport &a_report,
+                                              const cue::AssertContext &a_context) noexcept
 {
-    cue::ErrorCode code = cue::ErrorCode::create(
-        a_context.fatal_handler(), "DXGI.Adapter.DeviceId", static_cast<std::int64_t>(a_report.deviceId));
-    cue::NativeError vendorId = cue::NativeError::create(
-        a_context.fatal_handler(), "DXGI.Adapter.VendorId", static_cast<std::int64_t>(a_report.vendorId));
-    cue::Error error = cue::Error::create(
-        a_context.fatal_handler(), std::move(code), a_report.adapterName, std::move(vendorId));
+    cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "DXGI.Adapter.DeviceId",
+                                                 static_cast<std::int64_t>(a_report.deviceId));
+    cue::NativeError vendorId = cue::NativeError::create(a_context.fatal_handler(), "DXGI.Adapter.VendorId",
+                                                         static_cast<std::int64_t>(a_report.vendorId));
+    cue::Error error =
+        cue::Error::create(a_context.fatal_handler(), std::move(code), a_report.adapterName, std::move(vendorId));
 
     try
     {
-        error.add_context(
-            a_context.fatal_handler(),
-            "DedicatedVideoMemoryBytes=" + std::to_string(a_report.dedicatedVideoMemoryBytes));
+        error.add_context(a_context.fatal_handler(),
+                          "DedicatedVideoMemoryBytes=" + std::to_string(a_report.dedicatedVideoMemoryBytes));
         error.add_context(a_context.fatal_handler(), "D3D_FEATURE_LEVEL_12_0");
     }
     catch (...)
@@ -209,16 +204,17 @@ constexpr D3D_FEATURE_LEVEL k_requiredFeatureLevel = D3D_FEATURE_LEVEL_12_0;
         terminate_allocation(a_context);
     }
 
-    cue::LogResult logResult = a_context.logger().log(
-        cue::LogLevel::Info, "D3D12 Adapterを選択しました", std::move(error));
+    cue::LogResult logResult =
+        a_context.logger().log(cue::LogLevel::Info, "D3D12 Adapterを選択しました", std::move(error));
     return validate_log_result(logResult, a_context);
 }
 
 /// @brief D3D12 Adapter 選択で使用する Selection を生成し、呼び出し元へ返す
-[[nodiscard]] cue::Result<cue::D3d12AdapterSelection> make_selection(
-    Microsoft::WRL::ComPtr<IDXGIFactory6> a_factory,
-    Microsoft::WRL::ComPtr<IDXGIAdapter4> a_adapter, const DXGI_ADAPTER_DESC3 &a_description,
-    cue::GraphicsAdapterKind a_kind, const cue::AssertContext &a_context) noexcept
+[[nodiscard]] cue::Result<cue::D3d12AdapterSelection> make_selection(Microsoft::WRL::ComPtr<IDXGIFactory6> a_factory,
+                                                                     Microsoft::WRL::ComPtr<IDXGIAdapter4> a_adapter,
+                                                                     const DXGI_ADAPTER_DESC3 &a_description,
+                                                                     cue::GraphicsAdapterKind a_kind,
+                                                                     const cue::AssertContext &a_context) noexcept
 {
     cue::Result<cue::D3d12AdapterReport> reportResult = make_report(a_description, a_kind, a_context);
 
@@ -252,8 +248,7 @@ HRESULT WINAPI create_dxgi_factory(UINT a_flags, REFIID a_interfaceId, void **a_
 namespace cue
 {
 /// @brief DXGI Adapter の UTF-16 名を既存の D3D12 Error 契約を保って UTF-8 へ変換する
-Result<std::string> convert_d3d12_adapter_name(
-    std::wstring_view a_name, const AssertContext &a_assertContext) noexcept
+Result<std::string> convert_d3d12_adapter_name(std::wstring_view a_name, const AssertContext &a_assertContext) noexcept
 {
     return convert_adapter_name_impl(a_name, a_assertContext);
 }
@@ -268,8 +263,8 @@ bool should_retry_without_debug_factory(HRESULT a_result, bool a_wasDebugRequest
     return a_wasDebugRequested && a_result == DXGI_ERROR_SDK_COMPONENT_MISSING;
 }
 
-Result<Microsoft::WRL::ComPtr<IDXGIFactory6>> create_d3d12_factory(
-    UINT a_flags, D3d12FactoryCreator a_creator, const AssertContext &a_assertContext) noexcept
+Result<Microsoft::WRL::ComPtr<IDXGIFactory6>> create_d3d12_factory(UINT a_flags, D3d12FactoryCreator a_creator,
+                                                                   const AssertContext &a_assertContext) noexcept
 {
     Microsoft::WRL::ComPtr<IDXGIFactory6> factory;
     HRESULT factoryResult = a_creator(a_flags, IID_PPV_ARGS(&factory));
@@ -280,8 +275,7 @@ Result<Microsoft::WRL::ComPtr<IDXGIFactory6>> create_d3d12_factory(
 
         if (!fallbackResult)
         {
-            return Result<Microsoft::WRL::ComPtr<IDXGIFactory6>>::failure(
-                std::move(*fallbackResult.try_error()));
+            return Result<Microsoft::WRL::ComPtr<IDXGIFactory6>>::failure(std::move(*fallbackResult.try_error()));
         }
 
         factory.Reset();
@@ -297,8 +291,8 @@ Result<Microsoft::WRL::ComPtr<IDXGIFactory6>> create_d3d12_factory(
     return Result<Microsoft::WRL::ComPtr<IDXGIFactory6>>::success(std::move(factory));
 }
 
-Result<CapabilityReport> make_d3d12_capability_report(
-    const D3d12AdapterReport &a_report, bool a_isUma, const AssertContext &a_assertContext) noexcept
+Result<CapabilityReport> make_d3d12_capability_report(const D3d12AdapterReport &a_report,
+                                                      const AssertContext &a_assertContext) noexcept
 {
     try
     {
@@ -310,7 +304,6 @@ Result<CapabilityReport> make_d3d12_capability_report(
         report.backendKind = GraphicsBackendKind::D3d12;
         report.adapterKind = a_report.adapterKind;
         report.profile = GraphicsProfile::Baseline3D;
-        report.isUma = a_isUma;
         return Result<CapabilityReport>::success(std::move(report));
     }
     catch (...)
@@ -321,9 +314,9 @@ Result<CapabilityReport> make_d3d12_capability_report(
 
 // High Performance 順の列挙結果を使用し、明示的な独自順位付けを持たず OS の GPU 選択意図を尊重する
 // Debug Factory が環境上利用できない場合だけ通常 Factory へ再試行し、他の生成失敗は隠さず返す
-Result<D3d12AdapterSelection> select_d3d12_adapter(
-    D3d12AdapterPolicy a_policy, const D3d12DiagnosticsStatus &a_diagnostics,
-    const AssertContext &a_assertContext) noexcept
+Result<D3d12AdapterSelection> select_d3d12_adapter(D3d12AdapterPolicy a_policy,
+                                                   const D3d12DiagnosticsStatus &a_diagnostics,
+                                                   const AssertContext &a_assertContext) noexcept
 {
     UINT factoryFlags = a_diagnostics.isDebugLayerEnabled ? DXGI_CREATE_FACTORY_DEBUG : 0;
     Result<Microsoft::WRL::ComPtr<IDXGIFactory6>> factoryResult =
@@ -343,8 +336,8 @@ Result<D3d12AdapterSelection> select_d3d12_adapter(
 
         if (FAILED(warpResult))
         {
-            return Result<D3d12AdapterSelection>::failure(make_dxgi_error(
-                a_assertContext, k_warpUnavailable, "DXGI WARP adapter is unavailable", warpResult));
+            return Result<D3d12AdapterSelection>::failure(
+                make_dxgi_error(a_assertContext, k_warpUnavailable, "DXGI WARP adapter is unavailable", warpResult));
         }
 
         DXGI_ADAPTER_DESC3 description = {};
@@ -352,23 +345,22 @@ Result<D3d12AdapterSelection> select_d3d12_adapter(
 
         if (FAILED(descriptionResult))
         {
-            return Result<D3d12AdapterSelection>::failure(make_dxgi_error(
-                a_assertContext, k_adapterDescriptionFailed, "DXGI WARP adapter description is unavailable",
-                descriptionResult));
+            return Result<D3d12AdapterSelection>::failure(
+                make_dxgi_error(a_assertContext, k_adapterDescriptionFailed,
+                                "DXGI WARP adapter description is unavailable", descriptionResult));
         }
 
-        HRESULT probeResult = D3D12CreateDevice(
-            adapter.Get(), k_requiredFeatureLevel, __uuidof(ID3D12Device), nullptr);
+        HRESULT probeResult = D3D12CreateDevice(adapter.Get(), k_requiredFeatureLevel, __uuidof(ID3D12Device), nullptr);
 
         if (FAILED(probeResult))
         {
-            return Result<D3d12AdapterSelection>::failure(make_dxgi_error(
-                a_assertContext, k_noSuitableAdapter, "DXGI WARP adapter does not support D3D Feature Level 12_0",
-                probeResult, "D3D12"));
+            return Result<D3d12AdapterSelection>::failure(
+                make_dxgi_error(a_assertContext, k_noSuitableAdapter,
+                                "DXGI WARP adapter does not support D3D Feature Level 12_0", probeResult, "D3D12"));
         }
 
-        return make_selection(
-            std::move(factory), std::move(adapter), description, GraphicsAdapterKind::Software, a_assertContext);
+        return make_selection(std::move(factory), std::move(adapter), description, GraphicsAdapterKind::Software,
+                              a_assertContext);
     }
 
     bool sawHardwareAdapter = false;
@@ -376,8 +368,8 @@ Result<D3d12AdapterSelection> select_d3d12_adapter(
     for (UINT index = 0;; ++index)
     {
         Microsoft::WRL::ComPtr<IDXGIAdapter4> adapter;
-        HRESULT enumerationResult = factory->EnumAdapterByGpuPreference(
-            index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter));
+        HRESULT enumerationResult =
+            factory->EnumAdapterByGpuPreference(index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter));
 
         if (enumerationResult == DXGI_ERROR_NOT_FOUND)
         {
@@ -387,8 +379,7 @@ Result<D3d12AdapterSelection> select_d3d12_adapter(
         if (FAILED(enumerationResult))
         {
             return Result<D3d12AdapterSelection>::failure(make_dxgi_error(
-                a_assertContext, k_adapterEnumerationFailed, "DXGI adapter enumeration failed",
-                enumerationResult));
+                a_assertContext, k_adapterEnumerationFailed, "DXGI adapter enumeration failed", enumerationResult));
         }
 
         DXGI_ADAPTER_DESC3 description = {};
@@ -396,9 +387,9 @@ Result<D3d12AdapterSelection> select_d3d12_adapter(
 
         if (FAILED(descriptionResult))
         {
-            return Result<D3d12AdapterSelection>::failure(make_dxgi_error(
-                a_assertContext, k_adapterDescriptionFailed, "DXGI adapter description is unavailable",
-                descriptionResult));
+            return Result<D3d12AdapterSelection>::failure(make_dxgi_error(a_assertContext, k_adapterDescriptionFailed,
+                                                                          "DXGI adapter description is unavailable",
+                                                                          descriptionResult));
         }
 
         bool isSoftware = (description.Flags & DXGI_ADAPTER_FLAG3_SOFTWARE) != 0;
@@ -416,15 +407,13 @@ Result<D3d12AdapterSelection> select_d3d12_adapter(
         }
 
         sawHardwareAdapter = true;
-        HRESULT probeResult = D3D12CreateDevice(
-            adapter.Get(), k_requiredFeatureLevel, __uuidof(ID3D12Device), nullptr);
+        HRESULT probeResult = D3D12CreateDevice(adapter.Get(), k_requiredFeatureLevel, __uuidof(ID3D12Device), nullptr);
         D3d12AdapterCandidateFacts facts = {false, SUCCEEDED(probeResult)};
 
         if (is_supported_hardware_candidate(facts))
         {
-            return make_selection(
-                std::move(factory), std::move(adapter), description, GraphicsAdapterKind::Hardware,
-                a_assertContext);
+            return make_selection(std::move(factory), std::move(adapter), description, GraphicsAdapterKind::Hardware,
+                                  a_assertContext);
         }
 
         Result<void> skipLogResult = log_skipped_candidate(index, probeResult, a_assertContext);
@@ -436,9 +425,8 @@ Result<D3d12AdapterSelection> select_d3d12_adapter(
     }
 
     std::int64_t errorCode = sawHardwareAdapter ? k_noSuitableAdapter : k_noHardwareAdapter;
-    std::string_view summary = sawHardwareAdapter
-                                   ? "No hardware DXGI adapter supports D3D Feature Level 12_0"
-                                   : "No hardware DXGI adapter is available";
+    std::string_view summary = sawHardwareAdapter ? "No hardware DXGI adapter supports D3D Feature Level 12_0"
+                                                  : "No hardware DXGI adapter is available";
     return Result<D3d12AdapterSelection>::failure(make_error(a_assertContext, errorCode, summary));
 }
 } // namespace cue

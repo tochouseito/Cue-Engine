@@ -3,7 +3,9 @@
 - Status: Accepted
 - Date: 2026-08-22
 - Decision Owners: CueEngine Project
-- Superseded in part by: ADR-0009 の `Cue.RHI.D3D12` Windows UTF 変換依存
+- Superseded in part by:
+  - ADR-0009 の `Cue.RHI.D3D12` Windows UTF 変換依存
+  - ADR-0012 のSystem／Graphics Capability語彙、Snapshot Field、Query失敗契約
 
 ## Context
 
@@ -267,6 +269,8 @@ M03からM05ではDevice Recovery、Resource再生成、Adapter再選択、Telem
 
 ### Capability Report
 
+この節と後続のAPI SketchはM03時点の最小契約を記録したものである。M08以降のGraphics Capability公開契約はADR-0012が置き換える。特に`isUma`、Optional Capabilityを追加しない制約、Query失敗表現は現在の正本ではない。
+
 `CapabilityReport`はBackendが所有するNative Objectを公開せず、次のPlatform非依存Valueだけを持つ。
 
 | Field | Meaning |
@@ -277,17 +281,17 @@ M03からM05ではDevice Recovery、Resource再生成、Adapter再選択、Telem
 | `vendorId` | Adapter Vendor ID |
 | `deviceId` | Adapter Device ID |
 | `dedicatedVideoMemoryBytes` | Dedicated Video MemoryのByte数 |
-| `isUma` | Unified Memory Architectureか |
+| `isUma` | M03時点のUnified Memory Architecture真偽値。ADR-0012で状態付き`uma`／`cacheCoherentUma`へ置換 |
 | `profile` | CueEngineが要求するPlatform非依存Capability Profile |
 
 初期`GraphicsProfile`は`Baseline3D`だけとし、D3D12 Feature Level `12_0`へ対応付ける。Native Feature Level名はD3D12診断Logへ記録するが、D3D定数を`CapabilityReport`へ格納しない。
 
 - ReportはBackend生成成功後からBackend破棄開始までImmutableとする
 - Adapter名以外の文字列化済みD3D12情報を安定契約へ追加しない
-- Shader Model、Resource Binding Tier、Mesh Shader Tierなど、M03で利用しないOptional Featureを追加しない
+- M03ではShader Model、Resource Binding Tier、Mesh Shader Tierなどを追加しない。M08でADR-0012に基づく型付きSnapshotへ拡張済み
 - Capability追加は実際に分岐または診断で使用するIssueに限定する
 
-### API Sketch
+### API Sketch（M03時点・ADR-0012によりCapability部分を置換済み）
 
 `Cue.RHI`の公開契約:
 

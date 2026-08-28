@@ -40,8 +40,7 @@ struct D3d12FactoryFallbackProbeReport final
 [[nodiscard]] bool verify_d3d12_unsupported_candidate_skip_for_probe() noexcept;
 
 /// @brief 空の DXGI Adapter 名が既存の D3D12 Error Code 23 で拒否されることを検証する
-[[nodiscard]] bool verify_d3d12_empty_adapter_name_rejection_for_probe(
-    const AssertContext &a_assertContext) noexcept;
+[[nodiscard]] bool verify_d3d12_empty_adapter_name_rejection_for_probe(const AssertContext &a_assertContext) noexcept;
 
 /// @brief Debug component不足を強制してFactory fallback本体を検証する
 [[nodiscard]] Result<D3d12FactoryFallbackProbeReport> probe_d3d12_factory_fallback(
@@ -49,4 +48,23 @@ struct D3d12FactoryFallbackProbeReport final
 
 /// @brief Adapter metadataとDevice由来UMA値のCapability変換を検証する
 [[nodiscard]] bool verify_d3d12_capability_mapping_for_probe(const AssertContext &a_assertContext) noexcept;
+
+/// @brief Optional CheckFeatureSupport失敗後もQueryFailed Snapshot付きBackendを生成できるか検証する
+[[nodiscard]] bool verify_d3d12_optional_capability_failure_for_probe(AssertContext &a_assertContext) noexcept;
+
+/// @brief Optional Capability Query失敗診断を配送できない場合にBackend生成が失敗することを検証する
+[[nodiscard]] bool verify_d3d12_optional_capability_log_failure_for_probe(AssertContext &a_assertContext) noexcept;
+
+/// @brief Required Baseline Capability Query失敗時にBackend生成が失敗することを検証する
+[[nodiscard]] bool verify_d3d12_required_capability_failure_for_probe(AssertContext &a_assertContext) noexcept;
+
+/// @brief Query成功後の未知Tier値が診断付きQueryFailedとして保持されることを検証する
+[[nodiscard]] bool verify_d3d12_unknown_capability_value_for_probe(AssertContext &a_assertContext) noexcept;
+
+/// @brief 未知Tier値のWarning配送失敗がBackend生成失敗へ伝播することを検証する
+[[nodiscard]] bool verify_d3d12_unknown_capability_value_log_failure_for_probe(
+    AssertContext &a_assertContext) noexcept;
+
+/// @brief Feature Level 12_2を認識しないRuntimeで12_1／12_0再照会が成功することを検証する
+[[nodiscard]] bool verify_d3d12_legacy_feature_level_runtime_for_probe(AssertContext &a_assertContext) noexcept;
 } // namespace cue

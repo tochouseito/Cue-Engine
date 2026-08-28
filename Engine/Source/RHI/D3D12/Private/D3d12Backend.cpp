@@ -5,6 +5,7 @@
 #include <Cue/RHI/D3D12/TestSupport/D3d12SwapChainProbe.h>
 
 #include "D3d12AdapterSelection.h"
+#include "D3d12CapabilityQuery.h"
 #include "D3d12DeviceCreation.h"
 #include "D3d12Diagnostics.h"
 #include "D3d12Error.h"
@@ -36,7 +37,6 @@ using cue::d3d12_private::make_error;
 using cue::d3d12_private::make_native_error;
 
 constexpr std::int64_t k_deviceNameFailed = 31;
-constexpr std::int64_t k_capabilityQueryFailed = 32;
 constexpr std::int64_t k_backendUnavailable = 33;
 constexpr std::int64_t k_deviceRemoved = 34;
 constexpr std::int64_t k_invalidWaitTimeout = 35;
@@ -83,14 +83,13 @@ thread_local bool g_reportDeviceRemovedForProbe = false;
 
 /// @brief D3D12 Backend の Command Lists For Lifecycle Probe を GPU 実行順と Resource State を守って投入する
 void execute_command_lists_for_lifecycle_probe(ID3D12CommandQueue *a_queue, UINT a_count,
-                                                ID3D12CommandList *const *a_lists) noexcept
+                                               ID3D12CommandList *const *a_lists) noexcept
 {
     cue::default_d3d12_queue_native_functions().executeCommandLists(a_queue, a_count, a_lists);
 }
 
 /// @brief D3D12 Backend の For Lifecycle Probe へ完了通知を発行し、追跡する Fence 値を確定する
-HRESULT signal_for_lifecycle_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence,
-                                   std::uint64_t a_value) noexcept
+HRESULT signal_for_lifecycle_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_fence, std::uint64_t a_value) noexcept
 {
     if (g_queueLifecycleProbeState.removeDeviceBeforeSignal)
     {
@@ -128,8 +127,7 @@ std::uint64_t completed_value_for_lifecycle_probe(ID3D12Fence *a_fence) noexcept
     {
         for (std::uint32_t attempt = 0; attempt < 100; ++attempt)
         {
-            const std::uint64_t completedValue =
-                cue::default_d3d12_queue_native_functions().getCompletedValue(a_fence);
+            const std::uint64_t completedValue = cue::default_d3d12_queue_native_functions().getCompletedValue(a_fence);
 
             if (completedValue != 0)
             {
@@ -152,8 +150,7 @@ HRESULT set_event_for_lifecycle_probe(ID3D12Fence *a_fence, std::uint64_t a_valu
 /// @brief D3D12 Backend の For Lifecycle Probe 完了を待機し、後続処理を安全に進められる状態を返す
 DWORD WINAPI wait_for_lifecycle_probe(HANDLE a_event, DWORD a_timeout)
 {
-    if (g_queueLifecycleProbeState.failWaitWithoutCompletion ||
-        g_queueLifecycleProbeState.failWaitAfterCompletion)
+    if (g_queueLifecycleProbeState.failWaitWithoutCompletion || g_queueLifecycleProbeState.failWaitAfterCompletion)
     {
         return WAIT_TIMEOUT;
     }
@@ -164,9 +161,8 @@ DWORD WINAPI wait_for_lifecycle_probe(HANDLE a_event, DWORD a_timeout)
 /// @brief D3D12 Backend が保持する Get Device Removed Reason For Lifecycle Probe を呼び出し元へ返す
 HRESULT get_device_removed_reason_for_lifecycle_probe(ID3D12Device *a_device) noexcept
 {
-    return g_reportDeviceRemovedForProbe
-               ? DXGI_ERROR_DEVICE_REMOVED
-               : cue::default_d3d12_queue_native_functions().getDeviceRemovedReason(a_device);
+    return g_reportDeviceRemovedForProbe ? DXGI_ERROR_DEVICE_REMOVED
+                                         : cue::default_d3d12_queue_native_functions().getDeviceRemovedReason(a_device);
 }
 
 /// @brief D3D12 Backend で使用する Queue Lifecycle Probe Functions を生成し、呼び出し元へ返す
@@ -269,9 +265,8 @@ void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a
                                  std::string_view a_context, const cue::AssertContext &a_assertContext,
                                  std::source_location a_location = std::source_location::current()) noexcept
 {
-    a_primaryError.append_secondary_diagnostics(
-        a_assertContext, a_secondaryError, a_context,
-        "Secondary shutdown Error", a_location);
+    a_primaryError.append_secondary_diagnostics(a_assertContext, a_secondaryError, a_context,
+                                                "Secondary shutdown Error", a_location);
 }
 
 /// @brief Error に指定された診断 Context が含まれるかを判定する
@@ -317,25 +312,21 @@ void add_secondary_error_context(cue::Error &a_primaryError, const cue::Error &a
 
 /// @brief D3D12 Backend で使用する Device Removed Error With Present Cause を生成し、呼び出し元へ返す
 [[nodiscard]] cue::Error make_device_removed_error_with_present_cause(
-    cue::Error &&a_deviceRemovedError, cue::Error &&a_presentError,
-    const cue::AssertContext &a_assertContext) noexcept
+    cue::Error &&a_deviceRemovedError, cue::Error &&a_presentError, const cue::AssertContext &a_assertContext) noexcept
 {
-    cue::ErrorCode code = cue::ErrorCode::create(a_assertContext.fatal_handler(),
-                                                 a_deviceRemovedError.code().domain(),
+    cue::ErrorCode code = cue::ErrorCode::create(a_assertContext.fatal_handler(), a_deviceRemovedError.code().domain(),
                                                  a_deviceRemovedError.code().value());
     const cue::NativeError *nativeError = a_deviceRemovedError.try_native_error();
-    cue::Error reorderedError = nativeError != nullptr
-                                    ? cue::Error::reclassify(
-                                          a_assertContext.fatal_handler(), std::move(code),
-                                          a_deviceRemovedError.summary(),
-                                          cue::NativeError::create(a_assertContext.fatal_handler(),
-                                                                   nativeError->domain(), nativeError->value()),
-                                          std::move(a_presentError))
-                                    : cue::Error::reclassify(a_assertContext.fatal_handler(), std::move(code),
-                                                             a_deviceRemovedError.summary(),
-                                                             std::move(a_presentError));
-    add_secondary_error_context(reorderedError, a_deviceRemovedError,
-                                "D3D12 recovery Signal failed after DXGI Present", a_assertContext);
+    cue::Error reorderedError =
+        nativeError != nullptr
+            ? cue::Error::reclassify(a_assertContext.fatal_handler(), std::move(code), a_deviceRemovedError.summary(),
+                                     cue::NativeError::create(a_assertContext.fatal_handler(), nativeError->domain(),
+                                                              nativeError->value()),
+                                     std::move(a_presentError))
+            : cue::Error::reclassify(a_assertContext.fatal_handler(), std::move(code), a_deviceRemovedError.summary(),
+                                     std::move(a_presentError));
+    add_secondary_error_context(reorderedError, a_deviceRemovedError, "D3D12 recovery Signal failed after DXGI Present",
+                                a_assertContext);
     return reorderedError;
 }
 
@@ -393,7 +384,7 @@ using PreparePresentationCleanup = cue::Result<void> (*)(void *, const Presentat
 
 /// @brief D3D12 Backend の Swap Chain Back Buffers を所有権と Lifecycle 規則を守って関連付ける
 [[nodiscard]] cue::Result<void> bind_swap_chain_back_buffers(cue::D3d12SwapChainState &a_swapChain,
-                                                              cue::D3d12FrameCommandState &a_frameState) noexcept
+                                                             cue::D3d12FrameCommandState &a_frameState) noexcept
 {
     cue::Result<cue::D3d12SwapChainBackBuffers> backBuffersResult = a_swapChain.take_back_buffers();
 
@@ -407,9 +398,9 @@ using PreparePresentationCleanup = cue::Result<void> (*)(void *, const Presentat
 
 /// @brief D3D12 Backend で使用する Back Buffer Rtvs を生成し、呼び出し元へ返す
 [[nodiscard]] cue::Result<void> create_back_buffer_rtvs(ID3D12Device *a_device,
-                                                         cue::D3d12FrameCommandState &a_frameState,
-                                                         DXGI_FORMAT a_format, cue::D3d12RtvHeap &a_heap,
-                                                         const cue::AssertContext &a_assertContext) noexcept
+                                                        cue::D3d12FrameCommandState &a_frameState, DXGI_FORMAT a_format,
+                                                        cue::D3d12RtvHeap &a_heap,
+                                                        const cue::AssertContext &a_assertContext) noexcept
 {
     CUE_ASSERT(a_assertContext, a_device != nullptr, "D3D12 Back Buffer RTV creation requires a Device");
     CUE_ASSERT(a_assertContext, a_heap.used_count() == 0, "D3D12 Back Buffer RTV creation requires an empty Heap");
@@ -427,12 +418,11 @@ using PreparePresentationCleanup = cue::Result<void> (*)(void *, const Presentat
         ID3D12Resource *backBuffer = *backBufferResult.try_value();
         const D3D12_RESOURCE_DESC resourceDescriptor = backBuffer->GetDesc();
 
-        if (resourceDescriptor.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
-            resourceDescriptor.Format != a_format)
+        if (resourceDescriptor.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || resourceDescriptor.Format != a_format)
         {
             static_cast<void>(a_frameState.release_rtv_slots(a_heap));
-            return cue::Result<void>::failure(make_error(
-                a_assertContext, k_backBufferRtvMismatch, "D3D12 Back Buffer and RTV Format do not match"));
+            return cue::Result<void>::failure(
+                make_error(a_assertContext, k_backBufferRtvMismatch, "D3D12 Back Buffer and RTV Format do not match"));
         }
 
         cue::Result<cue::D3d12RtvSlot> slotResult = a_heap.allocate();
@@ -465,9 +455,9 @@ using PreparePresentationCleanup = cue::Result<void> (*)(void *, const Presentat
         {
             static_cast<void>(a_heap.release(slot));
             static_cast<void>(a_frameState.release_rtv_slots(a_heap));
-            return cue::Result<void>::failure(make_native_error(
-                a_assertContext, k_backBufferRtvCreationFailed, "D3D12 Back Buffer RTV creation failed",
-                creationResult));
+            return cue::Result<void>::failure(make_native_error(a_assertContext, k_backBufferRtvCreationFailed,
+                                                                "D3D12 Back Buffer RTV creation failed",
+                                                                creationResult));
         }
 
         cue::Result<void> bindingResult = a_frameState.bind_rtv_slot(index, slot);
@@ -489,16 +479,14 @@ class D3d12PresentationContext final : public cue::PresentationContext
 {
   public:
     /// @brief D3d12PresentationContext を必要な依存と初期状態から構築する
-    D3d12PresentationContext(cue::D3d12SwapChainState &&a_swapChain,
-                             cue::D3d12FrameCommandState &&a_frameCommandState, cue::D3d12RtvHeap &&a_rtvHeap,
-                             ID3D12Device *a_device,
-                             cue::GraphicsBackend &a_backend, void *a_backendOwner,
-                             UnregisterPresentation a_unregisterPresentation,
+    D3d12PresentationContext(cue::D3d12SwapChainState &&a_swapChain, cue::D3d12FrameCommandState &&a_frameCommandState,
+                             cue::D3d12RtvHeap &&a_rtvHeap, ID3D12Device *a_device, cue::GraphicsBackend &a_backend,
+                             void *a_backendOwner, UnregisterPresentation a_unregisterPresentation,
                              PreparePresentationCleanup a_preparePresentationCleanup,
                              cue::AssertContext &a_assertContext) noexcept
         : m_swapChain(std::move(a_swapChain)), m_frameCommandState(std::move(a_frameCommandState)),
-          m_rtvHeap(std::move(a_rtvHeap)), m_device(a_device),
-          m_backend(&a_backend), m_backendOwner(a_backendOwner), m_unregisterPresentation(a_unregisterPresentation),
+          m_rtvHeap(std::move(a_rtvHeap)), m_device(a_device), m_backend(&a_backend), m_backendOwner(a_backendOwner),
+          m_unregisterPresentation(a_unregisterPresentation),
           m_preparePresentationCleanup(a_preparePresentationCleanup), m_assertContext(&a_assertContext),
           m_creationThread(std::this_thread::get_id()), m_state(cue::PresentationContextState::Ready),
           m_isRegistered(true), m_isResizePending(false)
@@ -590,16 +578,16 @@ class D3d12PresentationContext final : public cue::PresentationContext
     {
         assert_thread("D3D12 Presentation Frame must run on the creation thread");
 
-        if (m_state != cue::PresentationContextState::Ready ||
-            m_backend->state() != cue::GraphicsBackendState::Ready || m_isResizePending)
+        if (m_state != cue::PresentationContextState::Ready || m_backend->state() != cue::GraphicsBackendState::Ready ||
+            m_isResizePending)
         {
             return cue::Result<cue::PresentationFrameStatus>::failure(
                 make_error(*m_assertContext, k_presentationUnavailable, "D3D12 Presentation Frame is unavailable"));
         }
 
         /// @brief Frame 操作失敗を Device Removal 状態と統合し、最初の失敗を失わずに呼び出し元へ返す
-        const auto failFrameOperation = [&](cue::Error &&a_error,
-                                            std::string_view a_operation) noexcept {
+        const auto failFrameOperation = [&](cue::Error &&a_error, std::string_view a_operation) noexcept
+        {
             if (m_frameCommandState.status() == cue::D3d12FrameCommandStatus::DeviceRemoved)
             {
                 m_state = cue::PresentationContextState::DeviceRemoved;
@@ -607,8 +595,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
 
                 if (!backendResult)
                 {
-                    add_secondary_error_context(a_error, *backendResult.try_error(), a_operation,
-                                                *m_assertContext);
+                    add_secondary_error_context(a_error, *backendResult.try_error(), a_operation, *m_assertContext);
                 }
             }
             else if (m_frameCommandState.status() == cue::D3d12FrameCommandStatus::Unavailable)
@@ -618,8 +605,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
 
                 if (!backendResult)
                 {
-                    add_secondary_error_context(a_error, *backendResult.try_error(), a_operation,
-                                                *m_assertContext);
+                    add_secondary_error_context(a_error, *backendResult.try_error(), a_operation, *m_assertContext);
                 }
             }
 
@@ -716,8 +702,8 @@ class D3d12PresentationContext final : public cue::PresentationContext
                 return cue::Result<cue::PresentationFrameStatus>::failure(std::move(presentError));
             }
 
-            cue::Result<std::uint64_t> recoverySignalResult = m_frameCommandState.signal_frame(
-                cue::D3d12FrameSignalPurpose::PresentFailureRecovery);
+            cue::Result<std::uint64_t> recoverySignalResult =
+                m_frameCommandState.signal_frame(cue::D3d12FrameSignalPurpose::PresentFailureRecovery);
 
             if (!recoverySignalResult)
             {
@@ -730,9 +716,9 @@ class D3d12PresentationContext final : public cue::PresentationContext
 
                     if (!backendResult)
                     {
-                        add_secondary_error_context(signalError, *backendResult.try_error(),
-                                                    "D3D12 Device Removal diagnostics also failed after recovery Signal",
-                                                    *m_assertContext);
+                        add_secondary_error_context(
+                            signalError, *backendResult.try_error(),
+                            "D3D12 Device Removal diagnostics also failed after recovery Signal", *m_assertContext);
                     }
 
                     cue::Error deviceRemovedError = make_device_removed_error_with_present_cause(
@@ -821,8 +807,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
     {
         assert_thread("D3D12 Presentation Resize must run on the creation thread");
 
-        if (m_state != cue::PresentationContextState::Ready ||
-            m_backend->state() != cue::GraphicsBackendState::Ready)
+        if (m_state != cue::PresentationContextState::Ready || m_backend->state() != cue::GraphicsBackendState::Ready)
         {
             return cue::Result<void>::failure(
                 make_error(*m_assertContext, k_presentationUnavailable, "D3D12 Presentation Resize is unavailable"));
@@ -833,8 +818,8 @@ class D3d12PresentationContext final : public cue::PresentationContext
         if (commandListState != cue::D3d12CommandListState::IdleClosed &&
             commandListState != cue::D3d12CommandListState::Submitted)
         {
-            return cue::Result<void>::failure(make_error(
-                *m_assertContext, k_resizeNotAtFrameBoundary, "D3D12 Presentation Resize requires a Frame boundary"));
+            return cue::Result<void>::failure(make_error(*m_assertContext, k_resizeNotAtFrameBoundary,
+                                                         "D3D12 Presentation Resize requires a Frame boundary"));
         }
 
         if (a_width == 0 || a_height == 0)
@@ -859,9 +844,9 @@ class D3d12PresentationContext final : public cue::PresentationContext
         {
             if (!m_isResizePending && !m_frameCommandState.is_accepting_frames())
             {
-                return cue::Result<void>::failure(make_error(
-                    *m_assertContext, k_presentationUnavailable,
-                    "D3D12 Presentation Frame acceptance was stopped before same-size Resize"));
+                return cue::Result<void>::failure(
+                    make_error(*m_assertContext, k_presentationUnavailable,
+                               "D3D12 Presentation Frame acceptance was stopped before same-size Resize"));
             }
 
             if (m_isResizePending)
@@ -918,9 +903,9 @@ class D3d12PresentationContext final : public cue::PresentationContext
         if (m_backend->state() == cue::GraphicsBackendState::DeviceRemoved)
         {
             const HRESULT removalReason = m_device->GetDeviceRemovedReason();
-            cue::Error removalError = make_native_error(
-                *m_assertContext, k_deviceRemoved, "D3D12 Device was removed before Resize resource release",
-                removalReason);
+            cue::Error removalError =
+                make_native_error(*m_assertContext, k_deviceRemoved,
+                                  "D3D12 Device was removed before Resize resource release", removalReason);
 
             if (!resourceReleasePreparation)
             {
@@ -1005,8 +990,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
         std::optional<cue::Error> firstError;
         cue::Result<void> diagnosticsResult = prepare_backend_cleanup();
         retain_shutdown_error(firstError, diagnosticsResult,
-                              "D3D12 Device Removal diagnostics failed before Presentation cleanup",
-                              *m_assertContext);
+                              "D3D12 Device Removal diagnostics failed before Presentation cleanup", *m_assertContext);
 
         if (m_backend->state() == cue::GraphicsBackendState::DeviceRemoved)
         {
@@ -1014,8 +998,8 @@ class D3d12PresentationContext final : public cue::PresentationContext
         }
 
         cue::Result<void> frameResult = m_backend->state() == cue::GraphicsBackendState::DeviceRemoved
-                                             ? m_frameCommandState.begin_release_after_device_removed()
-                                             : m_frameCommandState.begin_shutdown();
+                                            ? m_frameCommandState.begin_release_after_device_removed()
+                                            : m_frameCommandState.begin_shutdown();
         retain_shutdown_error(firstError, frameResult, "D3D12 Frame Command cleanup also failed", *m_assertContext);
 
         if (m_frameCommandState.status() == cue::D3d12FrameCommandStatus::DeviceRemoved)
@@ -1025,8 +1009,8 @@ class D3d12PresentationContext final : public cue::PresentationContext
                                   "D3D12 Device Removal diagnostics also failed during Presentation shutdown",
                                   *m_assertContext);
             cue::Result<void> releaseResult = m_frameCommandState.begin_release_after_device_removed();
-            retain_shutdown_error(firstError, releaseResult,
-                                  "D3D12 Frame Command Device Removal cleanup also failed", *m_assertContext);
+            retain_shutdown_error(firstError, releaseResult, "D3D12 Frame Command Device Removal cleanup also failed",
+                                  *m_assertContext);
         }
 
         if (m_frameCommandState.status() == cue::D3d12FrameCommandStatus::Unavailable)
@@ -1036,9 +1020,10 @@ class D3d12PresentationContext final : public cue::PresentationContext
         }
 
         cue::Result<void> resourceReleasePreparation = prepare_backend_cleanup();
-        retain_shutdown_error(firstError, resourceReleasePreparation,
-                              "D3D12 Device Removal diagnostics failed immediately before Presentation resource release",
-                              *m_assertContext);
+        retain_shutdown_error(
+            firstError, resourceReleasePreparation,
+            "D3D12 Device Removal diagnostics failed immediately before Presentation resource release",
+            *m_assertContext);
 
         if (m_backend->state() == cue::GraphicsBackendState::DeviceRemoved)
         {
@@ -1056,8 +1041,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
 
         cue::Result<void> rtvReleaseResult = m_frameCommandState.release_rtv_slots(m_rtvHeap);
         m_frameCommandState.release_back_buffers();
-        cue::Result<void> allocatorResult =
-            m_frameCommandState.release_allocators_after_presentation_cleanup();
+        cue::Result<void> allocatorResult = m_frameCommandState.release_allocators_after_presentation_cleanup();
         cue::Result<void> rtvHeapResult = m_rtvHeap.shutdown();
         cue::Result<void> swapChainResult = m_swapChain.shutdown();
         retain_shutdown_error(firstError, rtvReleaseResult, "D3D12 RTV Slot cleanup also failed", *m_assertContext);
@@ -1174,8 +1158,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
     }
 
     /// @brief D3D12 Backend の Clear Frame For Probe を GPU 実行順と Resource State を守って投入する
-    [[nodiscard]] cue::Result<std::uint64_t> submit_clear_frame_for_probe(
-        const std::array<float, 4> &a_color) noexcept
+    [[nodiscard]] cue::Result<std::uint64_t> submit_clear_frame_for_probe(const std::array<float, 4> &a_color) noexcept
     {
         const std::uint32_t frameIndex = m_swapChain.current_back_buffer_index();
         cue::Result<void> beginResult = m_frameCommandState.begin_frame(frameIndex);
@@ -1237,25 +1220,20 @@ class D3d12PresentationContext final : public cue::PresentationContext
     [[nodiscard]] cue::Result<void> prepare_backend_cleanup() noexcept
     {
         PresentationCleanupOwnerShape shape = {
-            m_frameCommandState.allocator_count(),
-            m_frameCommandState.back_buffer_count(),
-            m_frameCommandState.rtv_count(),
-            m_frameCommandState.has_command_list(),
-            m_swapChain.has_native_objects(),
-            m_rtvHeap.has_native_object(),
+            m_frameCommandState.allocator_count(), m_frameCommandState.back_buffer_count(),
+            m_frameCommandState.rtv_count(),       m_frameCommandState.has_command_list(),
+            m_swapChain.has_native_objects(),      m_rtvHeap.has_native_object(),
         };
         return m_preparePresentationCleanup(m_backendOwner, shape);
     }
 
     /// @brief D3D12 Backend の After Resize Failure を依存関係と完了条件を守って安全に解放または停止する
-    [[nodiscard]] cue::Result<void> shutdown_after_resize_failure(cue::Error &&a_error,
-                                                                  bool a_isDeviceRemoved) noexcept
+    [[nodiscard]] cue::Result<void> shutdown_after_resize_failure(cue::Error &&a_error, bool a_isDeviceRemoved) noexcept
     {
         std::optional<cue::Error> firstError;
         firstError.emplace(std::move(a_error));
-        cue::Result<void> frameResult = a_isDeviceRemoved
-                                            ? m_frameCommandState.begin_release_after_device_removed()
-                                            : m_frameCommandState.begin_release_after_gpu_idle();
+        cue::Result<void> frameResult = a_isDeviceRemoved ? m_frameCommandState.begin_release_after_device_removed()
+                                                          : m_frameCommandState.begin_release_after_gpu_idle();
         retain_shutdown_error(firstError, frameResult, "D3D12 Frame Command cleanup also failed", *m_assertContext);
 
         if (m_frameCommandState.status() != cue::D3d12FrameCommandStatus::CleanupPending)
@@ -1266,8 +1244,7 @@ class D3d12PresentationContext final : public cue::PresentationContext
 
         cue::Result<void> rtvReleaseResult = m_frameCommandState.release_rtv_slots(m_rtvHeap);
         m_frameCommandState.release_back_buffers();
-        cue::Result<void> allocatorResult =
-            m_frameCommandState.release_allocators_after_presentation_cleanup();
+        cue::Result<void> allocatorResult = m_frameCommandState.release_allocators_after_presentation_cleanup();
         cue::Result<void> rtvHeapResult = m_rtvHeap.shutdown();
         cue::Result<void> swapChainResult = m_swapChain.shutdown();
         retain_shutdown_error(firstError, rtvReleaseResult, "D3D12 RTV Slot cleanup also failed", *m_assertContext);
@@ -1377,7 +1354,8 @@ class D3d12BackendImpl final : public cue::D3d12Backend
         return classify_presentation_native_failure(std::move(removalError));
     }
 
-    /// @brief D3D12 Backend の Device Without Classification For Probe を依存関係と完了条件を守って安全に解放または停止する
+    /// @brief D3D12 Backend の Device Without Classification For Probe
+    /// を依存関係と完了条件を守って安全に解放または停止する
     [[nodiscard]] cue::Result<void> remove_device_without_classification_for_probe() noexcept
     {
         CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_creationThread,
@@ -1602,9 +1580,9 @@ class D3d12BackendImpl final : public cue::D3d12Backend
             this,
             handle_swap_chain_native_failure,
         };
-        cue::D3d12SwapChainNativeFunctions swapChainFunctions =
-            g_presentationFrameProbeState.useProbeFunctions ? make_swap_chain_lifecycle_probe_functions()
-                                                            : cue::default_d3d12_swap_chain_native_functions();
+        cue::D3d12SwapChainNativeFunctions swapChainFunctions = g_presentationFrameProbeState.useProbeFunctions
+                                                                    ? make_swap_chain_lifecycle_probe_functions()
+                                                                    : cue::default_d3d12_swap_chain_native_functions();
         cue::Result<cue::D3d12SwapChainState> swapChainResult = cue::create_d3d12_swap_chain_state(
             m_factory.Get(), m_queueState.native_queue_for_presentation(), swapChainDescriptor, *m_assertContext,
             swapChainFunctions, failureHandler);
@@ -1667,10 +1645,10 @@ class D3d12BackendImpl final : public cue::D3d12Backend
 
         cue::D3d12FrameCommandState frameState = std::move(*frameStateResult.try_value());
         cue::Result<void> bindingResult = bind_swap_chain_back_buffers(swapChain, frameState);
-        cue::Result<void> rtvResult = bindingResult
-                                          ? create_back_buffer_rtvs(m_device.Get(), frameState, swapChain.format(),
-                                                                    rtvHeap, *m_assertContext)
-                                          : cue::Result<void>::failure(std::move(*bindingResult.try_error()));
+        cue::Result<void> rtvResult =
+            bindingResult
+                ? create_back_buffer_rtvs(m_device.Get(), frameState, swapChain.format(), rtvHeap, *m_assertContext)
+                : cue::Result<void>::failure(std::move(*bindingResult.try_error()));
 
         if (!rtvResult)
         {
@@ -1679,11 +1657,11 @@ class D3d12BackendImpl final : public cue::D3d12Backend
             cue::Result<void> frameBeginResult = frameState.begin_release_after_gpu_idle();
             cue::Result<void> rtvReleaseResult = frameState.release_rtv_slots(rtvHeap);
             frameState.release_back_buffers();
-            cue::Result<void> allocatorResult = frameState.status() == cue::D3d12FrameCommandStatus::CleanupPending
-                                                    ? frameState.release_allocators_after_presentation_cleanup()
-                                                    : cue::Result<void>::failure(make_error(
-                                                          *m_assertContext, k_presentationUnavailable,
-                                                          "D3D12 Frame rollback could not release Allocators"));
+            cue::Result<void> allocatorResult =
+                frameState.status() == cue::D3d12FrameCommandStatus::CleanupPending
+                    ? frameState.release_allocators_after_presentation_cleanup()
+                    : cue::Result<void>::failure(make_error(*m_assertContext, k_presentationUnavailable,
+                                                            "D3D12 Frame rollback could not release Allocators"));
             cue::Result<void> heapShutdownResult = rtvHeap.shutdown();
             cue::Result<void> swapChainShutdownResult = swapChain.shutdown();
 
@@ -1926,9 +1904,9 @@ Result<D3d12BackendOwnerProbeReport> probe_d3d12_backend_owners_for_probe(D3d12B
 
     if (backend == nullptr)
     {
-        return Result<D3d12BackendOwnerProbeReport>::failure(make_error(
-            a_backend.assert_context_for_presentation(), k_deviceRemovalProbeUnavailable,
-            "D3D12 Backend owner probe requires the production Backend"));
+        return Result<D3d12BackendOwnerProbeReport>::failure(
+            make_error(a_backend.assert_context_for_presentation(), k_deviceRemovalProbeUnavailable,
+                       "D3D12 Backend owner probe requires the production Backend"));
     }
 
     D3d12BackendOwnerProbeReport report = backend->owner_report_for_probe();
@@ -1941,9 +1919,9 @@ Result<D3d12DredOwnerProbeReport> probe_d3d12_dred_owners_for_probe(D3d12Backend
 
     if (backend == nullptr)
     {
-        return Result<D3d12DredOwnerProbeReport>::failure(make_error(
-            a_backend.assert_context_for_presentation(), k_deviceRemovalProbeUnavailable,
-            "D3D12 DRED owner probe requires the production Backend"));
+        return Result<D3d12DredOwnerProbeReport>::failure(
+            make_error(a_backend.assert_context_for_presentation(), k_deviceRemovalProbeUnavailable,
+                       "D3D12 DRED owner probe requires the production Backend"));
     }
 
     D3d12DredOwnerProbeReport report = backend->dred_owner_report_for_probe();
@@ -1951,7 +1929,7 @@ Result<D3d12DredOwnerProbeReport> probe_d3d12_dred_owners_for_probe(D3d12Backend
 }
 
 bool verify_d3d12_rtv_rebuild_failure_for_probe(const void *a_nativeWindow, std::uint32_t a_width,
-                                                 std::uint32_t a_height, AssertContext &a_assertContext) noexcept
+                                                std::uint32_t a_height, AssertContext &a_assertContext) noexcept
 {
     struct ProbeReset final
     {
@@ -1970,8 +1948,7 @@ bool verify_d3d12_rtv_rebuild_failure_for_probe(const void *a_nativeWindow, std:
         false,
         5'000,
     };
-    Result<std::unique_ptr<D3d12Backend>> backendResult =
-        create_d3d12_backend(backendDescriptor, a_assertContext);
+    Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(backendDescriptor, a_assertContext);
 
     if (!backendResult)
     {
@@ -1980,8 +1957,8 @@ bool verify_d3d12_rtv_rebuild_failure_for_probe(const void *a_nativeWindow, std:
 
     std::unique_ptr<D3d12Backend> backend = std::move(*backendResult.try_value());
     PresentationDescriptor presentationDescriptor = {true};
-    Result<std::unique_ptr<PresentationContext>> presentationResult = backend->create_windows_presentation(
-        a_nativeWindow, a_width, a_height, presentationDescriptor);
+    Result<std::unique_ptr<PresentationContext>> presentationResult =
+        backend->create_windows_presentation(a_nativeWindow, a_width, a_height, presentationDescriptor);
 
     if (!presentationResult)
     {
@@ -1994,22 +1971,21 @@ bool verify_d3d12_rtv_rebuild_failure_for_probe(const void *a_nativeWindow, std:
     const Error *resizeError = resizeResult.try_error();
     const NativeError *nativeError = resizeError != nullptr ? resizeError->try_native_error() : nullptr;
     const bool failureValid = !resizeResult && resizeError->code().domain() == "Cue.RHI.D3D12" &&
-                              resizeError->code().value() == k_backBufferRtvCreationFailed &&
-                              nativeError != nullptr && nativeError->domain() == "D3D12" &&
+                              resizeError->code().value() == k_backBufferRtvCreationFailed && nativeError != nullptr &&
+                              nativeError->domain() == "D3D12" &&
                               presentation->state() == PresentationContextState::Shutdown &&
                               backend->state() == GraphicsBackendState::Ready;
     Result<void> presentationShutdownResult = presentation->shutdown();
     presentation.reset();
     Result<void> backendShutdownResult = backend->shutdown();
-    const bool cleanupValid = presentationShutdownResult && backendShutdownResult &&
-                              backend->state() == GraphicsBackendState::Shutdown;
+    const bool cleanupValid =
+        presentationShutdownResult && backendShutdownResult && backend->state() == GraphicsBackendState::Shutdown;
     backend.reset();
     return failureValid && cleanupValid;
 }
 
 bool verify_d3d12_terminal_resize_rejection_for_probe(const void *a_nativeWindow, std::uint32_t a_width,
-                                                       std::uint32_t a_height,
-                                                       AssertContext &a_assertContext) noexcept
+                                                      std::uint32_t a_height, AssertContext &a_assertContext) noexcept
 {
     struct ProbeReset final
     {
@@ -2028,8 +2004,7 @@ bool verify_d3d12_terminal_resize_rejection_for_probe(const void *a_nativeWindow
         false,
         5'000,
     };
-    Result<std::unique_ptr<D3d12Backend>> backendResult =
-        create_d3d12_backend(backendDescriptor, a_assertContext);
+    Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(backendDescriptor, a_assertContext);
 
     if (!backendResult)
     {
@@ -2038,8 +2013,8 @@ bool verify_d3d12_terminal_resize_rejection_for_probe(const void *a_nativeWindow
 
     std::unique_ptr<D3d12Backend> backend = std::move(*backendResult.try_value());
     PresentationDescriptor presentationDescriptor = {true};
-    Result<std::unique_ptr<PresentationContext>> presentationResult = backend->create_windows_presentation(
-        a_nativeWindow, a_width, a_height, presentationDescriptor);
+    Result<std::unique_ptr<PresentationContext>> presentationResult =
+        backend->create_windows_presentation(a_nativeWindow, a_width, a_height, presentationDescriptor);
 
     if (!presentationResult)
     {
@@ -2064,28 +2039,26 @@ bool verify_d3d12_terminal_resize_rejection_for_probe(const void *a_nativeWindow
     Result<void> resizeResult = presentation->resize(0, a_height);
     Result<void> sameSizeResult = presentation->resize(a_width, a_height);
     D3d12PresentationProbeReport report = d3d12Presentation->probe_report();
-    const bool rejectionValid = !submitResult && !resizeResult && !sameSizeResult &&
-                                resizeResult.try_error()->code().domain() == "Cue.RHI.D3D12" &&
-                                resizeResult.try_error()->code().value() == 64 &&
-                                presentation->state() == PresentationContextState::Ready &&
-                                !presentation->is_resize_pending() && !report.isAcceptingFrames &&
-                                report.hasCommandList && report.allocatorCount == k_d3d12FrameContextCount &&
-                                report.backBufferCount == k_d3d12SwapChainBufferCount &&
-                                report.rtvCount == k_d3d12SwapChainBufferCount && report.hasSwapChain &&
-                                report.hasRtvHeap && report.isRegistered;
+    const bool rejectionValid =
+        !submitResult && !resizeResult && !sameSizeResult &&
+        resizeResult.try_error()->code().domain() == "Cue.RHI.D3D12" &&
+        resizeResult.try_error()->code().value() == 64 && presentation->state() == PresentationContextState::Ready &&
+        !presentation->is_resize_pending() && !report.isAcceptingFrames && report.hasCommandList &&
+        report.allocatorCount == k_d3d12FrameContextCount && report.backBufferCount == k_d3d12SwapChainBufferCount &&
+        report.rtvCount == k_d3d12SwapChainBufferCount && report.hasSwapChain && report.hasRtvHeap &&
+        report.isRegistered;
     Result<void> presentationShutdownResult = presentation->shutdown();
     presentation.reset();
     Result<void> backendShutdownResult = backend->shutdown();
-    const bool cleanupValid = presentationShutdownResult && backendShutdownResult &&
-                              backend->state() == GraphicsBackendState::Shutdown;
+    const bool cleanupValid =
+        presentationShutdownResult && backendShutdownResult && backend->state() == GraphicsBackendState::Shutdown;
     backend.reset();
     return rejectionValid && cleanupValid;
 }
 
 bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, std::uint32_t a_width,
-                                                     std::uint32_t a_height,
-                                                     D3d12PresentFailureProbeMode a_mode,
-                                                     AssertContext &a_assertContext) noexcept
+                                                    std::uint32_t a_height, D3d12PresentFailureProbeMode a_mode,
+                                                    AssertContext &a_assertContext) noexcept
 {
     g_deviceRemovalProbeUnavailable = false;
     g_reportDeviceRemovedForProbe = false;
@@ -2103,8 +2076,9 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
 
     static_cast<void>(probeReset);
     /// @brief Present、Signal、完了待機の失敗組み合わせが期待した主 Error を保持するか検証する
-    const auto runCase = [&](bool a_failPresent, bool a_failSignal, bool a_failWaitAfterCompletion,
-                             std::int64_t a_expectedCode) noexcept {
+    const auto runCase =
+        [&](bool a_failPresent, bool a_failSignal, bool a_failWaitAfterCompletion, std::int64_t a_expectedCode) noexcept
+    {
         g_presentationFrameProbeState = {true, false, false};
         g_queueLifecycleProbeState = {true, false, false, false, false, 0};
         D3d12BackendDescriptor backendDescriptor = {
@@ -2113,8 +2087,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
             false,
             5'000,
         };
-        Result<std::unique_ptr<D3d12Backend>> backendResult =
-            create_d3d12_backend(backendDescriptor, a_assertContext);
+        Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(backendDescriptor, a_assertContext);
 
         if (!backendResult)
         {
@@ -2123,8 +2096,8 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
 
         std::unique_ptr<D3d12Backend> backend = std::move(*backendResult.try_value());
         PresentationDescriptor presentationDescriptor = {true};
-        Result<std::unique_ptr<PresentationContext>> presentationResult = backend->create_windows_presentation(
-            a_nativeWindow, a_width, a_height, presentationDescriptor);
+        Result<std::unique_ptr<PresentationContext>> presentationResult =
+            backend->create_windows_presentation(a_nativeWindow, a_width, a_height, presentationDescriptor);
 
         if (!presentationResult)
         {
@@ -2150,36 +2123,32 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
         const Error *frameError = frameResult.try_error();
         const D3d12BackendOwnerProbeReport *backendOwners = backendOwnerResult.try_value();
         const bool signalErrorRetained =
-            !a_failSignal ||
-            (frameError != nullptr &&
-             (frameError->code().value() == 46 || has_error_context(*frameError, "Cue.RHI.D3D12/46")));
-        const bool waitErrorRetained = !a_failWaitAfterCompletion ||
-                                       (frameError != nullptr &&
-                                        has_error_context(*frameError, "Cue.RHI.D3D12/48"));
-        const bool recoveryOrderValid = !a_failPresent || !a_failSignal || !a_failWaitAfterCompletion ||
-                                        (frameError != nullptr &&
-                                         has_error_contexts_in_order(*frameError, "Cue.RHI.D3D12/46",
-                                                                     "Cue.RHI.D3D12/48"));
+            !a_failSignal || (frameError != nullptr &&
+                              (frameError->code().value() == 46 || has_error_context(*frameError, "Cue.RHI.D3D12/46")));
+        const bool waitErrorRetained =
+            !a_failWaitAfterCompletion || (frameError != nullptr && has_error_context(*frameError, "Cue.RHI.D3D12/48"));
+        const bool recoveryOrderValid =
+            !a_failPresent || !a_failSignal || !a_failWaitAfterCompletion ||
+            (frameError != nullptr && has_error_contexts_in_order(*frameError, "Cue.RHI.D3D12/46", "Cue.RHI.D3D12/48"));
 
-        const bool frameValid = !frameResult && frameError != nullptr && signalErrorRetained && waitErrorRetained &&
-                                recoveryOrderValid &&
-                                frameError->code().domain() == "Cue.RHI.D3D12" &&
-                                frameError->code().value() == a_expectedCode &&
-                                presentation->state() == PresentationContextState::Ready &&
-                                report.lastSubmittedFence == 1 && report.frameReuseFences[submittedIndex] == 1 &&
-                                !report.isAcceptingFrames && backendOwners != nullptr &&
-                                backendOwners->lastSignaledFence == 1;
+        const bool frameValid =
+            !frameResult && frameError != nullptr && signalErrorRetained && waitErrorRetained && recoveryOrderValid &&
+            frameError->code().domain() == "Cue.RHI.D3D12" && frameError->code().value() == a_expectedCode &&
+            presentation->state() == PresentationContextState::Ready && report.lastSubmittedFence == 1 &&
+            report.frameReuseFences[submittedIndex] == 1 && !report.isAcceptingFrames && backendOwners != nullptr &&
+            backendOwners->lastSignaledFence == 1;
         Result<void> presentationShutdownResult = presentation->shutdown();
         presentation.reset();
         Result<void> backendShutdownResult = backend->shutdown();
-        const bool cleanupValid = presentationShutdownResult && backendShutdownResult &&
-                                  backend->state() == GraphicsBackendState::Shutdown;
+        const bool cleanupValid =
+            presentationShutdownResult && backendShutdownResult && backend->state() == GraphicsBackendState::Shutdown;
         backend.reset();
         return frameValid && cleanupValid;
     };
 
     /// @brief Begin Frame が利用不能な場合に既存 Frame 状態が保持されることを検証する
-    const auto runBeginFrameUnavailableCase = [&]() noexcept {
+    const auto runBeginFrameUnavailableCase = [&]() noexcept
+    {
         g_presentationFrameProbeState = {true, false, false};
         g_queueLifecycleProbeState = {true, false, false, false, false, 0};
         D3d12BackendDescriptor backendDescriptor = {
@@ -2188,8 +2157,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
             false,
             5'000,
         };
-        Result<std::unique_ptr<D3d12Backend>> backendResult =
-            create_d3d12_backend(backendDescriptor, a_assertContext);
+        Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(backendDescriptor, a_assertContext);
 
         if (!backendResult)
         {
@@ -2198,8 +2166,8 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
 
         std::unique_ptr<D3d12Backend> backend = std::move(*backendResult.try_value());
         PresentationDescriptor presentationDescriptor = {true};
-        Result<std::unique_ptr<PresentationContext>> presentationResult = backend->create_windows_presentation(
-            a_nativeWindow, a_width, a_height, presentationDescriptor);
+        Result<std::unique_ptr<PresentationContext>> presentationResult =
+            backend->create_windows_presentation(a_nativeWindow, a_width, a_height, presentationDescriptor);
 
         if (!presentationResult)
         {
@@ -2221,22 +2189,21 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
         Result<void> backendShutdownResult = backend->shutdown();
         const Error *frameError = frameResult.try_error();
         const D3d12BackendOwnerProbeReport *backendOwners = backendOwnerResult.try_value();
-        const bool valid = firstFrameResult && secondFrameResult && !frameResult && frameError != nullptr &&
-                           frameError->code().domain() == "Cue.RHI.D3D12" && frameError->code().value() == 48 &&
-                           has_error_context(*frameError, "Cue.RHI.D3D12/33") &&
-                           presentation->state() == PresentationContextState::Unavailable &&
-                           backend->state() == GraphicsBackendState::Unavailable && report.lastSubmittedFence == 2 &&
-                           reportBeforeFailure.lastSubmittedFence == 2 &&
-                           report.frameReuseFences == reportBeforeFailure.frameReuseFences &&
-                           !report.isAcceptingFrames && report.hasCommandList &&
-                           report.allocatorCount == k_d3d12FrameContextCount &&
-                           report.backBufferCount == k_d3d12SwapChainBufferCount &&
-                           report.rtvCount == k_d3d12SwapChainBufferCount && report.formatsMatch &&
-                           report.hasSwapChain && report.hasRtvHeap && report.isRegistered &&
-                           backendOwners != nullptr && backendOwners->lastSignaledFence == 2 &&
-                           backendOwners->hasQueue && backendOwners->hasFence && backendOwners->hasFenceEvent &&
-                           backendOwners->hasDevice && backendOwners->hasAdapter && backendOwners->hasFactory &&
-                           !presentationShutdownResult && !backendShutdownResult;
+        const bool valid =
+            firstFrameResult && secondFrameResult && !frameResult && frameError != nullptr &&
+            frameError->code().domain() == "Cue.RHI.D3D12" && frameError->code().value() == 48 &&
+            has_error_context(*frameError, "Cue.RHI.D3D12/33") &&
+            presentation->state() == PresentationContextState::Unavailable &&
+            backend->state() == GraphicsBackendState::Unavailable && report.lastSubmittedFence == 2 &&
+            reportBeforeFailure.lastSubmittedFence == 2 &&
+            report.frameReuseFences == reportBeforeFailure.frameReuseFences && !report.isAcceptingFrames &&
+            report.hasCommandList && report.allocatorCount == k_d3d12FrameContextCount &&
+            report.backBufferCount == k_d3d12SwapChainBufferCount && report.rtvCount == k_d3d12SwapChainBufferCount &&
+            report.formatsMatch && report.hasSwapChain && report.hasRtvHeap && report.isRegistered &&
+            backendOwners != nullptr && backendOwners->lastSignaledFence == 2 && backendOwners->hasQueue &&
+            backendOwners->hasFence && backendOwners->hasFenceEvent && backendOwners->hasDevice &&
+            backendOwners->hasAdapter && backendOwners->hasFactory && !presentationShutdownResult &&
+            !backendShutdownResult;
         static_cast<void>(presentation.release());
         static_cast<void>(backend.release());
         g_presentationFrameProbeState = {};
@@ -2245,7 +2212,8 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
     };
 
     /// @brief Command List Close 中の Device Removal が Backend 状態へ伝播することを検証する
-    const auto runCloseFrameDeviceRemovedCase = [&]() noexcept {
+    const auto runCloseFrameDeviceRemovedCase = [&]() noexcept
+    {
         g_presentationFrameProbeState = {true, false, false, true, 0};
         g_queueLifecycleProbeState = {true, false, false, false, false, 0};
         D3d12BackendDescriptor backendDescriptor = {
@@ -2254,8 +2222,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
             false,
             5'000,
         };
-        Result<std::unique_ptr<D3d12Backend>> backendResult =
-            create_d3d12_backend(backendDescriptor, a_assertContext);
+        Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(backendDescriptor, a_assertContext);
 
         if (!backendResult)
         {
@@ -2264,8 +2231,8 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
 
         std::unique_ptr<D3d12Backend> backend = std::move(*backendResult.try_value());
         PresentationDescriptor presentationDescriptor = {true};
-        Result<std::unique_ptr<PresentationContext>> presentationResult = backend->create_windows_presentation(
-            a_nativeWindow, a_width, a_height, presentationDescriptor);
+        Result<std::unique_ptr<PresentationContext>> presentationResult =
+            backend->create_windows_presentation(a_nativeWindow, a_width, a_height, presentationDescriptor);
 
         if (!presentationResult)
         {
@@ -2284,30 +2251,27 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
         const Error *frameError = frameResult.try_error();
         const D3d12BackendOwnerProbeReport *backendOwners = backendOwnerResult.try_value();
         const D3d12DredOwnerProbeReport *dredOwners = dredOwnerResult.try_value();
-        const bool frameValid = !frameResult && frameError != nullptr &&
-                                frameError->code().domain() == "Cue.RHI.D3D12" &&
-                                frameError->code().value() == 52 && frameError->try_native_error() != nullptr &&
-                                !frameError->causes().empty() && frameError->causes().front().code().value() == 63 &&
-                                presentation->state() == PresentationContextState::DeviceRemoved &&
-                                backend->state() == GraphicsBackendState::DeviceRemoved &&
-                                report.lastSubmittedFence == 0 && report.frameReuseFences[0] == 0 &&
-                                report.frameReuseFences[1] == 0 && !report.isAcceptingFrames &&
-                                report.hasCommandList && report.allocatorCount == k_d3d12FrameContextCount &&
-                                report.backBufferCount == k_d3d12SwapChainBufferCount &&
-                                report.rtvCount == k_d3d12SwapChainBufferCount && report.formatsMatch &&
-                                report.hasSwapChain && report.hasRtvHeap && report.isRegistered &&
-                                backendOwners != nullptr && backendOwners->lastSignaledFence == 0 &&
-                                backendOwners->hasQueue && backendOwners->hasFence && backendOwners->hasFenceEvent &&
-                                dredCountResult && *dredCountResult.try_value() == 1 && dredOwners != nullptr &&
-                                dredOwners->hasCommandList && dredOwners->allocatorCount == 2 &&
-                                dredOwners->backBufferCount == 2 && dredOwners->rtvCount == 2 &&
-                                dredOwners->hasSwapChain && dredOwners->hasRtvHeap && dredOwners->hasQueue &&
-                                dredOwners->hasFence && dredOwners->hasFenceEvent;
+        const bool frameValid =
+            !frameResult && frameError != nullptr && frameError->code().domain() == "Cue.RHI.D3D12" &&
+            frameError->code().value() == 52 && frameError->try_native_error() != nullptr &&
+            !frameError->causes().empty() && frameError->causes().front().code().value() == 63 &&
+            presentation->state() == PresentationContextState::DeviceRemoved &&
+            backend->state() == GraphicsBackendState::DeviceRemoved && report.lastSubmittedFence == 0 &&
+            report.frameReuseFences[0] == 0 && report.frameReuseFences[1] == 0 && !report.isAcceptingFrames &&
+            report.hasCommandList && report.allocatorCount == k_d3d12FrameContextCount &&
+            report.backBufferCount == k_d3d12SwapChainBufferCount && report.rtvCount == k_d3d12SwapChainBufferCount &&
+            report.formatsMatch && report.hasSwapChain && report.hasRtvHeap && report.isRegistered &&
+            backendOwners != nullptr && backendOwners->lastSignaledFence == 0 && backendOwners->hasQueue &&
+            backendOwners->hasFence && backendOwners->hasFenceEvent && dredCountResult &&
+            *dredCountResult.try_value() == 1 && dredOwners != nullptr && dredOwners->hasCommandList &&
+            dredOwners->allocatorCount == 2 && dredOwners->backBufferCount == 2 && dredOwners->rtvCount == 2 &&
+            dredOwners->hasSwapChain && dredOwners->hasRtvHeap && dredOwners->hasQueue && dredOwners->hasFence &&
+            dredOwners->hasFenceEvent;
         Result<void> presentationShutdownResult = presentation->shutdown();
         presentation.reset();
         Result<void> backendShutdownResult = backend->shutdown();
-        const bool cleanupValid = presentationShutdownResult && backendShutdownResult &&
-                                  backend->state() == GraphicsBackendState::Shutdown;
+        const bool cleanupValid =
+            presentationShutdownResult && backendShutdownResult && backend->state() == GraphicsBackendState::Shutdown;
         backend.reset();
         g_presentationFrameProbeState = {};
         g_queueLifecycleProbeState = {};
@@ -2316,7 +2280,8 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
     };
 
     /// @brief Present 経路が利用不能でも Frame 所有状態と期待 Error が保持されることを検証する
-    const auto runUnavailableCase = [&](bool a_failPresent, std::int64_t a_expectedCode) noexcept {
+    const auto runUnavailableCase = [&](bool a_failPresent, std::int64_t a_expectedCode) noexcept
+    {
         g_presentationFrameProbeState = {true, false, false};
         g_queueLifecycleProbeState = {true, false, false, false, false, 0};
         D3d12BackendDescriptor backendDescriptor = {
@@ -2325,8 +2290,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
             false,
             5'000,
         };
-        Result<std::unique_ptr<D3d12Backend>> backendResult =
-            create_d3d12_backend(backendDescriptor, a_assertContext);
+        Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(backendDescriptor, a_assertContext);
 
         if (!backendResult)
         {
@@ -2335,8 +2299,8 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
 
         std::unique_ptr<D3d12Backend> backend = std::move(*backendResult.try_value());
         PresentationDescriptor presentationDescriptor = {true};
-        Result<std::unique_ptr<PresentationContext>> presentationResult = backend->create_windows_presentation(
-            a_nativeWindow, a_width, a_height, presentationDescriptor);
+        Result<std::unique_ptr<PresentationContext>> presentationResult =
+            backend->create_windows_presentation(a_nativeWindow, a_width, a_height, presentationDescriptor);
 
         if (!presentationResult)
         {
@@ -2360,24 +2324,21 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
         const bool errorOrderValid =
             frameError != nullptr &&
             (a_failPresent
-                 ? has_error_contexts_in_order(*frameError, "Cue.RHI.D3D12/46", "Cue.RHI.D3D12/48",
-                                               "Cue.RHI.D3D12/33")
+                 ? has_error_contexts_in_order(*frameError, "Cue.RHI.D3D12/46", "Cue.RHI.D3D12/48", "Cue.RHI.D3D12/33")
                  : has_error_contexts_in_order(*frameError, "Cue.RHI.D3D12/48", "Cue.RHI.D3D12/33"));
-        const bool valid = !frameResult && frameError != nullptr &&
-                           frameError->code().domain() == "Cue.RHI.D3D12" &&
-                           frameError->code().value() == a_expectedCode && errorOrderValid &&
-                           presentation->state() == PresentationContextState::Unavailable &&
-                           backend->state() == GraphicsBackendState::Unavailable &&
-                           report.lastSubmittedFence == 0 && report.frameReuseFences[0] == 0 &&
-                           report.frameReuseFences[1] == 0 && !report.isAcceptingFrames && report.hasCommandList &&
-                           report.allocatorCount == k_d3d12FrameContextCount &&
-                           report.backBufferCount == k_d3d12SwapChainBufferCount &&
-                           report.rtvCount == k_d3d12SwapChainBufferCount && report.formatsMatch &&
-                           report.hasSwapChain && report.hasRtvHeap && report.isRegistered &&
-                           backendOwners != nullptr && backendOwners->lastSignaledFence == 0 &&
-                           backendOwners->hasQueue && backendOwners->hasFence &&
-                           backendOwners->hasFenceEvent && backendOwners->hasDevice && backendOwners->hasAdapter &&
-                           backendOwners->hasFactory && !presentationShutdownResult && !backendShutdownResult;
+        const bool valid =
+            !frameResult && frameError != nullptr && frameError->code().domain() == "Cue.RHI.D3D12" &&
+            frameError->code().value() == a_expectedCode && errorOrderValid &&
+            presentation->state() == PresentationContextState::Unavailable &&
+            backend->state() == GraphicsBackendState::Unavailable && report.lastSubmittedFence == 0 &&
+            report.frameReuseFences[0] == 0 && report.frameReuseFences[1] == 0 && !report.isAcceptingFrames &&
+            report.hasCommandList && report.allocatorCount == k_d3d12FrameContextCount &&
+            report.backBufferCount == k_d3d12SwapChainBufferCount && report.rtvCount == k_d3d12SwapChainBufferCount &&
+            report.formatsMatch && report.hasSwapChain && report.hasRtvHeap && report.isRegistered &&
+            backendOwners != nullptr && backendOwners->lastSignaledFence == 0 && backendOwners->hasQueue &&
+            backendOwners->hasFence && backendOwners->hasFenceEvent && backendOwners->hasDevice &&
+            backendOwners->hasAdapter && backendOwners->hasFactory && !presentationShutdownResult &&
+            !backendShutdownResult;
         static_cast<void>(presentation.release());
         static_cast<void>(backend.release());
         g_presentationFrameProbeState = {};
@@ -2386,8 +2347,9 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
     };
 
     /// @brief Present 前後の Device Removal 位置ごとに原因 Code と Backend 状態を検証する
-    const auto runDeviceRemovedCase = [&](bool a_removeBeforePresent, bool a_failPresent,
-                                          bool a_removeBeforeSignal, std::int64_t a_expectedCauseCode) noexcept {
+    const auto runDeviceRemovedCase = [&](bool a_removeBeforePresent, bool a_failPresent, bool a_removeBeforeSignal,
+                                          std::int64_t a_expectedCauseCode) noexcept
+    {
         g_presentationFrameProbeState = {true, false, false};
         g_queueLifecycleProbeState = {true, false, false, false, false, 0};
         D3d12BackendDescriptor backendDescriptor = {
@@ -2396,8 +2358,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
             false,
             5'000,
         };
-        Result<std::unique_ptr<D3d12Backend>> backendResult =
-            create_d3d12_backend(backendDescriptor, a_assertContext);
+        Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(backendDescriptor, a_assertContext);
 
         if (!backendResult)
         {
@@ -2406,8 +2367,8 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
 
         std::unique_ptr<D3d12Backend> backend = std::move(*backendResult.try_value());
         PresentationDescriptor presentationDescriptor = {true};
-        Result<std::unique_ptr<PresentationContext>> presentationResult = backend->create_windows_presentation(
-            a_nativeWindow, a_width, a_height, presentationDescriptor);
+        Result<std::unique_ptr<PresentationContext>> presentationResult =
+            backend->create_windows_presentation(a_nativeWindow, a_width, a_height, presentationDescriptor);
 
         if (!presentationResult)
         {
@@ -2435,34 +2396,31 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
         const D3d12DredOwnerProbeReport *dredOwners = dredOwnerResult.try_value();
         const PresentationContextState presentationStateBeforeShutdown = presentation->state();
         const GraphicsBackendState backendStateBeforeShutdown = backend->state();
-        const bool recoverySignalErrorValid = !a_failPresent || !a_removeBeforeSignal ||
-                                              (frameError != nullptr &&
-                                               has_error_contexts_in_order(*frameError, "Cue.RHI.D3D12/46",
-                                                                           "Cue.RHI.D3D12/50") &&
-                                               has_error_context(*frameError, "NativeError=D3D12/"));
-        const bool frameValid = removalProbeAvailable && !frameResult && frameError != nullptr &&
-                                frameError->code().domain() == "Cue.RHI.D3D12" &&
-                                frameError->code().value() == 52 && frameError->try_native_error() != nullptr &&
-                                !frameError->causes().empty() &&
-                                frameError->causes().front().code().value() == a_expectedCauseCode &&
-                                recoverySignalErrorValid &&
-                                presentationStateBeforeShutdown == PresentationContextState::DeviceRemoved &&
-                                backendStateBeforeShutdown == GraphicsBackendState::DeviceRemoved &&
-                                report.lastSubmittedFence == 0 && report.frameReuseFences[0] == 0 &&
-                                report.frameReuseFences[1] == 0 && !report.isAcceptingFrames && report.hasCommandList &&
-                                report.hasSwapChain && report.hasRtvHeap && report.isRegistered &&
-                                backendOwners != nullptr && backendOwners->lastSignaledFence == 0 &&
-                                backendOwners->hasQueue && backendOwners->hasFence && backendOwners->hasFenceEvent &&
-                                dredCountResult && *dredCountResult.try_value() == 1 && dredOwners != nullptr &&
-                                dredOwners->hasCommandList && dredOwners->allocatorCount == 2 &&
-                                dredOwners->backBufferCount == 2 && dredOwners->rtvCount == 2 &&
-                                dredOwners->hasSwapChain && dredOwners->hasRtvHeap && dredOwners->hasQueue &&
-                                dredOwners->hasFence && dredOwners->hasFenceEvent;
+        const bool recoverySignalErrorValid =
+            !a_failPresent || !a_removeBeforeSignal ||
+            (frameError != nullptr &&
+             has_error_contexts_in_order(*frameError, "Cue.RHI.D3D12/46", "Cue.RHI.D3D12/50") &&
+             has_error_context(*frameError, "NativeError=D3D12/"));
+        const bool frameValid =
+            removalProbeAvailable && !frameResult && frameError != nullptr &&
+            frameError->code().domain() == "Cue.RHI.D3D12" && frameError->code().value() == 52 &&
+            frameError->try_native_error() != nullptr && !frameError->causes().empty() &&
+            frameError->causes().front().code().value() == a_expectedCauseCode && recoverySignalErrorValid &&
+            presentationStateBeforeShutdown == PresentationContextState::DeviceRemoved &&
+            backendStateBeforeShutdown == GraphicsBackendState::DeviceRemoved && report.lastSubmittedFence == 0 &&
+            report.frameReuseFences[0] == 0 && report.frameReuseFences[1] == 0 && !report.isAcceptingFrames &&
+            report.hasCommandList && report.hasSwapChain && report.hasRtvHeap && report.isRegistered &&
+            backendOwners != nullptr && backendOwners->lastSignaledFence == 0 && backendOwners->hasQueue &&
+            backendOwners->hasFence && backendOwners->hasFenceEvent && dredCountResult &&
+            *dredCountResult.try_value() == 1 && dredOwners != nullptr && dredOwners->hasCommandList &&
+            dredOwners->allocatorCount == 2 && dredOwners->backBufferCount == 2 && dredOwners->rtvCount == 2 &&
+            dredOwners->hasSwapChain && dredOwners->hasRtvHeap && dredOwners->hasQueue && dredOwners->hasFence &&
+            dredOwners->hasFenceEvent;
         Result<void> presentationShutdownResult = presentation->shutdown();
         presentation.reset();
         Result<void> backendShutdownResult = backend->shutdown();
-        const bool cleanupValid = presentationShutdownResult && backendShutdownResult &&
-                                  backend->state() == GraphicsBackendState::Shutdown;
+        const bool cleanupValid =
+            presentationShutdownResult && backendShutdownResult && backend->state() == GraphicsBackendState::Shutdown;
         backend.reset();
         return frameValid && cleanupValid;
     };
@@ -2502,8 +2460,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
         return runDeviceRemovedCase(false, false, true, 46);
     }
 
-    return runCase(true, false, false, 98) && runCase(false, true, false, 46) &&
-           runCase(true, true, true, 98);
+    return runCase(true, false, false, 98) && runCase(false, true, false, 46) && runCase(true, true, true, 98);
 }
 
 bool was_d3d12_present_device_removal_probe_unavailable() noexcept
@@ -2532,8 +2489,7 @@ bool verify_d3d12_resize_unavailable_retention_for_probe(const void *a_nativeWin
         false,
         5'000,
     };
-    Result<std::unique_ptr<D3d12Backend>> backendResult =
-        create_d3d12_backend(backendDescriptor, a_assertContext);
+    Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(backendDescriptor, a_assertContext);
 
     if (!backendResult)
     {
@@ -2542,8 +2498,8 @@ bool verify_d3d12_resize_unavailable_retention_for_probe(const void *a_nativeWin
 
     std::unique_ptr<D3d12Backend> backend = std::move(*backendResult.try_value());
     PresentationDescriptor presentationDescriptor = {true};
-    Result<std::unique_ptr<PresentationContext>> presentationResult = backend->create_windows_presentation(
-        a_nativeWindow, a_width, a_height, presentationDescriptor);
+    Result<std::unique_ptr<PresentationContext>> presentationResult =
+        backend->create_windows_presentation(a_nativeWindow, a_width, a_height, presentationDescriptor);
 
     if (!presentationResult)
     {
@@ -2566,22 +2522,19 @@ bool verify_d3d12_resize_unavailable_retention_for_probe(const void *a_nativeWin
     g_queueLifecycleProbeState.failWaitWithoutCompletion = true;
     Result<void> resizeResult = presentation->resize(a_width + 1, a_height + 1);
     D3d12PresentationProbeReport report = d3d12Presentation->probe_report();
-    Result<D3d12BackendOwnerProbeReport> backendOwnerResult =
-        probe_d3d12_backend_owners_for_probe(*backend);
+    Result<D3d12BackendOwnerProbeReport> backendOwnerResult = probe_d3d12_backend_owners_for_probe(*backend);
     Result<void> presentationShutdownResult = presentation->shutdown();
     Result<void> backendShutdownResult = backend->shutdown();
     const D3d12BackendOwnerProbeReport *backendOwners = backendOwnerResult.try_value();
-    const bool retentionValid = submitResult && !resizeResult &&
-                                presentation->state() == PresentationContextState::Unavailable &&
-                                backend->state() == GraphicsBackendState::Unavailable && !presentationShutdownResult &&
-                                !backendShutdownResult && report.hasCommandList &&
-                                report.allocatorCount == k_d3d12FrameContextCount &&
-                                report.backBufferCount == k_d3d12SwapChainBufferCount &&
-                                report.rtvCount == k_d3d12SwapChainBufferCount && report.formatsMatch &&
-                                !report.isAcceptingFrames && report.hasSwapChain && report.hasRtvHeap &&
-                                report.isRegistered && backendOwners != nullptr && backendOwners->hasQueue &&
-                                backendOwners->hasFence && backendOwners->hasFenceEvent && backendOwners->hasDevice &&
-                                backendOwners->hasAdapter && backendOwners->hasFactory;
+    const bool retentionValid =
+        submitResult && !resizeResult && presentation->state() == PresentationContextState::Unavailable &&
+        backend->state() == GraphicsBackendState::Unavailable && !presentationShutdownResult &&
+        !backendShutdownResult && report.hasCommandList && report.allocatorCount == k_d3d12FrameContextCount &&
+        report.backBufferCount == k_d3d12SwapChainBufferCount && report.rtvCount == k_d3d12SwapChainBufferCount &&
+        report.formatsMatch && !report.isAcceptingFrames && report.hasSwapChain && report.hasRtvHeap &&
+        report.isRegistered && backendOwners != nullptr && backendOwners->hasQueue && backendOwners->hasFence &&
+        backendOwners->hasFenceEvent && backendOwners->hasDevice && backendOwners->hasAdapter &&
+        backendOwners->hasFactory;
 
     static_cast<void>(presentation.release());
     static_cast<void>(backend.release());
@@ -2642,20 +2595,8 @@ Result<std::unique_ptr<D3d12Backend>> create_d3d12_backend(const D3d12BackendDes
         return Result<std::unique_ptr<D3d12Backend>>::failure(std::move(*infoQueueResult.try_error()));
     }
 
-    D3D12_FEATURE_DATA_ARCHITECTURE1 architecture = {};
-    architecture.NodeIndex = 0;
-    HRESULT capabilityResult =
-        device->CheckFeatureSupport(D3D12_FEATURE_ARCHITECTURE1, &architecture, sizeof(architecture));
-
-    if (FAILED(capabilityResult))
-    {
-        return Result<std::unique_ptr<D3d12Backend>>::failure(
-            make_native_error(a_assertContext, k_capabilityQueryFailed,
-                              "D3D12 Device architecture capability could not be queried", capabilityResult));
-    }
-
     Result<CapabilityReport> capabilityReportResult =
-        make_d3d12_capability_report(selection.report, architecture.UMA != FALSE, a_assertContext);
+        query_d3d12_capability_report(device.Get(), selection.report, a_assertContext);
 
     if (!capabilityReportResult)
     {

@@ -32,6 +32,8 @@ target_sources(
         Private/D3d12AdapterSelection.cpp
         Private/D3d12AdapterSelection.h
         Private/D3d12Backend.cpp
+        Private/D3d12CapabilityQuery.cpp
+        Private/D3d12CapabilityQuery.h
         Private/D3d12DeviceCreation.cpp
         Private/D3d12DeviceCreation.h
         Private/D3d12Diagnostics.cpp

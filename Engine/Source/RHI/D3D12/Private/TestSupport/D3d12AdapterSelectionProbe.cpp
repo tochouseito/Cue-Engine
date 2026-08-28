@@ -1,6 +1,7 @@
 #include <Cue/RHI/D3D12/TestSupport/D3d12AdapterSelectionProbe.h>
 
 #include "D3d12AdapterSelection.h"
+#include "D3d12CapabilityQuery.h"
 #include "D3d12Diagnostics.h"
 
 #include <array>
@@ -113,23 +114,204 @@ bool verify_d3d12_capability_mapping_for_probe(const AssertContext &a_assertCont
     adapter.vendorId = 1;
     adapter.deviceId = 2;
     adapter.adapterKind = GraphicsAdapterKind::Hardware;
-    Result<CapabilityReport> discreteResult =
-        make_d3d12_capability_report(adapter, false, a_assertContext);
-    Result<CapabilityReport> umaResult =
-        make_d3d12_capability_report(adapter, true, a_assertContext);
+    Result<CapabilityReport> reportResult = make_d3d12_capability_report(adapter, a_assertContext);
 
-    if (!discreteResult || !umaResult)
+    if (!reportResult)
     {
         return false;
     }
 
-    const CapabilityReport &discrete = *discreteResult.try_value();
-    const CapabilityReport &uma = *umaResult.try_value();
-    return discrete.adapterName == adapter.adapterName &&
-           discrete.dedicatedVideoMemoryBytes == adapter.dedicatedVideoMemoryBytes &&
-           discrete.vendorId == adapter.vendorId && discrete.deviceId == adapter.deviceId &&
-           discrete.backendKind == GraphicsBackendKind::D3d12 &&
-           discrete.adapterKind == GraphicsAdapterKind::Hardware &&
-           discrete.profile == GraphicsProfile::Baseline3D && !discrete.isUma && uma.isUma;
+    const CapabilityReport &report = *reportResult.try_value();
+    return report.adapterName == adapter.adapterName &&
+           report.dedicatedVideoMemoryBytes == adapter.dedicatedVideoMemoryBytes &&
+           report.vendorId == adapter.vendorId && report.deviceId == adapter.deviceId &&
+           report.backendKind == GraphicsBackendKind::D3d12 &&
+           report.adapterKind == GraphicsAdapterKind::Hardware &&
+           report.profile == GraphicsProfile::Baseline3D;
+}
+
+bool verify_d3d12_optional_capability_failure_for_probe(AssertContext &a_assertContext) noexcept
+{
+    struct FailureReset final
+    {
+        /// @brief Probe終了時にOptional Capability失敗注入を必ず解除する
+        ~FailureReset() noexcept
+        {
+            d3d12_private::clear_capability_query_failure_for_probe();
+        }
+    } reset;
+    static_cast<void>(reset);
+
+    d3d12_private::set_capability_query_failure_for_probe(D3D12_FEATURE_D3D12_OPTIONS7);
+    D3d12BackendDescriptor descriptor = {
+        D3d12AdapterPolicy::Warp,
+        D3d12ValidationMode::Disabled,
+        false,
+        5'000,
+    };
+    Result<std::unique_ptr<D3d12Backend>> backendResult =
+        create_d3d12_backend(descriptor, a_assertContext);
+    if (!backendResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<D3d12Backend> backend = std::move(*backendResult.try_value());
+    const CapabilityReport &capabilities = backend->capabilities();
+    const bool valid = capabilities.meshShader.support_state().query_status() == CapabilityQueryStatus::Failed &&
+                       capabilities.meshShader.support_state().support() == CapabilitySupport::Unknown &&
+                       capabilities.samplerFeedback.support_state().query_status() == CapabilityQueryStatus::Failed &&
+                       backend->state() == GraphicsBackendState::Ready;
+    Result<void> shutdownResult = backend->shutdown();
+    return valid && shutdownResult;
+}
+
+bool verify_d3d12_optional_capability_log_failure_for_probe(AssertContext &a_assertContext) noexcept
+{
+    struct FailureReset final
+    {
+        /// @brief Probe終了時にOptional Capability失敗注入を必ず解除する
+        ~FailureReset() noexcept
+        {
+            d3d12_private::clear_capability_query_failure_for_probe();
+        }
+    } reset;
+    static_cast<void>(reset);
+
+    d3d12_private::set_capability_query_failure_for_probe(D3D12_FEATURE_D3D12_OPTIONS7);
+    D3d12BackendDescriptor descriptor = {
+        D3d12AdapterPolicy::Warp,
+        D3d12ValidationMode::Disabled,
+        false,
+        5'000,
+    };
+    Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(descriptor, a_assertContext);
+    const Error *error = backendResult.try_error();
+    const NativeError *nativeError =
+        error != nullptr && !error->causes().empty() ? error->causes().front().try_native_error() : nullptr;
+    return !backendResult && error != nullptr && error->code().domain() == "Cue.RHI.D3D12" &&
+           error->code().value() == 101 && nativeError != nullptr && nativeError->domain() == "D3D12" &&
+           nativeError->value() == static_cast<std::int64_t>(E_FAIL);
+}
+
+bool verify_d3d12_required_capability_failure_for_probe(AssertContext &a_assertContext) noexcept
+{
+    struct FailureReset final
+    {
+        /// @brief Probe終了時にRequired Capability失敗注入を必ず解除する
+        ~FailureReset() noexcept
+        {
+            d3d12_private::clear_capability_query_failure_for_probe();
+        }
+    } reset;
+    static_cast<void>(reset);
+
+    d3d12_private::set_capability_query_failure_for_probe(D3D12_FEATURE_FEATURE_LEVELS);
+    D3d12BackendDescriptor descriptor = {
+        D3d12AdapterPolicy::Warp,
+        D3d12ValidationMode::Disabled,
+        false,
+        5'000,
+    };
+    Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(descriptor, a_assertContext);
+    const Error *error = backendResult.try_error();
+    return !backendResult && error != nullptr && error->code().domain() == "Cue.RHI.D3D12" &&
+           error->code().value() == 102;
+}
+
+bool verify_d3d12_unknown_capability_value_for_probe(AssertContext &a_assertContext) noexcept
+{
+    struct UnknownValueReset final
+    {
+        /// @brief Probe終了時に未知Capability値注入を必ず解除する
+        ~UnknownValueReset() noexcept
+        {
+            d3d12_private::clear_capability_query_unknown_value_for_probe();
+        }
+    } reset;
+    static_cast<void>(reset);
+
+    d3d12_private::set_capability_query_unknown_value_for_probe(D3D12_FEATURE_D3D12_OPTIONS7);
+    D3d12BackendDescriptor descriptor = {
+        D3d12AdapterPolicy::Warp,
+        D3d12ValidationMode::Disabled,
+        false,
+        5'000,
+    };
+    Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(descriptor, a_assertContext);
+    if (!backendResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<D3d12Backend> backend = std::move(*backendResult.try_value());
+    const CapabilityReport &capabilities = backend->capabilities();
+    const bool valid = capabilities.meshShader.support_state().query_status() == CapabilityQueryStatus::Failed &&
+                       capabilities.meshShader.support_state().support() == CapabilitySupport::Unknown &&
+                       backend->state() == GraphicsBackendState::Ready;
+    Result<void> shutdownResult = backend->shutdown();
+    return valid && shutdownResult;
+}
+
+bool verify_d3d12_unknown_capability_value_log_failure_for_probe(AssertContext &a_assertContext) noexcept
+{
+    struct UnknownValueReset final
+    {
+        /// @brief Probe終了時に未知Capability値注入を必ず解除する
+        ~UnknownValueReset() noexcept
+        {
+            d3d12_private::clear_capability_query_unknown_value_for_probe();
+        }
+    } reset;
+    static_cast<void>(reset);
+
+    d3d12_private::set_capability_query_unknown_value_for_probe(D3D12_FEATURE_D3D12_OPTIONS7);
+    D3d12BackendDescriptor descriptor = {
+        D3d12AdapterPolicy::Warp,
+        D3d12ValidationMode::Disabled,
+        false,
+        5'000,
+    };
+    Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(descriptor, a_assertContext);
+    const Error *error = backendResult.try_error();
+    const NativeError *nativeError =
+        error != nullptr && !error->causes().empty() ? error->causes().front().try_native_error() : nullptr;
+    return !backendResult && error != nullptr && error->code().domain() == "Cue.RHI.D3D12" &&
+           error->code().value() == 101 && nativeError != nullptr && nativeError->domain() == "D3D12" &&
+           nativeError->value() == static_cast<std::int64_t>(E_UNEXPECTED);
+}
+
+bool verify_d3d12_legacy_feature_level_runtime_for_probe(AssertContext &a_assertContext) noexcept
+{
+    struct LegacyRuntimeReset final
+    {
+        /// @brief Probe終了時に旧Runtime再現を必ず解除する
+        ~LegacyRuntimeReset() noexcept
+        {
+            d3d12_private::disable_legacy_feature_level_runtime_for_probe();
+        }
+    } reset;
+    static_cast<void>(reset);
+
+    d3d12_private::enable_legacy_feature_level_runtime_for_probe();
+    D3d12BackendDescriptor descriptor = {
+        D3d12AdapterPolicy::Warp,
+        D3d12ValidationMode::Disabled,
+        false,
+        5'000,
+    };
+    Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(descriptor, a_assertContext);
+    if (!backendResult)
+    {
+        return false;
+    }
+
+    std::unique_ptr<D3d12Backend> backend = std::move(*backendResult.try_value());
+    const CapabilityReport &capabilities = backend->capabilities();
+    const bool valid = capabilities.featureLevel.support_state().query_status() == CapabilityQueryStatus::Succeeded &&
+                       capabilities.featureLevel.support_state().support() == CapabilitySupport::Supported &&
+                       backend->state() == GraphicsBackendState::Ready;
+    Result<void> shutdownResult = backend->shutdown();
+    return valid && shutdownResult;
 }
 } // namespace cue
