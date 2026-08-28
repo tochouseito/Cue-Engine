@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Cue/Platform/SystemCapabilities.h>
 #include <Cue/Platform/WindowSystem.h>
 
 #include <memory>
@@ -25,6 +26,13 @@ class AssertContext;
 ///
 /// 共有可変状態を持たないため、各引数と AssertContext の参照先が全呼び出し中に有効なら並行呼び出し可能
 /// Allocation 失敗時は `a_assertContext.fatal_handler()` を呼び、Process を終了する
-[[nodiscard]] Result<std::string> convert_windows_argument_to_utf8(
-    std::wstring_view a_text, const AssertContext &a_assertContext) noexcept;
+[[nodiscard]] Result<std::string> convert_windows_argument_to_utf8(std::wstring_view a_text,
+                                                                   const AssertContext &a_assertContext) noexcept;
+
+/// @brief 現在MachineのWindows System CapabilityとNative失敗診断の配送結果を所有値で返す
+///
+/// 共有可変状態やCacheを持たないため任意Threadから並行呼び出しでき、各呼び出しは独立値を返す
+/// 個別Query失敗は該当FieldをFailedにし、Snapshot全体を破棄しない
+[[nodiscard]] SystemCapabilityQueryReport query_windows_system_capabilities(
+    const AssertContext &a_assertContext) noexcept;
 } // namespace cue
