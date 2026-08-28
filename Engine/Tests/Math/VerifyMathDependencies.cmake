@@ -1,3 +1,54 @@
+function(cue_strip_cpp_raw_strings a_source a_output)
+    set(source "${a_source}")
+
+    if(source MATCHES "R\"")
+        string(
+            REGEX REPLACE
+            "R\"[^ ()\\\\\t\r\n]*\\(([^)]|\\)[^\"])*\\)[^\" \t\r\n]*\""
+            " "
+            source
+            "${source}"
+        )
+    endif()
+
+    set(${a_output} "${source}" PARENT_SCOPE)
+endfunction()
+
+function(cue_strip_cpp_non_code a_source a_output)
+    cue_strip_cpp_raw_strings("${a_source}" source)
+
+    if(source MATCHES "\"")
+        string(REGEX REPLACE "\"([^\"\\]|\\.)*\"" " " source "${source}")
+    endif()
+
+    if(source MATCHES "'")
+        string(REGEX REPLACE "'([^'\\]|\\.)*'" " " source "${source}")
+    endif()
+
+    if(source MATCHES "/\\*")
+        string(REGEX REPLACE "/\\*([^*]|\\*+[^*/])*\\*+/" " " source "${source}")
+    endif()
+
+    if(source MATCHES "//")
+        string(REGEX REPLACE "//[^\r\n]*" "" source "${source}")
+    endif()
+
+    set(${a_output} "${source}" PARENT_SCOPE)
+endfunction()
+
+function(cue_extract_cpp_include_code a_source a_output)
+    cue_strip_cpp_raw_strings("${a_source}" source)
+    string(
+        REGEX REPLACE
+        "(^|[\r\n])([ \t]*#[ \t]*include[ \t]*)\"([^\"\r\n]+)\""
+        "\\1\\2<\\3>"
+        source
+        "${source}"
+    )
+    cue_strip_cpp_non_code("${source}" source)
+    set(${a_output} "${source}" PARENT_SCOPE)
+endfunction()
+
 file(
     GLOB_RECURSE
     cueMathSourceFiles
@@ -8,13 +59,16 @@ file(
 
 foreach(cueMathSourceFile IN LISTS cueMathSourceFiles)
     file(READ "${cueMathSourceFile}" cueMathSourceContent)
-    string(TOLOWER "${cueMathSourceContent}" cueMathSourceContentLower)
+    cue_extract_cpp_include_code("${cueMathSourceContent}" cueMathIncludeCode)
+    string(TOLOWER "${cueMathIncludeCode}" cueMathIncludeCodeLower)
 
-    if(cueMathSourceContentLower MATCHES "cue/(platform|rhi|runtimehost|editor)/")
+    if(cueMathIncludeCodeLower MATCHES
+       "#[ \t]*include[ \t]*<[ \t]*cue/(platform|rhi|runtimehost|editor)/")
         message(FATAL_ERROR "Cue.Math has a forbidden Cue module include: ${cueMathSourceFile}")
     endif()
 
-    if(cueMathSourceContentLower MATCHES "directxmath|windows\.h|d3d12\.h|intrin\.h")
+    if(cueMathIncludeCodeLower MATCHES
+       "#[ \t]*include[ \t]*<[ \t]*(directxmath|windows\.h|d3d12\.h|intrin\.h)")
         message(FATAL_ERROR "Cue.Math has a forbidden platform or SIMD include: ${cueMathSourceFile}")
     endif()
 endforeach()
@@ -60,9 +114,21 @@ foreach(cueRepositoryCppFile IN LISTS cueRepositoryCppFiles)
     file(READ "${cueRepositoryCppFile}" cueRepositoryCppContent)
     string(TOLOWER "${cueRepositoryCppContent}" cueRepositoryCppContentLower)
 
-    if(cueRepositoryCppContentLower MATCHES
-       "directx(math|packedvector|collision|colors)(\\.h)?|using[ \\t\\r\\n]+namespace[ \\t\\r\\n]+directx($|[^a-z0-9_])|namespace[ \\t\\r\\n]+[a-z_][a-z0-9_]*[ \\t\\r\\n]*=[ \\t\\r\\n]*(::[ \\t\\r\\n]*)?directx($|[^a-z0-9_])|directx::[ \\t\\r\\n]*(xm|packedvector|colors(linear)?|bounding(sphere|box|orientedbox|frustum)|containmenttype|planeintersectiontype|triangletests)"
-       OR cueRepositoryCppContent MATCHES "${cueDirectXMathIdentifierPattern}")
+    if(NOT cueRepositoryCppContentLower MATCHES "directx" AND
+       NOT cueRepositoryCppContent MATCHES "XM")
+        continue()
+    endif()
+
+    cue_extract_cpp_include_code("${cueRepositoryCppContent}" cueRepositoryCppIncludeCode)
+    cue_strip_cpp_non_code("${cueRepositoryCppContent}" cueRepositoryCppCode)
+    string(TOLOWER "${cueRepositoryCppIncludeCode}" cueRepositoryCppIncludeCodeLower)
+    string(TOLOWER "${cueRepositoryCppCode}" cueRepositoryCppCodeLower)
+
+    if(cueRepositoryCppIncludeCodeLower MATCHES
+       "#[ \t]*include[ \t]*<[ \t]*directx(math|packedvector|collision|colors)(\\.h)?[ \t]*>"
+       OR cueRepositoryCppCodeLower MATCHES
+          "using[ \t\r\n]+namespace[ \t\r\n]+directx($|[^a-z0-9_])|namespace[ \t\r\n]+[a-z_][a-z0-9_]*[ \t\r\n]*=[ \t\r\n]*(::[ \t\r\n]*)?directx($|[^a-z0-9_])|directx::[ \t\r\n]*(xm|packedvector|colors(linear)?|bounding(sphere|box|orientedbox|frustum)|containmenttype|planeintersectiontype|triangletests)"
+       OR cueRepositoryCppCode MATCHES "${cueDirectXMathIdentifierPattern}")
         message(
             FATAL_ERROR
             "Repository-owned C++ source has a forbidden DirectXMath dependency: ${cueRepositoryCppFile}"
