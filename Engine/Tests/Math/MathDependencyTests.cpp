@@ -844,6 +844,32 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
             constexpr std::string_view includeName = "include";
             const auto directiveStart = index;
+            constexpr std::string_view pragmaName = "pragma";
+
+            if (line.substr(index, pragmaName.size()) == pragmaName &&
+                index + pragmaName.size() < line.size() &&
+                std::isspace(static_cast<unsigned char>(
+                    line[index + pragmaName.size()])) != 0)
+            {
+                const auto pragmaOperand = trim_ascii_left(
+                    line.substr(index + pragmaName.size()));
+                constexpr std::string_view includeAliasName = "include_alias";
+
+                if (pragmaOperand.substr(0U, includeAliasName.size()) ==
+                        includeAliasName &&
+                    (pragmaOperand.size() == includeAliasName.size() ||
+                     !is_identifier_continue(
+                         pragmaOperand[includeAliasName.size()])))
+                {
+                    if (a_reportsFailure)
+                    {
+                        std::cerr << "Include alias is forbidden: "
+                                  << a_path.string() << '\n';
+                    }
+
+                    return false;
+                }
+            }
 
             if (line.substr(index, includeName.size()) == includeName &&
                 (index + includeName.size() == line.size() ||
@@ -1119,6 +1145,41 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     return true;
 }
 
+/// @brief Build PropertyがForced Include Optionを含む場合にtrueを返す
+[[nodiscard]] bool has_forced_include_option(
+    std::string_view a_manifest)
+{
+    const auto normalized = lower_ascii(a_manifest);
+
+    if (normalized.find("forcedincludefiles=") != std::string::npos)
+    {
+        return true;
+    }
+
+    for (std::size_t index = 0U; index < normalized.size(); ++index)
+    {
+        const bool isBoundary =
+            index == 0U || normalized[index - 1U] == '=' ||
+            normalized[index - 1U] == ';' ||
+            std::isspace(static_cast<unsigned char>(
+                normalized[index - 1U])) != 0;
+
+        if (!isBoundary)
+        {
+            continue;
+        }
+
+        if (normalized.substr(index, 3U) == "/fi" ||
+            normalized.substr(index, 8U) == "-include" ||
+            normalized.substr(index, 8U) == "-imacros")
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 /// @brief 展開済みCue.Math Build Propertyが禁止依存を含む場合にtrueを返す
 [[nodiscard]] bool has_forbidden_math_build_configuration(
     std::string_view a_manifest)
@@ -1149,7 +1210,8 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         });
     const bool hasDirectXDefinition =
         contains_ascii_identifier(a_manifest, "DirectX");
-    return hasForbiddenDependency || hasDirectXDefinition;
+    return hasForbiddenDependency || hasDirectXDefinition ||
+           has_forced_include_option(a_manifest);
 }
 
 /// @brief CMakeが生成したCue.Math Build Property Manifestを検証する
@@ -1268,6 +1330,16 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
     if (validate_include_directives(
             digraphInclude, false, "DigraphIncludeProbe.cpp", false))
+    {
+        return false;
+    }
+
+    const auto includeAlias = sanitize_cpp_source(
+        "#pragma include_alias(\"SafeHeader.h\", \"windows.h\")\n"
+        "#include \"SafeHeader.h\"\n");
+
+    if (validate_include_directives(
+            includeAlias, true, "IncludeAliasProbe.cpp", false))
     {
         return false;
     }
@@ -1441,6 +1513,14 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         "SOURCE[Private/Vector.cpp].COMPILE_OPTIONS=/FI:DirectXCollision.h\n";
 
     if (!has_forbidden_math_build_configuration(sourceCompileOption))
+    {
+        return false;
+    }
+
+    constexpr std::string_view safeNamedForcedInclude =
+        "COMPILE_OPTIONS=/FI:Injected.h\n";
+
+    if (!has_forbidden_math_build_configuration(safeNamedForcedInclude))
     {
         return false;
     }
