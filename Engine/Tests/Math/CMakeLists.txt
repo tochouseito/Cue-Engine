@@ -106,18 +106,29 @@ string(
 )
 
 get_target_property(cueMathSources Cue.Math SOURCES)
+get_target_property(cueMathSourceDirectory Cue.Math SOURCE_DIR)
 
 foreach(sourcePath IN LISTS cueMathSources)
+    get_filename_component(
+        sourceAbsolutePath
+        "${sourcePath}"
+        ABSOLUTE
+        BASE_DIR "${cueMathSourceDirectory}"
+    )
+
     foreach(
         sourceProperty
         COMPILE_DEFINITIONS
+        COMPILE_DEFINITIONS_DEBUG
+        COMPILE_DEFINITIONS_DEVELOPMENT
+        COMPILE_DEFINITIONS_RELEASE
         COMPILE_OPTIONS
         COMPILE_FLAGS
         INCLUDE_DIRECTORIES
     )
         get_source_file_property(
             sourcePropertyValue
-            "${sourcePath}"
+            "${sourceAbsolutePath}"
             TARGET_DIRECTORY Cue.Math
             ${sourceProperty}
         )
