@@ -202,7 +202,7 @@ class CapabilityState final
 - `Enabled`または`Disabled`と`Succeeded + Supported`以外のHardware状態
 - `NotApplicable`と`Succeeded + Supported + Implemented`
 
-`QueryFailed`を`Unsupported`へ変換しない。Native Errorの詳細はModule境界で`cue::Error`とLogへ変換するが、Immutable SnapshotにはNative Error型または所有権を持つError Chainを格納しない。
+`QueryFailed`を`Unsupported`へ変換しない。Native Errorの詳細はModule境界で`cue::Error`とLogへの変換を試みるが、Immutable SnapshotにはNative Error型または所有権を持つError Chainを格納しない。Log配送失敗はQuery Reportの独立した状態として呼び出し側へ返す。
 
 ### Supported, Implemented, and Enabled
 
@@ -256,18 +256,31 @@ Versionは辞書順で比較可能なMajor／Minor値とし、文字列または
 
 CPU命令はCPUID BitだけでSupportedとしない。AVX系などOS Context Saveが必要な機能は、CPU SupportとOS Supportの両方を満たした場合だけ実行可能なSupportedとする。
 
-SnapshotはWindows Platform初期化中に完成させ、公開後は変更しない。Native Handle、CPUID Register配列、Windows構造体、可変Cacheを含めない。Query全体は各FieldのQuery状態を含むSnapshotを必ず値で返し、個別のOS Query失敗をSnapshot全体の`Result`失敗へ変換しない。
+SnapshotはWindows Platform初期化中に完成させ、公開後は変更しない。Native Handle、CPUID Register配列、Windows構造体、可変Cacheを含めない。Query全体は各FieldのQuery状態を含むSnapshotを必ずReport内の値で返し、個別のOS Query失敗をQuery全体の`Result`失敗へ変換しない。
 
 ```cpp
-/// @brief 現在MachineのWindows System Capability Snapshotを所有値で返す
+struct SystemCapabilityQueryReport final
+{
+    /// @brief 完成済みSystem Capability Snapshot
+    SystemCapabilitySnapshot snapshot;
+    /// @brief Native Error診断の全Log配送結果
+    LogResult diagnosticResult;
+};
+
+/// @brief 現在MachineのWindows System Capabilityと診断配送結果を所有値で返す
 /// @param a_assertContext Query失敗のNative Errorを同期Logする非所有診断Context
-[[nodiscard]] SystemCapabilitySnapshot query_windows_system_capabilities(
+/// @return 完成済みSnapshotと全診断の集約LogResult
+[[nodiscard]] SystemCapabilityQueryReport query_windows_system_capabilities(
     const AssertContext &a_assertContext) noexcept;
 ```
 
-個別のOS Queryが失敗した場合は、そのFieldを`Failed + Unknown`にして、`a_assertContext.logger()`へNative Errorを同期出力する。Logger出力自体の失敗は既存Logger契約に従い、Global LoggerまたはThread-local診断状態を導入しない。
+個別のOS Queryが失敗した場合は、そのFieldを`Failed + Unknown`にして、`a_assertContext.logger()`へNative Errorを同期出力する。全診断が配送できた場合は`diagnosticResult = Success`とする。一件でもSink配送に失敗した場合は`SinkFailure`、再入を検出した場合は`Contended`を返す。両方を観測した場合は`SinkFailure`を優先する。
+
+`SinkFailure`または`Contended`でもQueryを再試行せず、Loggerへ再帰せず、暗黙にFatal終了せず、完成済みSnapshotを返す。呼び出し側は`diagnosticResult`を確認し、Console以外のEmergency診断または起動終了が必要かをComposition RootのPolicyとして判断する。これによりNative Error配送の欠落を無視せず、System Capability Query自体をGlobal状態へ結合しない。
 
 返却値は呼び出し側が所有し、`WindowSystem`または存在しないPlatform Runtime Objectの寿命へ結び付けない。別ThreadへCopyまたはMoveしたSnapshotは、元のPlatform Objectの有無に依存せず安全に読み取れる。`AssertContext`とその参照先はQuery呼び出し完了まで有効とし、返却Snapshotへ保持しない。
+
+Query APIは共有可変状態、Lazy Cache、Thread-local Cacheを持たず、任意Threadから呼び出せる。同じまたは異なる`AssertContext`を使用した並行呼び出しを許可し、各呼び出しは独立したReportを返す。共有する`Logger`は既存のThread-safe契約に従い、`FatalHandler`と任意Debug Break Callbackの並行利用可否は呼び出し側が保証する。M08のComposition Rootは初期化Threadから一度だけ呼び出すが、これは公開APIのThread Affinity要件ではない。
 
 `Cue.Platform`はHardware Supportの事実だけを報告し、GameCore、Renderer、Script等がその命令を実装・有効化しているかは判断しない。System Featureの完全な`CapabilityState`は、Platform SnapshotとEngine Implementation CatalogとRuntime設定をComposition Rootが組み合わせて作る。
 
