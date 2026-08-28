@@ -51,6 +51,8 @@ set(combinedOutput "${testOutput}\n${testError}")
 foreach(
     requiredMessage
     IN ITEMS
+        "System Capability Snapshot"
+        "Capability State: Name=Baseline3D, Query=Succeeded, Support=Supported, Implementation=Implemented, Enablement=Enabled"
         "D3D12 Presentation Smoke ready: Width=640, Height=360, BufferCount=2"
         "D3D12 Presentation Smoke shutdown completed"
 )
