@@ -23,5 +23,11 @@ void set_capability_query_failure_for_probe(D3D12_FEATURE a_feature) noexcept;
 
 /// @brief Test用Optional Feature Query失敗注入を解除する
 void clear_capability_query_failure_for_probe() noexcept;
+
+/// @brief TestでNative Query成功後に未知のCapability値を一度だけ注入するFeatureを指定する
+void set_capability_query_unknown_value_for_probe(D3D12_FEATURE a_feature) noexcept;
+
+/// @brief Test用未知Capability値注入を解除する
+void clear_capability_query_unknown_value_for_probe() noexcept;
 } // namespace d3d12_private
 } // namespace cue

@@ -154,7 +154,8 @@ int main(int a_argumentCount, char **a_arguments)
 
     if (mode != "Hardware" && mode != "Warp" && mode != "DeviceFailure" && mode != "ThreadDestruction" &&
         mode != "InvalidWaitTimeout" && mode != "OptionalCapabilityFailure" &&
-        mode != "OptionalCapabilityLogFailure" && mode != "RequiredCapabilityFailure")
+        mode != "OptionalCapabilityLogFailure" && mode != "RequiredCapabilityFailure" &&
+        mode != "UnknownCapabilityValue")
     {
         return 2;
     }
@@ -195,6 +196,11 @@ int main(int a_argumentCount, char **a_arguments)
     if (mode == "RequiredCapabilityFailure")
     {
         return cue::verify_d3d12_required_capability_failure_for_probe(assertContext) ? 0 : 14;
+    }
+
+    if (mode == "UnknownCapabilityValue")
+    {
+        return cue::verify_d3d12_unknown_capability_value_for_probe(assertContext) ? 0 : 15;
     }
 
     cue::D3d12AdapterPolicy policy =

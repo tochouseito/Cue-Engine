@@ -14,6 +14,7 @@ constexpr std::int64_t k_optionalCapabilityQueryFailed = 100;
 constexpr std::int64_t k_capabilityDiagnosticDeliveryFailed = 101;
 constexpr std::int64_t k_requiredCapabilityQueryFailed = 102;
 thread_local std::optional<D3D12_FEATURE> g_failureFeature;
+thread_local std::optional<D3D12_FEATURE> g_unknownValueFeature;
 
 /// @brief Production Queryを呼び、Probe指定FeatureだけSynthetic失敗へ差し替える
 HRESULT check_feature_support(ID3D12Device *a_device, D3D12_FEATURE a_feature, void *a_data,
@@ -23,7 +24,15 @@ HRESULT check_feature_support(ID3D12Device *a_device, D3D12_FEATURE a_feature, v
     {
         return E_FAIL;
     }
-    return a_device->CheckFeatureSupport(a_feature, a_data, a_dataSize);
+    const HRESULT result = a_device->CheckFeatureSupport(a_feature, a_data, a_dataSize);
+    if (SUCCEEDED(result) && g_unknownValueFeature && *g_unknownValueFeature == a_feature &&
+        a_feature == D3D12_FEATURE_D3D12_OPTIONS7)
+    {
+        // 将来SDKの未知値を再現し、Query成功と値変換成功を混同しない診断経路を検証する
+        auto *options = static_cast<D3D12_FEATURE_DATA_D3D12_OPTIONS7 *>(a_data);
+        options->MeshShaderTier = static_cast<D3D12_MESH_SHADER_TIER>(0x7fffffff);
+    }
+    return result;
 }
 
 /// @brief Optional Query失敗をLogし、配送失敗時だけBackend生成を止めるErrorを返す
@@ -334,6 +343,24 @@ Result<CapabilityReport> query_d3d12_capability_report(
                                          : GraphicsCapabilityValue<ResourceBindingTier>::query_failed();
         report.resourceHeap = heap ? GraphicsCapabilityValue<ResourceHeapTier>::supported(*heap)
                                    : GraphicsCapabilityValue<ResourceHeapTier>::query_failed();
+        if (!binding)
+        {
+            Result<void> failure = handle_failure(
+                E_UNEXPECTED, "D3D12 resource binding tier query returned an unknown value", a_assertContext);
+            if (!failure)
+            {
+                return Result<CapabilityReport>::failure(std::move(*failure.try_error()));
+            }
+        }
+        if (!heap)
+        {
+            Result<void> failure = handle_failure(
+                E_UNEXPECTED, "D3D12 resource heap tier query returned an unknown value", a_assertContext);
+            if (!failure)
+            {
+                return Result<CapabilityReport>::failure(std::move(*failure.try_error()));
+            }
+        }
     }
     else
     {
@@ -367,6 +394,15 @@ Result<CapabilityReport> query_d3d12_capability_report(
     if (SUCCEEDED(result))
     {
         report.rayTracing = map_ray_tracing(options5.RaytracingTier);
+        if (report.rayTracing.support_state().query_status() == CapabilityQueryStatus::Failed)
+        {
+            Result<void> failure = handle_failure(
+                E_UNEXPECTED, "D3D12 ray tracing query returned an unknown value", a_assertContext);
+            if (!failure)
+            {
+                return Result<CapabilityReport>::failure(std::move(*failure.try_error()));
+            }
+        }
     }
     else
     {
@@ -383,6 +419,15 @@ Result<CapabilityReport> query_d3d12_capability_report(
     if (SUCCEEDED(result))
     {
         report.variableRateShading = map_vrs(options6.VariableShadingRateTier);
+        if (report.variableRateShading.support_state().query_status() == CapabilityQueryStatus::Failed)
+        {
+            Result<void> failure = handle_failure(
+                E_UNEXPECTED, "D3D12 variable rate shading query returned an unknown value", a_assertContext);
+            if (!failure)
+            {
+                return Result<CapabilityReport>::failure(std::move(*failure.try_error()));
+            }
+        }
     }
     else
     {
@@ -400,6 +445,24 @@ Result<CapabilityReport> query_d3d12_capability_report(
     {
         report.meshShader = map_mesh_shader(options7.MeshShaderTier);
         report.samplerFeedback = map_sampler_feedback(options7.SamplerFeedbackTier);
+        if (report.meshShader.support_state().query_status() == CapabilityQueryStatus::Failed)
+        {
+            Result<void> failure = handle_failure(
+                E_UNEXPECTED, "D3D12 mesh shader query returned an unknown value", a_assertContext);
+            if (!failure)
+            {
+                return Result<CapabilityReport>::failure(std::move(*failure.try_error()));
+            }
+        }
+        if (report.samplerFeedback.support_state().query_status() == CapabilityQueryStatus::Failed)
+        {
+            Result<void> failure = handle_failure(
+                E_UNEXPECTED, "D3D12 sampler feedback query returned an unknown value", a_assertContext);
+            if (!failure)
+            {
+                return Result<CapabilityReport>::failure(std::move(*failure.try_error()));
+            }
+        }
     }
     else
     {
@@ -459,6 +522,16 @@ void set_capability_query_failure_for_probe(D3D12_FEATURE a_feature) noexcept
 void clear_capability_query_failure_for_probe() noexcept
 {
     g_failureFeature.reset();
+}
+
+void set_capability_query_unknown_value_for_probe(D3D12_FEATURE a_feature) noexcept
+{
+    g_unknownValueFeature = a_feature;
+}
+
+void clear_capability_query_unknown_value_for_probe() noexcept
+{
+    g_unknownValueFeature.reset();
 }
 } // namespace d3d12_private
 } // namespace cue

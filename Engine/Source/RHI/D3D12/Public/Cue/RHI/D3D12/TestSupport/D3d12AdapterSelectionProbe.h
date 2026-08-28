@@ -57,4 +57,7 @@ struct D3d12FactoryFallbackProbeReport final
 
 /// @brief Required Baseline Capability Query失敗時にBackend生成が失敗することを検証する
 [[nodiscard]] bool verify_d3d12_required_capability_failure_for_probe(AssertContext &a_assertContext) noexcept;
+
+/// @brief Query成功後の未知Tier値が診断付きQueryFailedとして保持されることを検証する
+[[nodiscard]] bool verify_d3d12_unknown_capability_value_for_probe(AssertContext &a_assertContext) noexcept;
 } // namespace cue
