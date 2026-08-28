@@ -1209,7 +1209,7 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
                     if (option.substr(0U, shellPrefix.size()) == shellPrefix)
                     {
-                        option = trim_ascii(option.substr(shellPrefix.size()));
+                        return true;
                     }
 
                     for (std::size_t index = 0U;
@@ -1805,6 +1805,14 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         "COMPILE_OPTIONS=SHELL:/FIInjected.h\n";
 
     if (!has_forbidden_math_build_configuration(shellForcedInclude))
+    {
+        return false;
+    }
+
+    constexpr std::string_view quotedShellForcedInclude =
+        "COMPILE_OPTIONS=SHELL:\"-include\" Injected.h\n";
+
+    if (!has_forbidden_math_build_configuration(quotedShellForcedInclude))
     {
         return false;
     }
