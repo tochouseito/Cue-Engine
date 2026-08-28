@@ -56,6 +56,7 @@ enum class RayTracingTier
 {
     Tier1_0,
     Tier1_1,
+    Tier1_2,
 };
 
 /// @brief Mesh Shader機能のTier

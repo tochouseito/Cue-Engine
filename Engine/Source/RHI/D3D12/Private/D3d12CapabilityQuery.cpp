@@ -175,8 +175,8 @@ HRESULT check_feature_support(ID3D12Device *a_device, D3D12_FEATURE a_feature, v
     }
 }
 
-/// @brief Native Ray Tracing TierをUnsupportedまたはPlatform非依存Tierへ変換する
-[[nodiscard]] cue::GraphicsCapabilityValue<cue::RayTracingTier> map_ray_tracing(
+/// @brief Native Ray Tracing Tier を Unsupported または Platform 非依存 Tier へ変換する
+[[nodiscard]] constexpr cue::GraphicsCapabilityValue<cue::RayTracingTier> map_ray_tracing(
     D3D12_RAYTRACING_TIER a_value) noexcept
 {
     switch (a_value)
@@ -187,10 +187,16 @@ HRESULT check_feature_support(ID3D12Device *a_device, D3D12_FEATURE a_feature, v
         return cue::GraphicsCapabilityValue<cue::RayTracingTier>::supported(cue::RayTracingTier::Tier1_0);
     case D3D12_RAYTRACING_TIER_1_1:
         return cue::GraphicsCapabilityValue<cue::RayTracingTier>::supported(cue::RayTracingTier::Tier1_1);
+    case D3D12_RAYTRACING_TIER_1_2:
+        return cue::GraphicsCapabilityValue<cue::RayTracingTier>::supported(cue::RayTracingTier::Tier1_2);
     default:
         return cue::GraphicsCapabilityValue<cue::RayTracingTier>::query_failed();
     }
 }
+
+constexpr auto k_rayTracingTier1_2 = map_ray_tracing(D3D12_RAYTRACING_TIER_1_2);
+static_assert(k_rayTracingTier1_2.try_value() != nullptr &&
+              *k_rayTracingTier1_2.try_value() == cue::RayTracingTier::Tier1_2);
 
 /// @brief Native Mesh Shader TierをUnsupportedまたはPlatform非依存Tierへ変換する
 [[nodiscard]] cue::GraphicsCapabilityValue<cue::MeshShaderTier> map_mesh_shader(

@@ -1,4 +1,5 @@
 #include <Cue/Foundation/Assert.h>
+#include <Cue/Foundation/Capability.h>
 #include <Cue/Foundation/Error.h>
 #include <Cue/Foundation/Fatal.h>
 #include <Cue/Foundation/Log.h>
@@ -65,6 +66,165 @@ struct RuntimeOptions final
 #endif
     cue::D3d12AdapterPolicy graphicsAdapterPolicy = cue::D3d12AdapterPolicy::HighPerformanceHardware;
 };
+
+/// @brief System Architecture を Native 定数へ依存しない診断文字列へ変換する
+[[nodiscard]] std::string_view describe_system_architecture(cue::SystemArchitecture a_architecture) noexcept
+{
+    switch (a_architecture)
+    {
+    case cue::SystemArchitecture::X64:
+        return "X64";
+    case cue::SystemArchitecture::Arm64:
+        return "Arm64";
+    default:
+        return "Unknown";
+    }
+}
+
+/// @brief Capability Query 状態を診断文字列へ変換する
+[[nodiscard]] std::string_view describe_query_status(cue::CapabilityQueryStatus a_status) noexcept
+{
+    switch (a_status)
+    {
+    case cue::CapabilityQueryStatus::Succeeded:
+        return "Succeeded";
+    case cue::CapabilityQueryStatus::Failed:
+        return "Failed";
+    default:
+        return "NotQueried";
+    }
+}
+
+/// @brief Hardware Support 状態を診断文字列へ変換する
+[[nodiscard]] std::string_view describe_support(cue::CapabilitySupport a_support) noexcept
+{
+    switch (a_support)
+    {
+    case cue::CapabilitySupport::Supported:
+        return "Supported";
+    case cue::CapabilitySupport::Unsupported:
+        return "Unsupported";
+    default:
+        return "Unknown";
+    }
+}
+
+/// @brief Engine 実装状態を Hardware 対応状態と混同しない診断文字列へ変換する
+[[nodiscard]] std::string_view describe_implementation(cue::CapabilityImplementation a_implementation) noexcept
+{
+    return a_implementation == cue::CapabilityImplementation::Implemented ? "Implemented" : "NotImplemented";
+}
+
+/// @brief Runtime Policy の有効化状態を Hardware と Engine 実装から独立した診断文字列へ変換する
+[[nodiscard]] std::string_view describe_enablement(cue::CapabilityEnablement a_enablement) noexcept
+{
+    switch (a_enablement)
+    {
+    case cue::CapabilityEnablement::Enabled:
+        return "Enabled";
+    case cue::CapabilityEnablement::Disabled:
+        return "Disabled";
+    default:
+        return "NotApplicable";
+    }
+}
+
+/// @brief 数値 System Query を成功値または失敗理由が分かる診断文字列へ変換する
+template <typename Value>
+[[nodiscard]] std::string describe_system_value(const cue::SystemCapabilityValue<Value> &a_value)
+{
+    const Value *value = a_value.try_value();
+    return value != nullptr ? std::to_string(*value) : std::string(describe_query_status(a_value.query_status()));
+}
+
+/// @brief Hardware Query 結果を未実装 Capability の有効な3状態へ変換する
+[[nodiscard]] constexpr cue::CapabilityState make_not_implemented_capability_state(
+    cue::CapabilitySupportState a_hardware) noexcept
+{
+    if (a_hardware.query_status() == cue::CapabilityQueryStatus::NotQueried)
+    {
+        return cue::CapabilityState::not_queried_not_implemented();
+    }
+    if (a_hardware.query_status() == cue::CapabilityQueryStatus::Failed)
+    {
+        return cue::CapabilityState::query_failed_not_implemented();
+    }
+    return a_hardware.support() == cue::CapabilitySupport::Supported
+               ? cue::CapabilityState::supported_not_implemented()
+               : cue::CapabilityState::unsupported_not_implemented();
+}
+
+/// @brief 現在 Machine の System Capability Snapshot を再現可能な単一診断へ記録する
+[[nodiscard]] cue::LogResult log_system_capabilities(cue::Logger &a_logger,
+                                                     const cue::AssertContext &a_assertContext)
+{
+    cue::SystemCapabilityQueryReport report = cue::query_windows_system_capabilities(a_assertContext);
+    const cue::SystemCapabilitySnapshot &snapshot = report.snapshot;
+    const cue::CpuInstructionCapabilities &instructions = snapshot.instructions();
+    std::string message =
+        "System Capability Snapshot: ProcessArchitecture=" +
+        std::string(describe_system_architecture(snapshot.process_architecture())) + ", NativeArchitecture=" +
+        std::string(describe_system_architecture(snapshot.native_architecture())) + ", LogicalProcessorCount=" +
+        describe_system_value(snapshot.logical_processor_count()) + ", PhysicalMemoryBytes=" +
+        describe_system_value(snapshot.physical_memory_bytes()) + ", PageSizeBytes=" +
+        describe_system_value(snapshot.page_size_bytes()) + ", CacheLineSizeBytes=" +
+        describe_system_value(snapshot.cache_line_size_bytes()) + ", SSE2=" +
+        std::string(describe_support(instructions.sse2.support())) + ", SSE3=" +
+        std::string(describe_support(instructions.sse3.support())) + ", SSSE3=" +
+        std::string(describe_support(instructions.ssse3.support())) + ", SSE4.1=" +
+        std::string(describe_support(instructions.sse41.support())) + ", SSE4.2=" +
+        std::string(describe_support(instructions.sse42.support())) + ", AVX=" +
+        std::string(describe_support(instructions.avx.support())) + ", AVX2=" +
+        std::string(describe_support(instructions.avx2.support())) + ", FMA=" +
+        std::string(describe_support(instructions.fma.support())) + ", OsExtendedState=" +
+        std::string(describe_support(instructions.osExtendedState.support()));
+    const cue::LogResult snapshotResult = a_logger.log(cue::LogLevel::Info, message);
+    return report.diagnosticResult == cue::LogResult::Success ? snapshotResult : report.diagnosticResult;
+}
+
+/// @brief Capability の Hardware、Engine 実装、Runtime 有効化を独立 Field として診断へ記録する
+[[nodiscard]] cue::LogResult log_capability_state(cue::Logger &a_logger, std::string_view a_name,
+                                                  cue::CapabilityState a_state)
+{
+    const cue::CapabilitySupportState hardware = a_state.hardware();
+    std::string message = "Capability State: Name=" + std::string(a_name) +
+                          ", Query=" + std::string(describe_query_status(hardware.query_status())) +
+                          ", Support=" + std::string(describe_support(hardware.support())) +
+                          ", Implementation=" + std::string(describe_implementation(a_state.implementation())) +
+                          ", Enablement=" + std::string(describe_enablement(a_state.enablement()));
+    return a_logger.log(cue::LogLevel::Info, message);
+}
+
+/// @brief Backend Snapshot と現在の Engine 実装を組み合わせて Feature 選択用の3状態診断を記録する
+[[nodiscard]] cue::LogResult log_graphics_capability_states(cue::Logger &a_logger,
+                                                            const cue::CapabilityReport &a_report)
+{
+    const std::array states = {
+        std::pair<std::string_view, cue::CapabilityState>{"Baseline3D", cue::CapabilityState::supported_enabled()},
+        std::pair<std::string_view, cue::CapabilityState>{
+            "RayTracing", make_not_implemented_capability_state(a_report.rayTracing.support_state())},
+        std::pair<std::string_view, cue::CapabilityState>{
+            "MeshShader", make_not_implemented_capability_state(a_report.meshShader.support_state())},
+        std::pair<std::string_view, cue::CapabilityState>{
+            "VariableRateShading", make_not_implemented_capability_state(a_report.variableRateShading.support_state())},
+        std::pair<std::string_view, cue::CapabilityState>{
+            "SamplerFeedback", make_not_implemented_capability_state(a_report.samplerFeedback.support_state())},
+        std::pair<std::string_view, cue::CapabilityState>{
+            "WaveOperations", make_not_implemented_capability_state(a_report.waveOperations)},
+        std::pair<std::string_view, cue::CapabilityState>{
+            "EnhancedBarriers", make_not_implemented_capability_state(a_report.enhancedBarriers)},
+    };
+
+    for (const auto &[name, state] : states)
+    {
+        const cue::LogResult result = log_capability_state(a_logger, name, state);
+        if (result != cue::LogResult::Success)
+        {
+            return result;
+        }
+    }
+    return cue::LogResult::Success;
+}
 
 /// @brief Command Line を実行 Mode と Window 設定へ変換し、排他的な Mode 指定を検証する
 [[nodiscard]] cue::Result<bool> parse_options(int a_argumentCount, wchar_t **a_arguments, RuntimeOptions &a_options,
@@ -269,6 +429,12 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 [[nodiscard]] int run_graphics_smoke(const RuntimeOptions &a_options, cue::Logger &a_logger,
                                      cue::AssertContext &a_assertContext)
 {
+    // Platform Query と RHI Query を同じ Composition Root で記録し、Hardware 差分を一回の Smoke 出力から追跡する
+    if (log_system_capabilities(a_logger, a_assertContext) != cue::LogResult::Success)
+    {
+        return k_graphicsLogFailed;
+    }
+
     // Window を必要としない最小経路で Adapter と Device の生成、能力取得、安全な終了を検証する
     cue::D3d12BackendDescriptor descriptor = make_backend_descriptor(a_options);
     cue::Result<std::unique_ptr<cue::D3d12Backend>> backendResult =
@@ -288,6 +454,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
         ", DedicatedVideoMemoryBytes=" + std::to_string(capabilities.dedicatedVideoMemoryBytes) + ", UMA=" +
         (capabilities.uma.support() == cue::CapabilitySupport::Supported ? "supported" : "unsupported-or-unknown");
     cue::LogResult capabilityLogResult = a_logger.log(cue::LogLevel::Info, capabilityMessage);
+    cue::LogResult capabilityStateLogResult = log_graphics_capability_states(a_logger, capabilities);
     cue::Result<void> shutdownResult = backend->shutdown();
 
     if (!shutdownResult)
@@ -306,7 +473,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
     backend.reset();
 
-    if (capabilityLogResult != cue::LogResult::Success)
+    if (capabilityLogResult != cue::LogResult::Success || capabilityStateLogResult != cue::LogResult::Success)
     {
         return k_graphicsLogFailed;
     }

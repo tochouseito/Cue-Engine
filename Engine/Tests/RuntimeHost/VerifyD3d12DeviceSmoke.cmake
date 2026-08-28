@@ -52,6 +52,10 @@ foreach(
     requiredMessage
     IN ITEMS
         "D3D12 Device Smoke ready"
+        "System Capability Snapshot"
+        "Capability State: Name=Baseline3D, Query=Succeeded, Support=Supported, Implementation=Implemented, Enablement=Enabled"
+        "Capability State: Name=RayTracing"
+        "Implementation=NotImplemented, Enablement=NotApplicable"
         "D3D12 Device Smoke shutdown completed"
 )
     string(FIND "${combinedOutput}" "${requiredMessage}" messagePosition)
