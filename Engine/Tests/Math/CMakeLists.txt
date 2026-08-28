@@ -86,7 +86,7 @@ add_test(
     COMMAND
         ${CMAKE_COMMAND}
         -DMATH_SOURCE_DIR=${PROJECT_SOURCE_DIR}/Engine/Source/Math
-        -DENGINE_SOURCE_DIR=${PROJECT_SOURCE_DIR}/Engine/Source
+        -DREPOSITORY_ROOT=${PROJECT_SOURCE_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyMathDependencies.cmake
 )
 

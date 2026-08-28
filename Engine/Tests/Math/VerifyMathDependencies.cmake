@@ -21,22 +21,34 @@ endforeach()
 
 file(
     GLOB_RECURSE
-    cueEngineCppFiles
+    cueRepositoryCppFiles
     LIST_DIRECTORIES FALSE
-    "${ENGINE_SOURCE_DIR}/*.cpp"
-    "${ENGINE_SOURCE_DIR}/*.h"
-    "${ENGINE_SOURCE_DIR}/*.hpp"
-    "${ENGINE_SOURCE_DIR}/*.ixx"
+    "${REPOSITORY_ROOT}/*.cpp"
+    "${REPOSITORY_ROOT}/*.h"
+    "${REPOSITORY_ROOT}/*.hpp"
+    "${REPOSITORY_ROOT}/*.ixx"
 )
 
-foreach(cueEngineCppFile IN LISTS cueEngineCppFiles)
-    file(READ "${cueEngineCppFile}" cueEngineCppContent)
-    string(TOLOWER "${cueEngineCppContent}" cueEngineCppContentLower)
+list(
+    FILTER
+    cueRepositoryCppFiles
+    EXCLUDE
+    REGEX
+    "[/\\\\](\\.git|\\.vs|out|build)[/\\\\]"
+)
 
-    if(cueEngineCppContentLower MATCHES "directxmath\\.h|xmvector|xmmatrix")
+foreach(cueRepositoryCppFile IN LISTS cueRepositoryCppFiles)
+    file(READ "${cueRepositoryCppFile}" cueRepositoryCppContent)
+    string(TOLOWER "${cueRepositoryCppContent}" cueRepositoryCppContentLower)
+
+    if(
+        cueRepositoryCppContentLower
+        MATCHES
+        "directxmath(\\.h)?|directx::[ \\t\\r\\n]*xm|xmvector|xmmatrix|xmfloat[0-9a-z_]*|xmuint[0-9a-z_]*|xmint[0-9a-z_]*"
+    )
         message(
             FATAL_ERROR
-            "Engine-owned C++ source has a forbidden DirectXMath dependency: ${cueEngineCppFile}"
+            "Repository-owned C++ source has a forbidden DirectXMath dependency: ${cueRepositoryCppFile}"
         )
     endif()
 endforeach()
