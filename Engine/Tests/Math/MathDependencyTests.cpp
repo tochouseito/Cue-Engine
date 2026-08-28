@@ -622,7 +622,8 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         const auto &token = a_tokens[index];
 
         if (token.kind == TokenKind::Identifier &&
-            is_directxmath_identifier(token.text))
+            (token.text == "DirectX" ||
+             is_directxmath_identifier(token.text)))
         {
             return true;
         }
@@ -1132,6 +1133,15 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         "using namespace ::DirectX; BoundingBox value{};\n");
 
     if (!has_forbidden_directxmath_tokens(tokenize_cpp(globalUsing)))
+    {
+        return false;
+    }
+
+    const auto parameterizedNamespaceMacroAlias = sanitize_cpp_source(
+        "#define ID(x) x\nID(DirectX)::BoundingBox value{};\n");
+
+    if (!has_forbidden_directxmath_tokens(
+            tokenize_cpp(parameterizedNamespaceMacroAlias)))
     {
         return false;
     }
