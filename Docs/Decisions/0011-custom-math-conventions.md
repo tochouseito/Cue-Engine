@@ -53,6 +53,45 @@ VectorはTemplateとして整数、単精度、倍精度Aliasを提供し、Quat
 - Scene永続形式とGPU転送形式をC++ Object Layoutへ依存させない
 - 座標系と合成順を型利用者が推測しなくてよいようにする
 
+### Reference Engine Comparison
+
+比較対象の規約は公開Documentationで確認し、CueEngineの要件へそのまま移植せず、境界変換とTrade-offを含めて評価する。
+
+| Engine | 公開されている主な規約 | CueEngineへ採用する点 | 採用しない点と理由 |
+| --- | --- | --- | --- |
+| Unreal Engine | 左手座標系、`+X = Forward`、`+Y = Right`、`+Z = Up`。`FMatrix`系は行VectorとRow-majorを前提にする。`FMath`はPlatform Math実装を継承する。 | 行Vector、Row-major、MathをEngine基盤として共有する考え方は、時間順の合成を読みやすくし、旧CueEngineの経験とも整合するため採用する。 | Z-upとAxis割り当てはCueEngineのY-up要件に合わない。Platform Math継承と公開Template体系は、Scalar正本とPlatform非依存の小さいM08 Scopeを複雑にするため採用しない。 |
+| Unity | 左手座標系、`+X = Right`、`+Y = Up`、`+Z = Forward`。Rotationは内部でQuaternionを保持し、EditorではEuler角を表示する。`Matrix4x4`はColumn-majorを公開する。 | World AxisはGame ProjectとEditorで直感的に共有でき、CueEngineの初期要件と一致するため採用する。Quaternionを正本とし、Euler角を編集用派生値とする考え方も採用する。 | Column-majorとColumn Vector系の境界をCueEngine内部規約には採用しない。Unity API互換を目的にせず、将来のSDK境界で明示変換する。 |
+| Godot | 右手座標系、`+X = Right`、`+Y = Up`、Camera等は`-Z = Forward`。`Basis`はRotation、Scale、Shearを表現し、AxisをColumnとして公開する。 | TRSで表現できないShearを一般Matrixとして保持し、分解を失敗可能にする考え方はData Safetyの参考にする。 | 右手座標系、`-Z = Forward`、Columnとして公開するBasisは、CueEngineの左手World Axisと行Vector規約に合わないため採用しない。 |
+
+Sources:
+
+- [Unreal Engine: Coordinate System and Spaces](https://dev.epicgames.com/documentation/en-us/unreal-engine/coordinate-system-and-spaces-in-unreal-engine)
+- [Unreal Engine: TMatrix2x2](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Core/TMatrix2x2)
+- [Unreal Engine: FMath](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Core/FMath)
+- [Unity: Rotation and orientation](https://docs.unity3d.com/2023.2/Documentation/Manual/QuaternionAndEulerRotationsInUnity.html)
+- [Unity: Matrix4x4](https://docs.unity3d.com/ScriptReference/Matrix4x4.html)
+- [Godot: Introduction to 3D](https://docs.godotengine.org/en/stable/tutorials/3d/introduction_to_3d.html)
+- [Godot: Basis](https://docs.godotengine.org/en/stable/classes/class_basis.html)
+
+### Decision Trade-offs
+
+| 観点 | CueEngineでの判断 | 代償 |
+| --- | --- | --- |
+| Usability | Axis、行Vector、角度単位、合成順を一つの規約に固定し、名前付き変換を提供する。 | 他EngineやDCC Toolとの受け渡しでは規約変換が必要になる。 |
+| Runtime Performance | 単純な値型とScalar正本を持ち、将来のSIMDはPrivate実装として追加する。 | M08時点ではPlatform最適化済みMath Libraryより低速な可能性があるため、性能向上を主張しない。 |
+| Iteration Speed | GameCore、Scene、Editorが同じ型と固定値Testを共有する。 | `Result<T>`と明示的なToleranceにより、呼び出しCodeは短くならない。 |
+| Extensibility | Platform、RHI、Rendererから独立した`Cue.Math` Targetに限定する。 | Integer、倍精度、SIMD、Projectionは必要性ごとに別設計が必要になる。 |
+| Portability | Windows SDK、DirectXMath、ISA固有型をPublic Headerへ出さない。 | 外部APIごとに明示的なAdapterが必要になる。 |
+| Data Safety | 非有限値、Degenerate値、特異Matrix、分解不能を診断可能な失敗として返す。 | ZeroやIdentityへ暗黙FallbackするAPIより利用側の分岐が増える。 |
+| Compatibility | C++ Object Layout、Scene永続形式、GPU Layout、Plugin ABIを分離する。 | Memory Imageの直接保存や直接Uploadはできず、変換Costと実装が必要になる。 |
+| Diagnostics | Error Domainと最小Error分類を固定し、Math内部ではLogしない。 | Error生成に`EmergencyHandler`の明示的な受け渡しが必要になる。 |
+| Testability | Scalar正本、固定Basis、異常値、依存方向を自動Testする。 | Scalarと最適化経路の双方を将来維持するTest Costが発生する。 |
+| Complexity | M08の型と演算集合を単精度の非Template APIへ限定する。 | 汎用Template Math Libraryより再利用範囲は狭い。 |
+
+以上から、AxisはUnityに近く、行列代数はUnreal Engineに近いが、どのEngineのAPIまたはMemory Layoutも互換契約にはしない。
+Godotの一般BasisがShearを保持できる点は参考にする一方、CueEngineの`Transform`は編集しやすいTRS、一般合成結果は`Matrix4`として分離する。
+この組合せは外部Engineとの直接互換性より、CueEngine内部のUsability、Data Safety、Portability、Testabilityを優先した新規設計である。
+
 ### New Design
 
 `Cue.Math`を`Cue.Foundation`だけに依存するFirst-party Static Libraryとして追加する。
