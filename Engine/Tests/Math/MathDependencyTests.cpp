@@ -810,6 +810,17 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     std::string_view a_code, bool a_isMathSource,
     const std::filesystem::path &a_path, bool a_reportsFailure = true)
 {
+    if (contains_ascii_identifier(a_code, "__pragma"))
+    {
+        if (a_reportsFailure)
+        {
+            std::cerr << "MSVC __pragma is forbidden: "
+                      << a_path.string() << '\n';
+        }
+
+        return false;
+    }
+
     std::size_t lineStart = 0U;
 
     while (lineStart <= a_code.size())
@@ -1170,11 +1181,76 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         }
 
         if (normalized.substr(index, 3U) == "/fi" ||
+            normalized.substr(index, 3U) == "-fi" ||
             normalized.substr(index, 8U) == "-include" ||
             normalized.substr(index, 8U) == "-imacros")
         {
             return true;
         }
+    }
+
+    return false;
+}
+
+/// @brief Cue.Mathへ任意Libraryを注入できるLink Propertyが非空の場合にtrueを返す
+[[nodiscard]] bool has_link_injection_option(
+    std::string_view a_manifest)
+{
+    constexpr std::string_view privateLinkOptions = "LINK_OPTIONS=";
+    constexpr std::array<std::string_view, 3> rejectedProperties = {
+        "INTERFACE_LINK_OPTIONS=",
+        "LINK_FLAGS=",
+        "STATIC_LIBRARY_OPTIONS=",
+    };
+    std::size_t lineStart = 0U;
+
+    while (lineStart < a_manifest.size())
+    {
+        const auto lineEnd = a_manifest.find('\n', lineStart);
+        const auto line = trim_ascii(a_manifest.substr(
+            lineStart,
+            lineEnd == std::string_view::npos
+                ? a_manifest.size() - lineStart
+                : lineEnd - lineStart));
+
+        if (line.substr(0U, privateLinkOptions.size()) == privateLinkOptions)
+        {
+            auto options = trim_ascii(line.substr(privateLinkOptions.size()));
+
+            while (!options.empty())
+            {
+                const auto separator = options.find(';');
+                const auto option = trim_ascii(options.substr(0U, separator));
+
+                if (!option.empty() && lower_ascii(option) != "/debug")
+                {
+                    return true;
+                }
+
+                if (separator == std::string_view::npos)
+                {
+                    break;
+                }
+
+                options = trim_ascii(options.substr(separator + 1U));
+            }
+        }
+
+        for (const auto property : rejectedProperties)
+        {
+            if (line.substr(0U, property.size()) == property &&
+                !trim_ascii(line.substr(property.size())).empty())
+            {
+                return true;
+            }
+        }
+
+        if (lineEnd == std::string_view::npos)
+        {
+            break;
+        }
+
+        lineStart = lineEnd + 1U;
     }
 
     return false;
@@ -1211,7 +1287,8 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     const bool hasDirectXDefinition =
         contains_ascii_identifier(a_manifest, "DirectX");
     return hasForbiddenDependency || hasDirectXDefinition ||
-           has_forced_include_option(a_manifest);
+           has_forced_include_option(a_manifest) ||
+           has_link_injection_option(a_manifest);
 }
 
 /// @brief CMakeが生成したCue.Math Build Property Manifestを検証する
@@ -1340,6 +1417,17 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
     if (validate_include_directives(
             includeAlias, true, "IncludeAliasProbe.cpp", false))
+    {
+        return false;
+    }
+
+    const auto extensionIncludeAlias = sanitize_cpp_source(
+        "__pragma(include_alias(\"SafeHeader.h\", \"windows.h\"))\n"
+        "#include \"SafeHeader.h\"\n");
+
+    if (validate_include_directives(
+            extensionIncludeAlias, true,
+            "ExtensionIncludeAliasProbe.cpp", false))
     {
         return false;
     }
@@ -1521,6 +1609,22 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         "COMPILE_OPTIONS=/FI:Injected.h\n";
 
     if (!has_forbidden_math_build_configuration(safeNamedForcedInclude))
+    {
+        return false;
+    }
+
+    constexpr std::string_view dashForcedInclude =
+        "COMPILE_OPTIONS=-FIInjected.h\n";
+
+    if (!has_forbidden_math_build_configuration(dashForcedInclude))
+    {
+        return false;
+    }
+
+    constexpr std::string_view interfaceLinkOption =
+        "INTERFACE_LINK_OPTIONS=/DEFAULTLIB:SafeLibrary.lib\n";
+
+    if (!has_forbidden_math_build_configuration(interfaceLinkOption))
     {
         return false;
     }
