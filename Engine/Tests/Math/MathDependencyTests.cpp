@@ -1172,6 +1172,7 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         const bool isBoundary =
             index == 0U || normalized[index - 1U] == '=' ||
             normalized[index - 1U] == ';' ||
+            normalized[index - 1U] == ':' ||
             std::isspace(static_cast<unsigned char>(
                 normalized[index - 1U])) != 0;
 
@@ -1617,6 +1618,14 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         "COMPILE_OPTIONS=-FIInjected.h\n";
 
     if (!has_forbidden_math_build_configuration(dashForcedInclude))
+    {
+        return false;
+    }
+
+    constexpr std::string_view shellForcedInclude =
+        "COMPILE_OPTIONS=SHELL:/FIInjected.h\n";
+
+    if (!has_forbidden_math_build_configuration(shellForcedInclude))
     {
         return false;
     }
