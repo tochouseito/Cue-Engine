@@ -31,6 +31,23 @@ class CapabilityWarningFailingLogSink final : public cue::LogSink
     }
 };
 
+class UnknownCapabilityWarningFailingLogSink final : public cue::LogSink
+{
+  public:
+    /// @brief 未知Mesh Shader TierのWarningだけを配送失敗させる
+    [[nodiscard]] bool write(const cue::LogRecord &a_record) override
+    {
+        return !(a_record.level() == cue::LogLevel::Warning &&
+                 a_record.message() == "D3D12 mesh shader query returned an unknown value");
+    }
+
+    /// @brief 保留中の出力を持たないためFlush成功を返す
+    [[nodiscard]] bool flush() override
+    {
+        return true;
+    }
+};
+
 /// @brief D3d12BackendProcess Test の Backend LifecycleScenario を実行し、検証結果を返す
 [[nodiscard]] int run_backend_lifecycle(cue::D3d12AdapterPolicy a_policy, cue::GraphicsAdapterKind a_expectedKind,
                                         cue::AssertContext &a_assertContext) noexcept
@@ -155,7 +172,8 @@ int main(int a_argumentCount, char **a_arguments)
     if (mode != "Hardware" && mode != "Warp" && mode != "DeviceFailure" && mode != "ThreadDestruction" &&
         mode != "InvalidWaitTimeout" && mode != "OptionalCapabilityFailure" &&
         mode != "OptionalCapabilityLogFailure" && mode != "RequiredCapabilityFailure" &&
-        mode != "UnknownCapabilityValue")
+        mode != "UnknownCapabilityValue" && mode != "UnknownCapabilityValueLogFailure" &&
+        mode != "LegacyFeatureLevelRuntime")
     {
         return 2;
     }
@@ -164,6 +182,10 @@ int main(int a_argumentCount, char **a_arguments)
     if (mode == "OptionalCapabilityLogFailure")
     {
         sinks.push_back(std::make_unique<CapabilityWarningFailingLogSink>());
+    }
+    else if (mode == "UnknownCapabilityValueLogFailure")
+    {
+        sinks.push_back(std::make_unique<UnknownCapabilityWarningFailingLogSink>());
     }
     cue::test::RhiProcessTestFixture fixture(std::move(sinks));
     cue::AssertContext &assertContext = fixture.assert_context();
@@ -201,6 +223,16 @@ int main(int a_argumentCount, char **a_arguments)
     if (mode == "UnknownCapabilityValue")
     {
         return cue::verify_d3d12_unknown_capability_value_for_probe(assertContext) ? 0 : 15;
+    }
+
+    if (mode == "UnknownCapabilityValueLogFailure")
+    {
+        return cue::verify_d3d12_unknown_capability_value_log_failure_for_probe(assertContext) ? 0 : 16;
+    }
+
+    if (mode == "LegacyFeatureLevelRuntime")
+    {
+        return cue::verify_d3d12_legacy_feature_level_runtime_for_probe(assertContext) ? 0 : 17;
     }
 
     cue::D3d12AdapterPolicy policy =

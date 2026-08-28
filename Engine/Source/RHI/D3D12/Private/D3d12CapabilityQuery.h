@@ -29,5 +29,11 @@ void set_capability_query_unknown_value_for_probe(D3D12_FEATURE a_feature) noexc
 
 /// @brief Test用未知Capability値注入を解除する
 void clear_capability_query_unknown_value_for_probe() noexcept;
+
+/// @brief TestでFeature Level 12_2を認識しない旧Runtimeを再現する
+void enable_legacy_feature_level_runtime_for_probe() noexcept;
+
+/// @brief Test用旧Runtime再現を解除する
+void disable_legacy_feature_level_runtime_for_probe() noexcept;
 } // namespace d3d12_private
 } // namespace cue

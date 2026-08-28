@@ -15,6 +15,7 @@ constexpr std::int64_t k_capabilityDiagnosticDeliveryFailed = 101;
 constexpr std::int64_t k_requiredCapabilityQueryFailed = 102;
 thread_local std::optional<D3D12_FEATURE> g_failureFeature;
 thread_local std::optional<D3D12_FEATURE> g_unknownValueFeature;
+thread_local bool g_isLegacyFeatureLevelRuntime = false;
 
 /// @brief Production Queryを呼び、Probe指定FeatureだけSynthetic失敗へ差し替える
 HRESULT check_feature_support(ID3D12Device *a_device, D3D12_FEATURE a_feature, void *a_data,
@@ -23,6 +24,14 @@ HRESULT check_feature_support(ID3D12Device *a_device, D3D12_FEATURE a_feature, v
     if (g_failureFeature && *g_failureFeature == a_feature)
     {
         return E_FAIL;
+    }
+    if (g_isLegacyFeatureLevelRuntime && a_feature == D3D12_FEATURE_FEATURE_LEVELS)
+    {
+        const auto *levels = static_cast<const D3D12_FEATURE_DATA_FEATURE_LEVELS *>(a_data);
+        if (levels->NumFeatureLevels > 0 && levels->pFeatureLevelsRequested[0] == D3D_FEATURE_LEVEL_12_2)
+        {
+            return E_INVALIDARG;
+        }
     }
     const HRESULT result = a_device->CheckFeatureSupport(a_feature, a_data, a_dataSize);
     if (SUCCEEDED(result) && g_unknownValueFeature && *g_unknownValueFeature == a_feature &&
@@ -262,6 +271,14 @@ Result<CapabilityReport> query_d3d12_capability_report(
     D3D12_FEATURE_DATA_FEATURE_LEVELS levels = {
         static_cast<UINT>(requestedLevels.size()), requestedLevels.data(), D3D_FEATURE_LEVEL_12_0};
     HRESULT result = check_feature_support(a_device, D3D12_FEATURE_FEATURE_LEVELS, &levels, sizeof(levels));
+    if (result == E_INVALIDARG)
+    {
+        // Feature Level 12_2を認識しない旧Runtimeでも必須Baseline 12_0の照会を継続する
+        constexpr std::array legacyRequestedLevels = {D3D_FEATURE_LEVEL_12_1, D3D_FEATURE_LEVEL_12_0};
+        levels = {static_cast<UINT>(legacyRequestedLevels.size()), legacyRequestedLevels.data(),
+                  D3D_FEATURE_LEVEL_12_0};
+        result = check_feature_support(a_device, D3D12_FEATURE_FEATURE_LEVELS, &levels, sizeof(levels));
+    }
     if (SUCCEEDED(result))
     {
         const std::optional<GraphicsFeatureLevel> value = map_feature_level(levels.MaxSupportedFeatureLevel);
@@ -532,6 +549,16 @@ void set_capability_query_unknown_value_for_probe(D3D12_FEATURE a_feature) noexc
 void clear_capability_query_unknown_value_for_probe() noexcept
 {
     g_unknownValueFeature.reset();
+}
+
+void enable_legacy_feature_level_runtime_for_probe() noexcept
+{
+    g_isLegacyFeatureLevelRuntime = true;
+}
+
+void disable_legacy_feature_level_runtime_for_probe() noexcept
+{
+    g_isLegacyFeatureLevelRuntime = false;
 }
 } // namespace d3d12_private
 } // namespace cue

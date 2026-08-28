@@ -60,4 +60,11 @@ struct D3d12FactoryFallbackProbeReport final
 
 /// @brief Query成功後の未知Tier値が診断付きQueryFailedとして保持されることを検証する
 [[nodiscard]] bool verify_d3d12_unknown_capability_value_for_probe(AssertContext &a_assertContext) noexcept;
+
+/// @brief 未知Tier値のWarning配送失敗がBackend生成失敗へ伝播することを検証する
+[[nodiscard]] bool verify_d3d12_unknown_capability_value_log_failure_for_probe(
+    AssertContext &a_assertContext) noexcept;
+
+/// @brief Feature Level 12_2を認識しないRuntimeで12_1／12_0再照会が成功することを検証する
+[[nodiscard]] bool verify_d3d12_legacy_feature_level_runtime_for_probe(AssertContext &a_assertContext) noexcept;
 } // namespace cue
