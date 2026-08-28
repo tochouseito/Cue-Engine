@@ -45,6 +45,11 @@ set(
     "(^|[^A-Za-z0-9_])([CFGH]XMVECTOR|[CF]XMMATRIX|XM_[A-Z0-9_]+|XM256_STREAM_PS|XMGLOBALCONST|XMMax|XMMin|g_XM[A-Za-z0-9_]*|XMVECTOR[A-Z0-9_]*|XMMATRIX|XM(FLOAT|INT|UINT|BYTE|UBYTE|SHORT|USHORT|HALF|COLOR|HENDN|DEC|UDEC|XDEC|UXDEC|UNIBBLE|U555|U565)[A-Z0-9_]*|XM(Vector|Matrix|Quaternion|Plane|Color|Scalar|Convert|Load|Store|Verify|Comparison|SinCos|Fresnel)[A-Za-z0-9_]*)($|[^A-Za-z0-9_])"
 )
 
+set(
+    cueDirectXMathCompanionIdentifierPattern
+    "(^|[^A-Za-z0-9_])(BoundingSphere|BoundingBox|BoundingOrientedBox|BoundingFrustum|ContainmentType|PlaneIntersectionType|TriangleTests)($|[^A-Za-z0-9_])"
+)
+
 foreach(cueRepositoryCppFile IN LISTS cueRepositoryCppFiles)
     file(
         RELATIVE_PATH
@@ -61,8 +66,10 @@ foreach(cueRepositoryCppFile IN LISTS cueRepositoryCppFiles)
     string(TOLOWER "${cueRepositoryCppContent}" cueRepositoryCppContentLower)
 
     if(cueRepositoryCppContentLower MATCHES
-       "directx(math|packedvector|collision|colors)(\\.h)?|directx::[ \\t\\r\\n]*(xm|packedvector)"
-       OR cueRepositoryCppContent MATCHES "${cueDirectXMathIdentifierPattern}")
+       "directx(math|packedvector|collision|colors)(\\.h)?|directx::[ \\t\\r\\n]*(xm|packedvector|colors(linear)?|bounding(sphere|box|orientedbox|frustum)|containmenttype|planeintersectiontype|triangletests)"
+       OR cueRepositoryCppContent MATCHES "${cueDirectXMathIdentifierPattern}"
+       OR cueRepositoryCppContent MATCHES "${cueDirectXMathCompanionIdentifierPattern}"
+       OR cueRepositoryCppContent MATCHES "(^|[^A-Za-z0-9_])Colors(Linear)?[ \\t\\r\\n]*::")
         message(
             FATAL_ERROR
             "Repository-owned C++ source has a forbidden DirectXMath dependency: ${cueRepositoryCppFile}"
