@@ -27,6 +27,7 @@ template <std::size_t Size, typename Matrix>
                                                  const Tolerance &a_tolerance) noexcept
 {
     double augmented[Size][Size * 2]{};
+    double rowScales[Size]{};
 
     for (std::size_t row = 0; row < Size; ++row)
     {
@@ -43,6 +44,7 @@ template <std::size_t Size, typename Matrix>
 
             augmented[row][column] = static_cast<double>(value);
             augmented[row][column + Size] = row == column ? 1.0 : 0.0;
+            rowScales[row] = std::max(rowScales[row], std::abs(augmented[row][column]));
         }
     }
 
@@ -54,22 +56,15 @@ template <std::size_t Size, typename Matrix>
 
         for (std::size_t row = pivotColumn; row < Size; ++row)
         {
-            auto rowScale = 0.0;
-
-            for (std::size_t column = 0; column < Size; ++column)
-            {
-                rowScale = std::max(rowScale, std::abs(augmented[row][column]));
-            }
-
-            const auto ratio = rowScale == 0.0
+            const auto ratio = rowScales[row] == 0.0
                                    ? 0.0
-                                   : std::abs(augmented[row][pivotColumn]) / rowScale;
+                                   : std::abs(augmented[row][pivotColumn]) / rowScales[row];
 
             if (ratio > bestRatio)
             {
                 bestRatio = ratio;
                 pivotRow = row;
-                pivotScale = rowScale;
+                pivotScale = rowScales[row];
             }
         }
 
@@ -87,6 +82,8 @@ template <std::size_t Size, typename Matrix>
 
         if (pivotRow != pivotColumn)
         {
+            std::swap(rowScales[pivotRow], rowScales[pivotColumn]);
+
             for (std::size_t column = 0; column < Size * 2; ++column)
             {
                 std::swap(augmented[pivotRow][column], augmented[pivotColumn][column]);

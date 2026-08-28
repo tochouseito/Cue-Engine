@@ -126,8 +126,9 @@ template <typename T>
     auto largeWellConditioned = cue::math::zero_matrix3();
     auto smallWellConditioned = cue::math::zero_matrix3();
     auto nearSingular = cue::math::Matrix3{};
-    nearSingular.values[1][1] = 0.0005F;
-    nearSingular.values[1][2] = 1.0F;
+    nearSingular.values[0][1] = 1.0F;
+    nearSingular.values[1][0] = 1.0F;
+    nearSingular.values[1][1] = 1.0005F;
     auto largeNearSingular = cue::math::zero_matrix3();
     auto smallNearSingular = cue::math::zero_matrix3();
 
