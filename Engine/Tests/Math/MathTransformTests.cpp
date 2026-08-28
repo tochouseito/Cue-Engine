@@ -284,6 +284,8 @@ template <typename T>
         a_handler, cue::math::Quaternion{maximum, maximum, 0.0F, 0.0F}, a_tolerance);
     auto strictNormalized = cue::math::normalize(
         a_handler, cue::math::Quaternion{1.0F, 1.0F, 1.0F, 0.0F}, strictTolerance);
+    auto strictInverse = cue::math::inverse(
+        a_handler, cue::math::Quaternion{0.1F, 0.2F, 0.3F, 0.4F}, strictTolerance);
     auto strictAxisRotation = cue::math::from_axis_angle(
         a_handler, cue::math::Vector3{1.0F, 1.0F, 1.0F}, cue::math::Radians(1.0F),
         strictTolerance);
@@ -296,7 +298,7 @@ template <typename T>
            cue::math::is_same_rotation(identity, negatedIdentity, a_tolerance) &&
            extremeInverse && extremeInverse.try_value()->x < 0.0F &&
            extremeInverse.try_value()->y < 0.0F && has_math_error(strictNormalized, 2) &&
-           strictAxisRotationUsable;
+           has_math_error(strictInverse, 2) && strictAxisRotationUsable;
 }
 
 /// @brief TransformがScale、Rotation、Translation順にPointとDirectionを変換することを検証する

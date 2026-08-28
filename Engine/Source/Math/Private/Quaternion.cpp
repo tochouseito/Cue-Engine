@@ -165,6 +165,19 @@ cue::Result<Quaternion> inverse(cue::EmergencyHandler &a_emergencyHandler,
         return cue::Result<Quaternion>::failure(std::move(error));
     }
 
+    const auto identity = Quaternion{};
+    const auto leftIdentity = hamilton_product(a_value, result);
+    const auto rightIdentity = hamilton_product(result, a_value);
+
+    if (!is_near(leftIdentity, identity, a_tolerance) ||
+        !is_near(rightIdentity, identity, a_tolerance))
+    {
+        auto error = make_quaternion_error(
+            a_emergencyHandler, 2,
+            "Quaternion inverse does not restore identity within the requested tolerance");
+        return cue::Result<Quaternion>::failure(std::move(error));
+    }
+
     return cue::Result<Quaternion>::success(std::move(result));
 }
 
