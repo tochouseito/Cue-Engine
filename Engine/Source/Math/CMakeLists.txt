@@ -58,3 +58,17 @@ if(MSVC)
             $<$<CONFIG:Development>:/DEBUG>
     )
 endif()
+
+string(
+    CONCAT
+    cueMathDirectoryCxxFlags
+    "${CMAKE_CXX_FLAGS};"
+    "${CMAKE_CXX_FLAGS_DEBUG};"
+    "${CMAKE_CXX_FLAGS_DEVELOPMENT};"
+    "${CMAKE_CXX_FLAGS_RELEASE}"
+)
+
+set_property(
+    TARGET Cue.Math
+    PROPERTY CUE_MATH_DIRECTORY_CXX_FLAGS "${cueMathDirectoryCxxFlags}"
+)

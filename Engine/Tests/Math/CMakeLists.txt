@@ -104,6 +104,7 @@ string(
     "CMAKE_CXX_FLAGS_DEBUG=${CMAKE_CXX_FLAGS_DEBUG}\n"
     "CMAKE_CXX_FLAGS_DEVELOPMENT=${CMAKE_CXX_FLAGS_DEVELOPMENT}\n"
     "CMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE}\n"
+    "DIRECTORY_CXX_FLAGS=$<TARGET_PROPERTY:Cue.Math,CUE_MATH_DIRECTORY_CXX_FLAGS>\n"
 )
 
 get_target_property(cueMathSources Cue.Math SOURCES)
@@ -127,6 +128,109 @@ set(
     .tpp
 )
 
+foreach(
+    targetInjectionProperty
+    UNITY_BUILD_CODE_BEFORE_INCLUDE
+    UNITY_BUILD_CODE_AFTER_INCLUDE
+    VS_USER_PROPS
+)
+    get_target_property(
+        targetInjectionValue
+        Cue.Math
+        ${targetInjectionProperty}
+    )
+
+    if(targetInjectionValue)
+        message(
+            FATAL_ERROR
+            "Cue.Math target injection property cannot be audited: ${targetInjectionProperty}"
+        )
+    endif()
+endforeach()
+
+foreach(
+    precompiledHeaderProperty
+    PRECOMPILE_HEADERS
+    INTERFACE_PRECOMPILE_HEADERS
+)
+    get_target_property(
+        cueMathPrecompiledHeaders
+        Cue.Math
+        ${precompiledHeaderProperty}
+    )
+
+    if(cueMathPrecompiledHeaders MATCHES "-NOTFOUND$")
+        set(cueMathPrecompiledHeaders "")
+    endif()
+
+    foreach(precompiledHeader IN LISTS cueMathPrecompiledHeaders)
+        if(precompiledHeader MATCHES "\\$<")
+            message(
+                FATAL_ERROR
+                "Cue.Math precompiled header generator expression cannot be audited: ${precompiledHeader}"
+            )
+        endif()
+
+        if(precompiledHeader MATCHES "^<[^>]+>$")
+            continue()
+        endif()
+
+        get_filename_component(
+            precompiledHeaderAbsolutePath
+            "${precompiledHeader}"
+            ABSOLUTE
+            BASE_DIR "${cueMathSourceDirectory}"
+        )
+        get_filename_component(
+            precompiledHeaderExtension
+            "${precompiledHeaderAbsolutePath}"
+            LAST_EXT
+        )
+        string(TOLOWER "${precompiledHeaderExtension}" precompiledHeaderExtension)
+        list(
+            FIND
+            cueMathAuditedSourceExtensions
+            "${precompiledHeaderExtension}"
+            precompiledHeaderExtensionIndex
+        )
+
+        if(precompiledHeaderExtensionIndex EQUAL -1)
+            message(
+                FATAL_ERROR
+                "Cue.Math precompiled header extension cannot be audited: ${precompiledHeaderAbsolutePath}"
+            )
+        endif()
+
+        file(
+            RELATIVE_PATH
+            precompiledHeaderRelativePath
+            "${cueMathSourceDirectory}"
+            "${precompiledHeaderAbsolutePath}"
+        )
+
+        if(precompiledHeaderRelativePath MATCHES "^\\.\\.(/|$)")
+            message(
+                FATAL_ERROR
+                "Cue.Math precompiled header must remain under its source directory: ${precompiledHeaderAbsolutePath}"
+            )
+        endif()
+
+        get_source_file_property(
+            precompiledHeaderIsGenerated
+            "${precompiledHeaderAbsolutePath}"
+            TARGET_DIRECTORY Cue.Math
+            GENERATED
+        )
+
+        if(precompiledHeaderIsGenerated)
+            message(
+                FATAL_ERROR
+                "Cue.Math generated precompiled header cannot be audited: ${precompiledHeaderAbsolutePath}"
+            )
+        endif()
+    endforeach()
+endforeach()
+
 foreach(sourcePath IN LISTS cueMathSources)
     if(sourcePath MATCHES "\\$<")
         message(
@@ -142,7 +246,7 @@ foreach(sourcePath IN LISTS cueMathSources)
         BASE_DIR "${cueMathSourceDirectory}"
     )
 
-    get_filename_component(sourceExtension "${sourceAbsolutePath}" EXT)
+    get_filename_component(sourceExtension "${sourceAbsolutePath}" LAST_EXT)
     string(TOLOWER "${sourceExtension}" sourceExtension)
     list(FIND cueMathAuditedSourceExtensions "${sourceExtension}" sourceExtensionIndex)
 
