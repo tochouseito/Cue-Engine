@@ -437,76 +437,6 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
            a_code.find("%:%:") != std::string_view::npos;
 }
 
-/// @brief CMake SourceからCommentだけを除いた検査用文字列を返す
-[[nodiscard]] std::string sanitize_cmake_source(std::string_view a_source)
-{
-    std::string result(a_source);
-    bool isQuoted = false;
-
-    for (std::size_t index = 0U; index < result.size(); ++index)
-    {
-        if (result[index] == '"' &&
-            (index == 0U || result[index - 1U] != '\\'))
-        {
-            isQuoted = !isQuoted;
-            continue;
-        }
-
-        if (isQuoted || result[index] != '#')
-        {
-            continue;
-        }
-
-        if (index + 1U < result.size() && result[index + 1U] == '[')
-        {
-            std::size_t equalsCount = 0U;
-
-            while (index + 2U + equalsCount < result.size() &&
-                   result[index + 2U + equalsCount] == '=')
-            {
-                ++equalsCount;
-            }
-
-            const auto openBracket = index + 2U + equalsCount;
-
-            if (openBracket < result.size() && result[openBracket] == '[')
-            {
-                const std::string closing =
-                    "]" + std::string(equalsCount, '=') + "]";
-                const auto close = result.find(closing, openBracket + 1U);
-                const auto end = close == std::string::npos
-                                     ? result.size()
-                                     : close + closing.size();
-
-                for (auto hiddenIndex = index; hiddenIndex < end;
-                     ++hiddenIndex)
-                {
-                    if (result[hiddenIndex] != '\r' &&
-                        result[hiddenIndex] != '\n')
-                    {
-                        result[hiddenIndex] = ' ';
-                    }
-                }
-
-                index = end == 0U ? 0U : end - 1U;
-                continue;
-            }
-        }
-
-        const auto lineEnd = result.find_first_of("\r\n", index + 1U);
-        const auto end = lineEnd == std::string::npos ? result.size() : lineEnd;
-
-        for (auto hiddenIndex = index; hiddenIndex < end; ++hiddenIndex)
-        {
-            result[hiddenIndex] = ' ';
-        }
-
-        index = end == 0U ? 0U : end - 1U;
-    }
-
-    return result;
-}
-
 /// @brief 文字列が識別子境界付きASCII名を含む場合にtrueを返す
 [[nodiscard]] bool contains_ascii_identifier(
     std::string_view a_value, std::string_view a_identifier) noexcept
@@ -530,15 +460,6 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     }
 
     return false;
-}
-
-/// @brief PathがCMake Build Definitionの場合にtrueを返す
-[[nodiscard]] bool is_cmake_source_path(
-    const std::filesystem::path &a_path)
-{
-    const auto fileName = lower_ascii(a_path.filename().string());
-    return fileName == "cmakelists.txt" ||
-           lower_ascii(a_path.extension().string()) == ".cmake";
 }
 
 /// @brief PathがRepository Root直下の生成物または管理Directoryか判定する
@@ -1198,16 +1119,16 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     return true;
 }
 
-/// @brief Sanitized CMake SourceがCue.Mathへ禁止依存を注入する場合にtrueを返す
-[[nodiscard]] bool has_forbidden_math_build_dependency(
-    std::string_view a_code)
+/// @brief 展開済みCue.Math Build Propertyが禁止依存を含む場合にtrueを返す
+[[nodiscard]] bool has_forbidden_math_build_configuration(
+    std::string_view a_manifest)
 {
-    const auto normalized = lower_ascii(a_code);
+    const auto normalized = lower_ascii(a_manifest);
     constexpr std::array<std::string_view, 4> forbiddenHeaders = {
-        "directxmath.h",
-        "directxpackedvector.h",
-        "directxcollision.h",
-        "directxcolors.h",
+        "directxmath",
+        "directxpackedvector",
+        "directxcollision",
+        "directxcolors",
     };
     const bool hasForbiddenHeader = std::any_of(
         forbiddenHeaders.begin(), forbiddenHeaders.end(),
@@ -1215,24 +1136,21 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         {
             return normalized.find(a_header) != std::string::npos;
         });
-    const bool configuresMathTarget =
-        a_code.find("Cue.Math") != std::string_view::npos;
     const bool hasDirectXDefinition =
-        contains_ascii_identifier(a_code, "DirectX");
-    return hasForbiddenHeader ||
-           (configuresMathTarget && hasDirectXDefinition);
+        contains_ascii_identifier(a_manifest, "DirectX");
+    return hasForbiddenHeader || hasDirectXDefinition;
 }
 
-/// @brief CMake Build DefinitionがCue.Mathへ禁止依存を注入しないか検証する
-[[nodiscard]] bool validate_cmake_file(
-    const std::filesystem::path &a_repositoryRoot,
+/// @brief CMakeが生成したCue.Math Build Property Manifestを検証する
+[[nodiscard]] bool validate_math_build_manifest(
     const std::filesystem::path &a_path)
 {
     std::ifstream stream(a_path, std::ios::binary);
 
     if (!stream)
     {
-        std::cerr << "Could not read CMake source: " << a_path.string()
+        std::cerr << "Could not read Cue.Math build manifest: "
+                  << a_path.string()
                   << '\n';
         return false;
     }
@@ -1241,26 +1159,13 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         std::istreambuf_iterator<char>{stream},
         std::istreambuf_iterator<char>{},
     };
-    const auto code = sanitize_cmake_source(source);
-
-    if (!has_forbidden_math_build_dependency(code))
+    if (!has_forbidden_math_build_configuration(source))
     {
         return true;
     }
 
-    std::error_code relativeError;
-    const auto relativePath =
-        std::filesystem::relative(a_path, a_repositoryRoot, relativeError);
-
-    if (relativeError)
-    {
-        std::cerr << "Could not resolve CMake source path: "
-                  << a_path.string() << '\n';
-        return false;
-    }
-
-    std::cerr << "Forbidden Cue.Math build dependency: "
-              << relativePath.string() << '\n';
+    std::cerr << "Forbidden Cue.Math build property dependency: "
+              << a_path.string() << '\n';
     return false;
 }
 
@@ -1491,28 +1396,27 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         return false;
     }
 
-    const auto cmakePrecompiledHeader = sanitize_cmake_source(
-        "target_precompile_headers(Cue.Math PRIVATE <DirectXCollision.h>)\n");
+    constexpr std::string_view cmakePrecompiledHeader =
+        "PRECOMPILE_HEADERS=<DirectXCollision.h>\n";
 
-    if (!has_forbidden_math_build_dependency(cmakePrecompiledHeader))
+    if (!has_forbidden_math_build_configuration(cmakePrecompiledHeader))
     {
         return false;
     }
 
-    const auto cmakeCompileDefinition = sanitize_cmake_source(
-        "target_compile_definitions(Cue.Math PRIVATE NS=DirectX)\n");
+    constexpr std::string_view cmakeCompileDefinition =
+        "COMPILE_DEFINITIONS=NS=DirectX\n";
 
-    if (!has_forbidden_math_build_dependency(cmakeCompileDefinition))
+    if (!has_forbidden_math_build_configuration(cmakeCompileDefinition))
     {
         return false;
     }
 
-    const auto allowedCmakeComments = sanitize_cmake_source(
-        "# target_precompile_headers(Cue.Math PRIVATE <DirectXMath.h>)\n"
-        "#[=[\nset(NS DirectX)\n]=]\n"
-        "set(RHI_PATTERN DirectX)\n");
+    constexpr std::string_view allowedBuildManifest =
+        "COMPILE_DEFINITIONS=CUE_BUILD_DEBUG=1\n"
+        "LINK_LIBRARIES=Cue.Foundation\n";
 
-    if (has_forbidden_math_build_dependency(allowedCmakeComments))
+    if (has_forbidden_math_build_configuration(allowedBuildManifest))
     {
         return false;
     }
@@ -1565,13 +1469,6 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         {
             return false;
         }
-        else if (!typeError && iterator->is_regular_file(typeError) &&
-                 !typeError && is_cmake_source_path(path) &&
-                 !validate_cmake_file(a_repositoryRoot, path))
-        {
-            return false;
-        }
-
         iterator.increment(iteratorError);
 
         if (iteratorError)
@@ -1589,9 +1486,10 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 /// @brief Math依存Gateの自己TestとRepository全体検査を実行する
 int main(int a_argumentCount, char **a_arguments)
 {
-    if (a_argumentCount != 2 || a_arguments[1] == nullptr)
+    if (a_argumentCount != 3 || a_arguments[1] == nullptr ||
+        a_arguments[2] == nullptr)
     {
-        std::cerr << "Repository root argument is required\n";
+        std::cerr << "Repository root and build manifest are required\n";
         return 2;
     }
 
@@ -1609,6 +1507,11 @@ int main(int a_argumentCount, char **a_arguments)
     {
         std::cerr << "Repository root is invalid\n";
         return 4;
+    }
+
+    if (!validate_math_build_manifest(a_arguments[2]))
+    {
+        return 5;
     }
 
     return validate_repository(repositoryRoot) ? 0 : 1;

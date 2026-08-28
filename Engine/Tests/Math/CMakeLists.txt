@@ -81,13 +81,46 @@ endforeach()
 
 add_custom_target(Cue.Math.Tests DEPENDS ${cueMathTestTargets})
 
+set(
+    cueMathBuildPropertiesPath
+    "${CMAKE_CURRENT_BINARY_DIR}/CueMathBuildProperties-$<CONFIG>.txt"
+)
+
+string(
+    CONCAT
+    cueMathBuildPropertiesContent
+    "PRECOMPILE_HEADERS=$<TARGET_PROPERTY:Cue.Math,PRECOMPILE_HEADERS>\n"
+    "INTERFACE_PRECOMPILE_HEADERS=$<TARGET_PROPERTY:Cue.Math,INTERFACE_PRECOMPILE_HEADERS>\n"
+    "COMPILE_DEFINITIONS=$<TARGET_PROPERTY:Cue.Math,COMPILE_DEFINITIONS>\n"
+    "INTERFACE_COMPILE_DEFINITIONS=$<TARGET_PROPERTY:Cue.Math,INTERFACE_COMPILE_DEFINITIONS>\n"
+    "COMPILE_OPTIONS=$<TARGET_PROPERTY:Cue.Math,COMPILE_OPTIONS>\n"
+    "INTERFACE_COMPILE_OPTIONS=$<TARGET_PROPERTY:Cue.Math,INTERFACE_COMPILE_OPTIONS>\n"
+    "INCLUDE_DIRECTORIES=$<TARGET_PROPERTY:Cue.Math,INCLUDE_DIRECTORIES>\n"
+    "INTERFACE_INCLUDE_DIRECTORIES=$<TARGET_PROPERTY:Cue.Math,INTERFACE_INCLUDE_DIRECTORIES>\n"
+    "LINK_LIBRARIES=$<TARGET_PROPERTY:Cue.Math,LINK_LIBRARIES>\n"
+    "INTERFACE_LINK_LIBRARIES=$<TARGET_PROPERTY:Cue.Math,INTERFACE_LINK_LIBRARIES>\n"
+    "CMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}\n"
+    "CMAKE_CXX_FLAGS_DEBUG=${CMAKE_CXX_FLAGS_DEBUG}\n"
+    "CMAKE_CXX_FLAGS_DEVELOPMENT=${CMAKE_CXX_FLAGS_DEVELOPMENT}\n"
+    "CMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE}\n"
+)
+
+file(
+    GENERATE
+    OUTPUT "${cueMathBuildPropertiesPath}"
+    CONTENT "${cueMathBuildPropertiesContent}"
+)
+
 add_test(NAME Cue.Math.ScalarAngleVector COMMAND CueMathTests)
 add_test(NAME Cue.Math.MatrixQuaternionTransform COMMAND CueMathTransformTests)
 add_test(NAME Cue.Math.Properties COMMAND CueMathPropertyTests)
 add_test(NAME Cue.Math.PublicHeaders COMMAND CueMathPublicHeaderTest)
 add_test(
     NAME Cue.Math.Dependencies
-    COMMAND CueMathDependencyTests ${PROJECT_SOURCE_DIR}
+    COMMAND
+        CueMathDependencyTests
+        ${PROJECT_SOURCE_DIR}
+        "${cueMathBuildPropertiesPath}"
 )
 
 set_tests_properties(
