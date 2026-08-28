@@ -75,18 +75,21 @@ Sources:
 
 ### Decision Trade-offs
 
-| 観点 | CueEngineでの判断 | 代償 |
-| --- | --- | --- |
-| Usability | Axis、行Vector、角度単位、合成順を一つの規約に固定し、名前付き変換を提供する。 | 他EngineやDCC Toolとの受け渡しでは規約変換が必要になる。 |
-| Runtime Performance | 単純な値型とScalar正本を持ち、将来のSIMDはPrivate実装として追加する。 | M08時点ではPlatform最適化済みMath Libraryより低速な可能性があるため、性能向上を主張しない。 |
-| Iteration Speed | GameCore、Scene、Editorが同じ型と固定値Testを共有する。 | `Result<T>`と明示的なToleranceにより、呼び出しCodeは短くならない。 |
-| Extensibility | Platform、RHI、Rendererから独立した`Cue.Math` Targetに限定する。 | Integer、倍精度、SIMD、Projectionは必要性ごとに別設計が必要になる。 |
-| Portability | Windows SDK、DirectXMath、ISA固有型をPublic Headerへ出さない。 | 外部APIごとに明示的なAdapterが必要になる。 |
-| Data Safety | 非有限値、Degenerate値、特異Matrix、分解不能を診断可能な失敗として返す。 | ZeroやIdentityへ暗黙FallbackするAPIより利用側の分岐が増える。 |
-| Compatibility | C++ Object Layout、Scene永続形式、GPU Layout、Plugin ABIを分離する。 | Memory Imageの直接保存や直接Uploadはできず、変換Costと実装が必要になる。 |
-| Diagnostics | Error Domainと最小Error分類を固定し、Math内部ではLogしない。 | Error生成に`EmergencyHandler`の明示的な受け渡しが必要になる。 |
-| Testability | Scalar正本、固定Basis、異常値、依存方向を自動Testする。 | Scalarと最適化経路の双方を将来維持するTest Costが発生する。 |
-| Complexity | M08の型と演算集合を単精度の非Template APIへ限定する。 | 汎用Template Math Libraryより再利用範囲は狭い。 |
+次の比較は、各EngineのMath APIをCueEngineへ導入または模倣した場合の長所と代償を評価する。
+各Engineそのものの優劣ではなく、M08の要件に対する適合性を比較対象とする。
+
+| 観点 | Unreal Engine方式 | Unity方式 | Godot方式 | CueEngineでの判断 | CueEngineが負う代償 |
+| --- | --- | --- | --- | --- | --- |
+| Usability | C++とEditorで豊富なVector、Rotator、Quaternion、Transform APIを共有できる。一方、Z-upと多数の型・Overloadの学習が必要になる。 | Y-up、`+Z = Forward`とInspectorのEuler表示は直感的で、内部Quaternionとの役割分担も明確である。一方、表示Eulerと内部回転の不連続性を理解する必要がある。 | `Vector3`、`Basis`、`Transform3D`をScriptから直接扱え、Shearも表現できる。一方、右手系と`-Z = Forward`、BasisのColumn表現を理解する必要がある。 | Unityに近いAxisと、Unreal Engineに近い行Vector・Row-majorを採用し、角度単位と合成順を型と名前で明示する。 | 既存Engineを知る利用者にもCueEngine固有の組合せを説明する必要があり、外部境界では変換が必要になる。 |
+| Runtime Performance | Platform Math継承とSIMD実装を利用でき、成熟した最適化を得やすい。一方、Platform階層と広いCore Math実装を同時に受け入れるCostがある。 | Native Engine側で実装されたMathとTransform処理を利用できる。一方、Unity Runtime外のFirst-party C++ Moduleとして再利用できない。 | Nativeの小さい値型をEngine全体で利用できる。一方、Godot VariantとEngine規約への結合をCueEngineへ持ち込むことになる。 | 単純な値型と検証可能なScalar正本を先に持ち、SIMDは測定後にPrivate実装として追加する。 | M08時点では最適化済みMath Libraryより低速な可能性があり、性能向上を主張できない。 |
+| Iteration Speed | Engine全体で同じMath型を利用できるが、C++のCompileと広いAPI変更の影響範囲が大きい。 | InspectorとScript APIにより値を素早く編集・確認できるが、Native内部規約の変更は利用者が所有できない。 | Editor、GDScript、Native Engineで組込みMath型をすぐ利用できるが、GodotのObject・Variant境界に沿う必要がある。 | GameCore、Scene、Editorが同じ型と固定値Testを共有し、規約変更をCueEngine内で完結させる。 | `Result<T>`と明示的Toleranceにより、短い直接演算より呼び出しCodeが増える。 |
+| Extensibility | Template型、Platform Math、Engine Module群へ拡張できるが、採用するとCueEngineの小さいFoundation境界を越える。 | PackageとScript側のUtilityは追加しやすいが、Engine組込みMath型とNative実装の所有権はUnity側にある。 | Source公開とEngine Moduleにより変更可能だが、組込み型の変更はVariant、Serialization、Script APIへ広く波及する。 | `Cue.Foundation`だけに依存する独立Targetとし、型・Scalar実装・将来の最適化を自ら所有する。 | Integer、倍精度、SIMD、Projectionは必要性ごとに別設計と追加Testが必要になる。 |
+| Portability | 多Platform対応の実績があるが、Unreal EngineのCoreとPlatform抽象へ結合する。 | 多Platform差をUnity Runtimeが吸収するが、Unity外では同じ契約を利用できない。 | 多Platform対応の組込み型だが、Godot Runtimeと右手系規約へ結合する。 | Windows SDK、Graphics API、ISA固有型をPublic Headerへ出さない。 | Platform最適化と外部APIごとに明示的なPrivate Adapterが必要になる。 |
+| Data Safety | 豊富な検査付きAPIも存在するが、直接Valueを返す演算と失敗表現がAPIごとに異なるため、CueEngine契約へ統一するAdapterが必要になる。 | Quaternionを内部正本にすることでEditor回転を保護できるが、Engine組込みAPIの失敗契約をCueEngineのError Domainへ統合できない。 | BasisがShearを失わず保持できるが、正規化・逆演算等の戻り規約をCueEngineの`Result<T>`へ変換する必要がある。 | 非有限値、Degenerate値、特異Matrix、分解不能を診断可能な`Result<T>`の失敗として統一する。 | ZeroやIdentityへ暗黙FallbackするAPIより利用側の分岐とError処理が増える。 |
+| Compatibility | Unreal Asset、Plugin、Shader規約との親和性を得られるが、軸とEngine型の変換なしに他環境へ持ち出せない。 | Unity AssetとScript利用者には馴染みやすいが、Column-major APIとManaged境界をCueEngine C++ ABIへ直接使えない。 | Godot Scene、Variant、Scriptとの親和性を得られるが、右手系とColumn公開規約がCueEngine要件と衝突する。 | C++ Object Layout、Scene永続形式、GPU Layout、Plugin ABIを分離し、各境界を明示変換する。 | Memory Imageの直接保存・直接Uploadはできず、変換Costと実装が必要になる。 |
+| Diagnostics | Engine全体のLog、Assert、Profilerと統合できるが、Math単体をCueEngineのError分類だけで扱えない。 | Editor ConsoleとInspectorで状態を確認できるが、Native Math失敗をCueEngineのCause Chainへ保持できない。 | DebuggerとError出力へ統合されるが、CueEngineのDomain ErrorとしてModule境界を越せない。 | Error Domainと最小Error分類を固定し、Math内部ではLogせず呼び出し側へ伝播する。 | Error生成に`EmergencyHandler`の明示的な受け渡しが必要になる。 |
+| Testability | 成熟したEngine実装を利用できるが、CueEngineの規約だけを小さいTargetで隔離検証できない。 | Unity Test環境でGame側の期待値を検証できるが、Native Scalar正本との直接比較は所有範囲外になる。 | Engine Sourceと組込みTestを検証できるが、Godot Runtimeから独立したCueEngine Targetにはならない。 | Scalar正本、固定Basis、異常値、依存方向、Public Header単体Compileを自動Testする。 | Scalarと最適化経路の双方を将来維持するTest Costが発生する。 |
+| Complexity | 機能と最適化が豊富だが、Core、Platform Math、Template、倍精度を含む大きな設計を採用することになる。 | 利用APIは簡潔だが、Managed／Native境界とEngine所有実装をCueEngine内で再現できない。 | 型数は比較的小さいが、Basis、Variant、Script、Serializationとの統合を含めて考える必要がある。 | M08の型と演算集合を単精度の非Template APIへ限定する。 | 汎用Template Math Libraryより再利用範囲は狭く、後続要件を別Issueで拡張する必要がある。 |
 
 以上から、AxisはUnityに近く、行列代数はUnreal Engineに近いが、どのEngineのAPIまたはMemory Layoutも互換契約にはしない。
 Godotの一般BasisがShearを保持できる点は参考にする一方、CueEngineの`Transform`は編集しやすいTRS、一般合成結果は`Matrix4`として分離する。
