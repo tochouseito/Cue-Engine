@@ -5,10 +5,13 @@ target_sources(
     PRIVATE
         Private/UtfConversion.cpp
         Private/UtfConversion.h
+        Private/SystemCapabilityMapper.cpp
+        Private/SystemCapabilityMapper.h
         Private/WindowsWindowInterop.cpp
         Private/WindowsWindow.cpp
         Private/WindowsWindow.h
         Private/WindowsPlatform.cpp
+        Private/WindowsSystemCapabilities.cpp
         Private/WindowsUtilities.cpp
         Private/WindowsUtilities.h
     PUBLIC
@@ -77,11 +80,13 @@ if(BUILD_TESTING)
     target_sources(
         Cue.Platform.Windows.TestSupport
         PRIVATE
+            Private/TestSupport/WindowsSystemCapabilityProbe.cpp
             Private/TestSupport/WindowsWindowLifecycleProbe.cpp
         PUBLIC
             FILE_SET HEADERS
             BASE_DIRS Public
             FILES
+                Public/Cue/Platform/Windows/TestSupport/WindowsSystemCapabilityProbe.h
                 Public/Cue/Platform/Windows/TestSupport/WindowsWindowLifecycleProbe.h
     )
 

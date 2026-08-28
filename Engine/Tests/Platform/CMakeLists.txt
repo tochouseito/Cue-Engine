@@ -1,6 +1,7 @@
 add_executable(
     CuePlatformPublicHeaderTest
     PublicHeaderCompile.cpp
+    SystemCapabilitiesHeaderCompile.cpp
     WindowEventHeaderCompile.cpp
     WindowHeaderCompile.cpp
     WindowSystemHeaderCompile.cpp
@@ -13,6 +14,7 @@ add_executable(
     CuePlatformWindowsPublicHeaderTest
     PublicHeaderCompile.cpp
     WindowsPlatformHeaderCompile.cpp
+    WindowsSystemCapabilityProbeHeaderCompile.cpp
     WindowsWindowLifecycleProbeHeaderCompile.cpp
     WindowsWindowInteropHeaderCompile.cpp
 )
@@ -24,6 +26,19 @@ add_executable(
     CuePlatformWindowsLifecycleTests
     WindowsWindowLifecycleTests.cpp
 )
+
+add_executable(
+    CuePlatformWindowsSystemCapabilityTests
+    WindowsSystemCapabilityTests.cpp
+)
+
+target_link_libraries(
+    CuePlatformWindowsSystemCapabilityTests
+    PRIVATE
+        Cue.Platform.Windows
+        Cue.Platform.Windows.TestSupport
+)
+target_compile_features(CuePlatformWindowsSystemCapabilityTests PRIVATE cxx_std_20)
 
 target_link_libraries(
     CuePlatformWindowsLifecycleTests
@@ -39,6 +54,7 @@ foreach(
         CuePlatformPublicHeaderTest
         CuePlatformWindowsPublicHeaderTest
         CuePlatformWindowsLifecycleTests
+        CuePlatformWindowsSystemCapabilityTests
 )
     set_target_properties(
         ${testTarget}
@@ -654,10 +670,12 @@ add_custom_target(
         CuePlatformPublicHeaderTest
         CuePlatformWindowsPublicHeaderTest
         CuePlatformWindowsLifecycleTests
+        CuePlatformWindowsSystemCapabilityTests
 )
 
 add_test(NAME Cue.Platform.PublicHeaders COMMAND CuePlatformPublicHeaderTest)
 add_test(NAME Cue.Platform.Windows.PublicHeaders COMMAND CuePlatformWindowsPublicHeaderTest)
+add_test(NAME Cue.Platform.Windows.SystemCapabilities COMMAND CuePlatformWindowsSystemCapabilityTests)
 add_test(
     NAME Cue.Platform.Windows.Lifecycle
     COMMAND CuePlatformWindowsLifecycleTests Lifecycle
@@ -713,6 +731,7 @@ add_test(
 set_tests_properties(
     Cue.Platform.PublicHeaders
     Cue.Platform.Windows.PublicHeaders
+    Cue.Platform.Windows.SystemCapabilities
     Cue.Platform.Windows.Lifecycle
     Cue.Platform.Windows.Events
     Cue.Platform.Windows.LifecycleProbeValidation

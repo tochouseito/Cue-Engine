@@ -3,6 +3,11 @@ add_executable(CueFoundationResultTests ResultTests.cpp)
 target_link_libraries(CueFoundationResultTests PRIVATE Cue.Foundation)
 target_compile_features(CueFoundationResultTests PRIVATE cxx_std_20)
 
+add_executable(CueFoundationCapabilityTests CapabilityTests.cpp CapabilityHeaderCompile.cpp)
+
+target_link_libraries(CueFoundationCapabilityTests PRIVATE Cue.Foundation)
+target_compile_features(CueFoundationCapabilityTests PRIVATE cxx_std_20)
+
 add_executable(CueFoundationNumberParsingTests NumberParsingTests.cpp)
 
 target_link_libraries(CueFoundationNumberParsingTests PRIVATE Cue.Foundation)
@@ -664,6 +669,7 @@ configure_file(
 
 add_executable(
     CueFoundationPublicHeaderTest
+    CapabilityHeaderCompile.cpp
     AssertHeaderCompile.cpp
     EmergencyHandlerHeaderCompile.cpp
     ErrorHeaderCompile.cpp
@@ -685,6 +691,7 @@ set(
     CueFoundationLoggerTests
     CueFoundationDiagnosticsProcessTests
     CueFoundationAssertTests
+    CueFoundationCapabilityTests
     CueFoundationResultTests
     CueFoundationNumberParsingTests
     CueFoundationPublicHeaderTest
@@ -729,6 +736,7 @@ add_custom_target(
 )
 
 add_test(NAME Cue.Foundation.Result COMMAND CueFoundationResultTests)
+add_test(NAME Cue.Foundation.Capability COMMAND CueFoundationCapabilityTests)
 add_test(NAME Cue.Foundation.NumberParsing COMMAND CueFoundationNumberParsingTests)
 add_test(NAME Cue.Foundation.PublicHeaders COMMAND CueFoundationPublicHeaderTest)
 add_test(NAME Cue.Foundation.Logger COMMAND CueFoundationLoggerTests)
@@ -838,10 +846,17 @@ set_tests_properties(
     Cue.Foundation.PublicHeaders
     Cue.Foundation.Logger
     Cue.Foundation.Assert.Success
-    Cue.Foundation.Dependencies
     PROPERTIES
         LABELS Foundation
         TIMEOUT 10
+)
+
+# 公開Header追加に伴う再帰Source境界Scanを低速なWindows Hostでも完走させる
+set_tests_properties(
+    Cue.Foundation.Dependencies
+    PROPERTIES
+        LABELS Foundation
+        TIMEOUT 30
 )
 
 if(WIN32)

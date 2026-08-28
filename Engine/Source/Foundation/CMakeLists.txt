@@ -12,6 +12,7 @@ target_sources(
         FILE_SET HEADERS
         BASE_DIRS Public
         FILES
+            Public/Cue/Foundation/Capability.h
             Public/Cue/Foundation/EmergencyHandler.h
             Public/Cue/Foundation/Error.h
             Public/Cue/Foundation/Assert.h

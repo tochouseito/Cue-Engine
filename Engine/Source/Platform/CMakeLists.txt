@@ -9,6 +9,7 @@ target_sources(
         FILE_SET HEADERS
         BASE_DIRS Public
         FILES
+            Public/Cue/Platform/SystemCapabilities.h
             Public/Cue/Platform/Window.h
             Public/Cue/Platform/WindowEvent.h
             Public/Cue/Platform/WindowSystem.h
