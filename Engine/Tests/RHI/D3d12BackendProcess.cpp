@@ -14,13 +14,14 @@
 
 namespace
 {
-class FailingLogSink final : public cue::LogSink
+class CapabilityWarningFailingLogSink final : public cue::LogSink
 {
   public:
-    /// @brief すべてのLog配送を失敗させてError経路を検証する
-    [[nodiscard]] bool write(const cue::LogRecord &) override
+    /// @brief Optional Capability Query失敗Warningだけを配送失敗させる
+    [[nodiscard]] bool write(const cue::LogRecord &a_record) override
     {
-        return false;
+        return !(a_record.level() == cue::LogLevel::Warning &&
+                 a_record.message() == "D3D12 mesh and sampler feedback query failed");
     }
 
     /// @brief 保留中の出力を持たないためFlush成功を返す
@@ -161,7 +162,7 @@ int main(int a_argumentCount, char **a_arguments)
     std::vector<std::unique_ptr<cue::LogSink>> sinks;
     if (mode == "OptionalCapabilityLogFailure")
     {
-        sinks.push_back(std::make_unique<FailingLogSink>());
+        sinks.push_back(std::make_unique<CapabilityWarningFailingLogSink>());
     }
     cue::test::RhiProcessTestFixture fixture(std::move(sinks));
     cue::AssertContext &assertContext = fixture.assert_context();

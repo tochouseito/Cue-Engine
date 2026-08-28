@@ -305,7 +305,7 @@ Issue #132で確定した公開APIでは、TierまたはVersionを伴う項目�
 
 Feature Level、Shader Model、Root Signature、Resource Binding／Heap Tier、Raytracing、Mesh Shader、VRS、Sampler Feedbackは型付き値を保持する。Wave Operations、Enhanced Barriers、UMA、Cache Coherent UMAはTierを持たないため`CapabilitySupportState`を直接保持する。Hardware／WARPの区別は既存の`adapterKind`を継続して使用する。
 
-新しいD3D12 Runtime定数を古いRuntimeが認識しない場合は、APIが保証する既知Baselineへだけ段階的にFallbackして最大対応値を再照会または確定する。Shader Modelは6.8から6.0まで`E_INVALIDARG`時に再試行し、Root Signature 1.1が`E_INVALIDARG`の場合はD3D12 Baselineの1.0として記録する。それ以外の失敗を既知の下位Versionへ偽装しない。
+新しいD3D12 Runtime定数を古いRuntimeが認識しない場合は、APIが保証する既知Baselineへだけ段階的にFallbackして最大対応値を再照会または確定する。Shader Modelは6.8から6.0まで`E_INVALIDARG`時に再試行し、照会成功時に返り得る5.1も対応Versionとして保持する。Root Signature 1.1が`E_INVALIDARG`の場合はD3D12 Baselineの1.0として記録する。それ以外の失敗を既知の下位Versionへ偽装しない。
 
 Optional `CheckFeatureSupport`が失敗しても、Baseline Backend生成条件を満たしていればBackend生成全体を失敗させない。そのFeatureだけを`Failed + Unknown`として記録し、Native失敗は診断Logへ残す。
 

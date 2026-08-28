@@ -187,6 +187,7 @@ bool verify_d3d12_optional_capability_log_failure_for_probe(AssertContext &a_ass
     };
     Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(descriptor, a_assertContext);
     const Error *error = backendResult.try_error();
-    return !backendResult && error != nullptr;
+    return !backendResult && error != nullptr && error->code().domain() == "Cue.RHI.D3D12" &&
+           error->code().value() == 101;
 }
 } // namespace cue

@@ -76,6 +76,8 @@ HRESULT check_feature_support(ID3D12Device *a_device, D3D12_FEATURE a_feature, v
 {
     switch (a_value)
     {
+    case D3D_SHADER_MODEL_5_1:
+        return cue::CapabilityVersion{5, 1};
     case D3D_SHADER_MODEL_6_0:
         return cue::CapabilityVersion{6, 0};
     case D3D_SHADER_MODEL_6_1:
