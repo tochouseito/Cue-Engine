@@ -275,6 +275,64 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
            is_import_operand_position(a_code);
 }
 
+/// @brief 現在行がMacro DefinitionのReplacement List直前の場合にtrueを返す
+[[nodiscard]] bool is_define_replacement_position(
+    std::string_view a_code) noexcept
+{
+    const auto lineStart = a_code.find_last_of("\r\n");
+    auto line = trim_ascii_left(a_code.substr(
+        lineStart == std::string_view::npos ? 0U : lineStart + 1U));
+
+    if (!line.empty() && line.front() == '#')
+    {
+        line.remove_prefix(1U);
+    }
+    else if (line.substr(0U, 2U) == "%:")
+    {
+        line.remove_prefix(2U);
+    }
+    else
+    {
+        return false;
+    }
+
+    line = trim_ascii_left(line);
+    constexpr std::string_view defineName = "define";
+
+    if (line.substr(0U, defineName.size()) != defineName ||
+        line.size() <= defineName.size() ||
+        std::isspace(static_cast<unsigned char>(line[defineName.size()])) == 0)
+    {
+        return false;
+    }
+
+    line = trim_ascii_left(line.substr(defineName.size()));
+
+    if (line.empty() || !is_identifier_start(line.front()))
+    {
+        return false;
+    }
+
+    while (!line.empty() && is_identifier_continue(line.front()))
+    {
+        line.remove_prefix(1U);
+    }
+
+    if (!line.empty() && line.front() == '(')
+    {
+        const auto close = line.find(')');
+
+        if (close == std::string_view::npos)
+        {
+            return false;
+        }
+
+        line.remove_prefix(close + 1U);
+    }
+
+    return trim_ascii(line).empty();
+}
+
 /// @brief Quoteまたは文字Literalの終端直後を返す
 [[nodiscard]] std::size_t find_quoted_literal_end(
     std::string_view a_source, std::size_t a_start, char a_quote) noexcept
@@ -340,7 +398,9 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         {
             const auto end = find_quoted_literal_end(source, index, '"');
 
-            if (is_header_operand_position(result) && end > index + 1U)
+            if ((is_header_operand_position(result) ||
+                 is_define_replacement_position(result)) &&
+                end > index + 1U)
             {
                 result.push_back('<');
                 result.append(source.substr(index + 1U, end - index - 2U));
@@ -717,6 +777,7 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     std::string_view a_code, bool a_isMathSource,
     const std::filesystem::path &a_path, bool a_reportsFailure = true)
 {
+    std::vector<std::string> functionHeaderMacros;
     std::size_t lineStart = 0U;
 
     while (lineStart <= a_code.size())
@@ -806,11 +867,17 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
             {
                 auto definition = trim_ascii_left(
                     line.substr(directiveStart + defineName.size()));
-                while (!definition.empty() &&
-                       is_identifier_continue(definition.front()))
+                std::size_t macroNameLength = 0U;
+
+                while (macroNameLength < definition.size() &&
+                       is_identifier_continue(definition[macroNameLength]))
                 {
-                    definition.remove_prefix(1U);
+                    ++macroNameLength;
                 }
+
+                const std::string macroName(
+                    definition.substr(0U, macroNameLength));
+                definition.remove_prefix(macroNameLength);
 
                 const bool isFunctionLike =
                     !definition.empty() && definition.front() == '(';
@@ -847,8 +914,7 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                     return false;
                 }
 
-                if (!isFunctionLike && !replacement.empty() &&
-                    replacement.front() == '<')
+                if (!replacement.empty() && replacement.front() == '<')
                 {
                     const auto close = replacement.find('>', 1U);
 
@@ -865,9 +931,22 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
                     if (!validate_header_operand(
                             replacement.substr(1U, close - 1U),
-                            a_isMathSource, a_path, a_reportsFailure))
+                            a_isMathSource, a_path, false))
                     {
-                        return false;
+                        if (isFunctionLike)
+                        {
+                            functionHeaderMacros.push_back(macroName);
+                        }
+                        else
+                        {
+                            if (a_reportsFailure)
+                            {
+                                std::cerr << "Forbidden header dependency: "
+                                          << a_path.string() << '\n';
+                            }
+
+                            return false;
+                        }
                     }
                 }
             }
@@ -912,6 +991,38 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                         operand.substr(1U, close - 1U), a_isMathSource,
                         a_path, a_reportsFailure))
                 {
+                    return false;
+                }
+            }
+            else if (!operand.empty() &&
+                     is_identifier_start(operand.front()))
+            {
+                std::size_t macroNameLength = 1U;
+
+                while (macroNameLength < operand.size() &&
+                       is_identifier_continue(operand[macroNameLength]))
+                {
+                    ++macroNameLength;
+                }
+
+                const std::string macroName(
+                    operand.substr(0U, macroNameLength));
+                const auto suffix = trim_ascii_left(
+                    operand.substr(macroNameLength));
+
+                if (!suffix.empty() && suffix.front() == '(' &&
+                    std::find(
+                        functionHeaderMacros.begin(),
+                        functionHeaderMacros.end(), macroName) !=
+                        functionHeaderMacros.end())
+                {
+                    if (a_reportsFailure)
+                    {
+                        std::cerr << "Function-like macro header import is "
+                                     "forbidden: "
+                                  << a_path.string() << '\n';
+                    }
+
                     return false;
                 }
             }
@@ -1125,6 +1236,26 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
     if (validate_include_directives(
             macroHeaderUnitImport, false, "MacroHeaderUnitProbe.cpp", false))
+    {
+        return false;
+    }
+
+    const auto quotedMacroHeaderUnitImport = sanitize_cpp_source(
+        "#define H \"DirectXMath.h\"\nimport H;\n");
+
+    if (validate_include_directives(
+            quotedMacroHeaderUnitImport, false,
+            "QuotedMacroHeaderUnitProbe.cpp", false))
+    {
+        return false;
+    }
+
+    const auto functionMacroHeaderUnitImport = sanitize_cpp_source(
+        "#define H() <DirectXMath.h>\nimport H();\n");
+
+    if (validate_include_directives(
+            functionMacroHeaderUnitImport, false,
+            "FunctionMacroHeaderUnitProbe.cpp", false))
     {
         return false;
     }
