@@ -1220,23 +1220,34 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                     for (std::size_t index = 0U;
                          index < option.size(); ++index)
                     {
-                        const bool isBoundary =
+                        const bool isArgumentStart =
                             index == 0U ||
                             std::isspace(static_cast<unsigned char>(
-                                option[index - 1U])) != 0 ||
-                            option[index - 1U] == '"' ||
-                            option[index - 1U] == '\'';
+                                option[index - 1U])) != 0;
 
-                        if (isBoundary && option[index] == '@')
+                        if (!isArgumentStart)
+                        {
+                            continue;
+                        }
+
+                        auto candidate = index;
+
+                        if (option[candidate] == '"' ||
+                            option[candidate] == '\'')
+                        {
+                            ++candidate;
+                        }
+
+                        if (candidate < option.size() &&
+                            option[candidate] == '@')
                         {
                             return true;
                         }
 
-                        if (isBoundary &&
-                            (option.substr(index, 3U) == "/fi" ||
-                             option.substr(index, 3U) == "-fi" ||
-                             option.substr(index, 8U) == "-include" ||
-                             option.substr(index, 8U) == "-imacros"))
+                        if (option.substr(candidate, 3U) == "/fi" ||
+                            option.substr(candidate, 3U) == "-fi" ||
+                            option.substr(candidate, 8U) == "-include" ||
+                            option.substr(candidate, 8U) == "-imacros")
                         {
                             return true;
                         }
@@ -1841,6 +1852,22 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         "COMPILE_FLAGS=/W4 @SafeOptions.rsp\n";
 
     if (!has_forbidden_math_build_configuration(rawFlagResponseFile))
+    {
+        return false;
+    }
+
+    constexpr std::string_view quotedRawFlagResponseFile =
+        "COMPILE_FLAGS=/W4 \"@SafeOptions.rsp\"\n";
+
+    if (!has_forbidden_math_build_configuration(quotedRawFlagResponseFile))
+    {
+        return false;
+    }
+
+    constexpr std::string_view quotedDefinitionValue =
+        "COMPILE_FLAGS=/DVALUE=\\\"@Safe\\\"\n";
+
+    if (has_forbidden_math_build_configuration(quotedDefinitionValue))
     {
         return false;
     }
