@@ -1212,6 +1212,11 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                         return true;
                     }
 
+                    if (!option.empty() && option.front() == '@')
+                    {
+                        return true;
+                    }
+
                     for (std::size_t index = 0U;
                          index < option.size(); ++index)
                     {
@@ -1813,6 +1818,14 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         "COMPILE_OPTIONS=SHELL:\"-include\" Injected.h\n";
 
     if (!has_forbidden_math_build_configuration(quotedShellForcedInclude))
+    {
+        return false;
+    }
+
+    constexpr std::string_view responseFileCompileOption =
+        "COMPILE_OPTIONS=@SafeOptions.rsp\n";
+
+    if (!has_forbidden_math_build_configuration(responseFileCompileOption))
     {
         return false;
     }
