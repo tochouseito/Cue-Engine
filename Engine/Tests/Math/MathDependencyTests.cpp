@@ -775,14 +775,8 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 /// @brief Sanitized SourceのInclude DirectiveとMacro Operandを検証する
 [[nodiscard]] bool validate_include_directives(
     std::string_view a_code, bool a_isMathSource,
-    const std::filesystem::path &a_path, bool a_reportsFailure = true,
-    const std::vector<std::string> *a_knownFunctionHeaderMacros = nullptr,
-    std::vector<std::string> *a_discoveredFunctionHeaderMacros = nullptr)
+    const std::filesystem::path &a_path, bool a_reportsFailure = true)
 {
-    std::vector<std::string> functionHeaderMacros =
-        a_knownFunctionHeaderMacros == nullptr
-            ? std::vector<std::string>{}
-            : *a_knownFunctionHeaderMacros;
     std::size_t lineStart = 0U;
 
     while (lineStart <= a_code.size())
@@ -872,17 +866,11 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
             {
                 auto definition = trim_ascii_left(
                     line.substr(directiveStart + defineName.size()));
-                std::size_t macroNameLength = 0U;
-
-                while (macroNameLength < definition.size() &&
-                       is_identifier_continue(definition[macroNameLength]))
+                while (!definition.empty() &&
+                       is_identifier_continue(definition.front()))
                 {
-                    ++macroNameLength;
+                    definition.remove_prefix(1U);
                 }
-
-                const std::string macroName(
-                    definition.substr(0U, macroNameLength));
-                definition.remove_prefix(macroNameLength);
 
                 const bool isFunctionLike =
                     !definition.empty() && definition.front() == '(';
@@ -934,41 +922,18 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                         return false;
                     }
 
-                    if (!validate_header_operand(
+                    if (!isFunctionLike &&
+                        !validate_header_operand(
                             replacement.substr(1U, close - 1U),
                             a_isMathSource, a_path, false))
                     {
-                        if (isFunctionLike)
+                        if (a_reportsFailure)
                         {
-                            if (std::find(
-                                    functionHeaderMacros.begin(),
-                                    functionHeaderMacros.end(), macroName) ==
-                                functionHeaderMacros.end())
-                            {
-                                functionHeaderMacros.push_back(macroName);
-                            }
-
-                            if (a_discoveredFunctionHeaderMacros != nullptr &&
-                                std::find(
-                                    a_discoveredFunctionHeaderMacros->begin(),
-                                    a_discoveredFunctionHeaderMacros->end(),
-                                    macroName) ==
-                                    a_discoveredFunctionHeaderMacros->end())
-                            {
-                                a_discoveredFunctionHeaderMacros->push_back(
-                                    macroName);
-                            }
+                            std::cerr << "Forbidden header dependency: "
+                                      << a_path.string() << '\n';
                         }
-                        else
-                        {
-                            if (a_reportsFailure)
-                            {
-                                std::cerr << "Forbidden header dependency: "
-                                          << a_path.string() << '\n';
-                            }
 
-                            return false;
-                        }
+                        return false;
                     }
                 }
             }
@@ -1027,21 +992,14 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                     ++macroNameLength;
                 }
 
-                const std::string macroName(
-                    operand.substr(0U, macroNameLength));
                 const auto suffix = trim_ascii_left(
                     operand.substr(macroNameLength));
 
-                if (!suffix.empty() && suffix.front() == '(' &&
-                    std::find(
-                        functionHeaderMacros.begin(),
-                        functionHeaderMacros.end(), macroName) !=
-                        functionHeaderMacros.end())
+                if (!suffix.empty() && suffix.front() == '(')
                 {
                     if (a_reportsFailure)
                     {
-                        std::cerr << "Function-like macro header import is "
-                                     "forbidden: "
+                        std::cerr << "Macro header import operand is forbidden: "
                                   << a_path.string() << '\n';
                     }
 
@@ -1078,9 +1036,7 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 /// @brief Repository所有C++ Fileを読み取り依存規則へ適合するか検証する
 [[nodiscard]] bool validate_cpp_file(
     const std::filesystem::path &a_repositoryRoot,
-    const std::filesystem::path &a_path,
-    const std::vector<std::string> *a_knownFunctionHeaderMacros = nullptr,
-    std::vector<std::string> *a_discoveredFunctionHeaderMacros = nullptr)
+    const std::filesystem::path &a_path)
 {
     std::ifstream stream(a_path, std::ios::binary);
 
@@ -1108,9 +1064,7 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     }
 
     if (!validate_include_directives(
-            code, is_math_source_path(relativePath), relativePath, true,
-            a_knownFunctionHeaderMacros,
-            a_discoveredFunctionHeaderMacros))
+            code, is_math_source_path(relativePath), relativePath))
     {
         return false;
     }
@@ -1296,14 +1250,12 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         return false;
     }
 
-    const std::vector<std::string> includedFunctionHeaderMacros{"H"};
     const auto includedFunctionMacroCall =
         sanitize_cpp_source("import H();\n");
 
     if (validate_include_directives(
             includedFunctionMacroCall, false,
-            "IncludedFunctionMacroCallProbe.cpp", false,
-            &includedFunctionHeaderMacros))
+            "IncludedFunctionMacroCallProbe.cpp", false))
     {
         return false;
     }
@@ -1313,8 +1265,17 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
     if (!validate_include_directives(
             includedFunctionMacroName, false,
-            "IncludedFunctionMacroNameProbe.cpp", false,
-            &includedFunctionHeaderMacros))
+            "IncludedFunctionMacroNameProbe.cpp", false))
+    {
+        return false;
+    }
+
+    const auto parameterizedFunctionMacroCall = sanitize_cpp_source(
+        "#define H(x) x\nimport H(<DirectXMath.h>);\n");
+
+    if (validate_include_directives(
+            parameterizedFunctionMacroCall, false,
+            "ParameterizedFunctionMacroCallProbe.cpp", false))
     {
         return false;
     }
@@ -1332,7 +1293,6 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         std::filesystem::directory_options::skip_permission_denied,
         iteratorError);
     const std::filesystem::recursive_directory_iterator end;
-    std::vector<std::filesystem::path> sourcePaths;
 
     if (iteratorError)
     {
@@ -1363,9 +1323,10 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
             iterator.disable_recursion_pending();
         }
         else if (!typeError && iterator->is_regular_file(typeError) &&
-                 !typeError && is_cpp_source_path(path))
+                 !typeError && is_cpp_source_path(path) &&
+                 !validate_cpp_file(a_repositoryRoot, path))
         {
-            sourcePaths.push_back(path);
+            return false;
         }
 
         iterator.increment(iteratorError);
@@ -1374,26 +1335,6 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         {
             std::cerr << "Could not continue repository enumeration: "
                       << iteratorError.message() << '\n';
-            return false;
-        }
-    }
-
-    std::vector<std::string> functionHeaderMacros;
-
-    for (const auto &path : sourcePaths)
-    {
-        if (!validate_cpp_file(
-                a_repositoryRoot, path, nullptr, &functionHeaderMacros))
-        {
-            return false;
-        }
-    }
-
-    for (const auto &path : sourcePaths)
-    {
-        if (!validate_cpp_file(
-                a_repositoryRoot, path, &functionHeaderMacros))
-        {
             return false;
         }
     }
