@@ -130,17 +130,23 @@ class CapabilitySupportState final
 class CapabilityState final
 {
   public:
-    /// @brief 未Queryで有効化対象外の状態を返す
-    [[nodiscard]] static constexpr CapabilityState not_queried(
-        CapabilityImplementation a_implementation) noexcept;
+    /// @brief 未QueryかつEngine未実装で有効化対象外の状態を返す
+    [[nodiscard]] static constexpr CapabilityState not_queried_not_implemented() noexcept;
 
-    /// @brief Query失敗で有効化対象外の状態を返す
-    [[nodiscard]] static constexpr CapabilityState query_failed(
-        CapabilityImplementation a_implementation) noexcept;
+    /// @brief 未QueryかつEngine実装済みで有効化対象外の状態を返す
+    [[nodiscard]] static constexpr CapabilityState not_queried_implemented() noexcept;
 
-    /// @brief Hardware未対応で有効化対象外の状態を返す
-    [[nodiscard]] static constexpr CapabilityState unsupported(
-        CapabilityImplementation a_implementation) noexcept;
+    /// @brief Query失敗かつEngine未実装で有効化対象外の状態を返す
+    [[nodiscard]] static constexpr CapabilityState query_failed_not_implemented() noexcept;
+
+    /// @brief Query失敗かつEngine実装済みで有効化対象外の状態を返す
+    [[nodiscard]] static constexpr CapabilityState query_failed_implemented() noexcept;
+
+    /// @brief Hardware未対応かつEngine未実装で有効化対象外の状態を返す
+    [[nodiscard]] static constexpr CapabilityState unsupported_not_implemented() noexcept;
+
+    /// @brief Hardware未対応かつEngine実装済みで有効化対象外の状態を返す
+    [[nodiscard]] static constexpr CapabilityState unsupported_implemented() noexcept;
 
     /// @brief Hardware対応済みだがEngine未実装の状態を返す
     [[nodiscard]] static constexpr CapabilityState supported_not_implemented() noexcept;
@@ -174,9 +180,9 @@ class CapabilityState final
 } // namespace cue
 ```
 
-状態型はAggregateにせずFieldを非公開にする。`CapabilitySupportState`は有効な4状態、`CapabilityState`は有効状態を表す6種類の名前付きFactoryだけから生成する。Default Constructor、任意値Constructor、Public Setterを提供せず、呼び出し側がInvariantを迂回できない型とする。
+状態型はAggregateにせずFieldを非公開にする。`CapabilitySupportState`は有効な4状態、`CapabilityState`は有効な9状態の引数なし名前付きFactoryだけから生成する。Default Constructor、任意値Constructor、Public Setterを提供せず、呼び出し側がInvariantを迂回できない型とする。
 
-不正な組合せは回復可能なRuntime入力ではなくProgrammer Errorである。任意の3状態を受け取る失敗可能Factoryを提供せず、型の公開生成経路から不正状態を表現不能にする。Private Constructor内部とUnit TestではInvariantをAssertし、`Result`の通常分岐へ変換しない。
+不正な組合せは回復可能なRuntime入力ではなくProgrammer Errorである。任意のenum値または3状態を受け取るFactoryを提供せず、型の公開生成経路から不正状態を表現不能にする。各Factoryは固定した有効値だけをPrivate Constructorへ渡し、全Factoryの戻り値をCompile-time AssertionとUnit Testで検証する。無効状態を`Result`の通常分岐またはContextなしのRuntime Assertへ変換しない。
 
 `Unknown`、`Unsupported`、`QueryFailed`は次の組合せで表す。
 
@@ -254,10 +260,14 @@ SnapshotはWindows Platform初期化中に完成させ、公開後は変更し�
 
 ```cpp
 /// @brief 現在MachineのWindows System Capability Snapshotを所有値で返す
-[[nodiscard]] SystemCapabilitySnapshot query_windows_system_capabilities() noexcept;
+/// @param a_assertContext Query失敗のNative Errorを同期Logする非所有診断Context
+[[nodiscard]] SystemCapabilitySnapshot query_windows_system_capabilities(
+    const AssertContext &a_assertContext) noexcept;
 ```
 
-返却値は呼び出し側が所有し、`WindowSystem`または存在しないPlatform Runtime Objectの寿命へ結び付けない。別ThreadへCopyまたはMoveしたSnapshotは、元のPlatform Objectの有無に依存せず安全に読み取れる。
+個別のOS Queryが失敗した場合は、そのFieldを`Failed + Unknown`にして、`a_assertContext.logger()`へNative Errorを同期出力する。Logger出力自体の失敗は既存Logger契約に従い、Global LoggerまたはThread-local診断状態を導入しない。
+
+返却値は呼び出し側が所有し、`WindowSystem`または存在しないPlatform Runtime Objectの寿命へ結び付けない。別ThreadへCopyまたはMoveしたSnapshotは、元のPlatform Objectの有無に依存せず安全に読み取れる。`AssertContext`とその参照先はQuery呼び出し完了まで有効とし、返却Snapshotへ保持しない。
 
 `Cue.Platform`はHardware Supportの事実だけを報告し、GameCore、Renderer、Script等がその命令を実装・有効化しているかは判断しない。System Featureの完全な`CapabilityState`は、Platform SnapshotとEngine Implementation CatalogとRuntime設定をComposition Rootが組み合わせて作る。
 
