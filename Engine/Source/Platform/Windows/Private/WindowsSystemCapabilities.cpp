@@ -17,6 +17,7 @@ namespace
 {
 constexpr std::int64_t k_memoryQueryFailed = 20;
 constexpr std::int64_t k_cacheQueryFailed = 21;
+constexpr std::int64_t k_processorCountQueryFailed = 22;
 
 /// @brief Allocation失敗を追加AllocationなしでFatal終了境界へ渡す
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_context) noexcept
@@ -50,6 +51,21 @@ void log_query_failure(const cue::AssertContext &a_context, std::int64_t a_code,
     {
         a_diagnosticResult = cue::LogResult::SinkFailure;
     }
+}
+
+/// @brief 全Processor GroupのActive Logical Processor数をQueryし、失敗をUnknown値と診断へ分離する
+[[nodiscard]] cue::SystemCapabilityValue<std::uint32_t> query_logical_processor_count(
+    const cue::AssertContext &a_context, cue::LogResult &a_diagnosticResult) noexcept
+{
+    const DWORD processorCount = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    if (processorCount != 0)
+    {
+        return cue::SystemCapabilityValue<std::uint32_t>::known(processorCount);
+    }
+
+    log_query_failure(a_context, k_processorCountQueryFailed, "Windows logical processor count query failed",
+                      GetLastError(), a_diagnosticResult);
+    return cue::SystemCapabilityValue<std::uint32_t>::query_failed();
 }
 
 /// @brief CPUIDとXCR0からCPU命令とOS Context SaveのSynthetic可能な入力を作る
@@ -121,8 +137,8 @@ void log_query_failure(const cue::AssertContext &a_context, std::int64_t a_code,
         std::size_t offset = 0;
         while (offset < byteCount)
         {
-            const auto *entry = reinterpret_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *>(
-                storage.data() + offset);
+            const auto *entry =
+                reinterpret_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *>(storage.data() + offset);
             if (entry->Size == 0 || entry->Size > byteCount - offset)
             {
                 log_query_failure(a_context, k_cacheQueryFailed, "Windows cache line query returned invalid data",
@@ -162,8 +178,7 @@ SystemCapabilityQueryReport query_windows_system_capabilities(const AssertContex
     GetSystemInfo(&processInfo);
     GetNativeSystemInfo(&nativeInfo);
 
-    SystemCapabilityValue<std::uint64_t> physicalMemory =
-        SystemCapabilityValue<std::uint64_t>::query_failed();
+    SystemCapabilityValue<std::uint64_t> physicalMemory = SystemCapabilityValue<std::uint64_t>::query_failed();
     MEMORYSTATUSEX memoryStatus = {};
     memoryStatus.dwLength = sizeof(memoryStatus);
     if (GlobalMemoryStatusEx(&memoryStatus) != FALSE)
@@ -172,14 +187,14 @@ SystemCapabilityQueryReport query_windows_system_capabilities(const AssertContex
     }
     else
     {
-        log_query_failure(a_assertContext, k_memoryQueryFailed, "Windows physical memory query failed",
-                          GetLastError(), diagnosticResult);
+        log_query_failure(a_assertContext, k_memoryQueryFailed, "Windows physical memory query failed", GetLastError(),
+                          diagnosticResult);
     }
 
     SystemCapabilitySnapshotDescription description = {
         map_architecture(processInfo.wProcessorArchitecture),
         map_architecture(nativeInfo.wProcessorArchitecture),
-        SystemCapabilityValue<std::uint32_t>::known(processInfo.dwNumberOfProcessors),
+        query_logical_processor_count(a_assertContext, diagnosticResult),
         physicalMemory,
         SystemCapabilityValue<std::uint32_t>::known(processInfo.dwPageSize),
         query_cache_line_size(a_assertContext, diagnosticResult),
