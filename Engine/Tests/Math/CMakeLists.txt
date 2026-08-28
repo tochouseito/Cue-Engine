@@ -20,6 +20,10 @@ add_executable(CueMathTransformTests MathTransformTests.cpp)
 target_link_libraries(CueMathTransformTests PRIVATE Cue.Math)
 target_compile_features(CueMathTransformTests PRIVATE cxx_std_20)
 
+add_executable(CueMathPropertyTests MathPropertyTests.cpp)
+target_link_libraries(CueMathPropertyTests PRIVATE Cue.Math)
+target_compile_features(CueMathPropertyTests PRIVATE cxx_std_20)
+
 add_executable(
     CueMathPublicHeaderTest
     AngleHeaderCompile.cpp
@@ -34,7 +38,13 @@ add_executable(
 target_link_libraries(CueMathPublicHeaderTest PRIVATE Cue.Math)
 target_compile_features(CueMathPublicHeaderTest PRIVATE cxx_std_20)
 
-set(cueMathTestTargets CueMathTests CueMathTransformTests CueMathPublicHeaderTest)
+set(
+    cueMathTestTargets
+    CueMathTests
+    CueMathTransformTests
+    CueMathPropertyTests
+    CueMathPublicHeaderTest
+)
 
 foreach(testTarget IN LISTS cueMathTestTargets)
     set_target_properties(
@@ -69,18 +79,21 @@ add_custom_target(Cue.Math.Tests DEPENDS ${cueMathTestTargets})
 
 add_test(NAME Cue.Math.ScalarAngleVector COMMAND CueMathTests)
 add_test(NAME Cue.Math.MatrixQuaternionTransform COMMAND CueMathTransformTests)
+add_test(NAME Cue.Math.Properties COMMAND CueMathPropertyTests)
 add_test(NAME Cue.Math.PublicHeaders COMMAND CueMathPublicHeaderTest)
 add_test(
     NAME Cue.Math.Dependencies
     COMMAND
         ${CMAKE_COMMAND}
         -DMATH_SOURCE_DIR=${PROJECT_SOURCE_DIR}/Engine/Source/Math
+        -DENGINE_SOURCE_DIR=${PROJECT_SOURCE_DIR}/Engine/Source
         -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyMathDependencies.cmake
 )
 
 set_tests_properties(
     Cue.Math.ScalarAngleVector
     Cue.Math.MatrixQuaternionTransform
+    Cue.Math.Properties
     Cue.Math.PublicHeaders
     Cue.Math.Dependencies
     PROPERTIES

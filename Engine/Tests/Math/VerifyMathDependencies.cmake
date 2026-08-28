@@ -18,3 +18,25 @@ foreach(cueMathSourceFile IN LISTS cueMathSourceFiles)
         message(FATAL_ERROR "Cue.Math has a forbidden platform or SIMD include: ${cueMathSourceFile}")
     endif()
 endforeach()
+
+file(
+    GLOB_RECURSE
+    cueEngineCppFiles
+    LIST_DIRECTORIES FALSE
+    "${ENGINE_SOURCE_DIR}/*.cpp"
+    "${ENGINE_SOURCE_DIR}/*.h"
+    "${ENGINE_SOURCE_DIR}/*.hpp"
+    "${ENGINE_SOURCE_DIR}/*.ixx"
+)
+
+foreach(cueEngineCppFile IN LISTS cueEngineCppFiles)
+    file(READ "${cueEngineCppFile}" cueEngineCppContent)
+    string(TOLOWER "${cueEngineCppContent}" cueEngineCppContentLower)
+
+    if(cueEngineCppContentLower MATCHES "directxmath\\.h|xmvector|xmmatrix")
+        message(
+            FATAL_ERROR
+            "Engine-owned C++ source has a forbidden DirectXMath dependency: ${cueEngineCppFile}"
+        )
+    endif()
+endforeach()
