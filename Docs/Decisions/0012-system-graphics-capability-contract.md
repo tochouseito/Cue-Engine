@@ -96,20 +96,71 @@ enum class CapabilityEnablement
     Enabled,
 };
 
-struct CapabilitySupportState final
+class CapabilitySupportState final
 {
-    CapabilityQueryStatus queryStatus;
-    CapabilitySupport support;
+  public:
+    /// @brief 未QueryでSupportが不明な状態を返す
+    [[nodiscard]] static constexpr CapabilitySupportState not_queried() noexcept;
+
+    /// @brief Query失敗によりSupportが不明な状態を返す
+    [[nodiscard]] static constexpr CapabilitySupportState query_failed() noexcept;
+
+    /// @brief Query成功により対応済みと判明した状態を返す
+    [[nodiscard]] static constexpr CapabilitySupportState supported() noexcept;
+
+    /// @brief Query成功により未対応と判明した状態を返す
+    [[nodiscard]] static constexpr CapabilitySupportState unsupported() noexcept;
+
+    /// @brief Query結果の分類を返す
+    [[nodiscard]] constexpr CapabilityQueryStatus query_status() const noexcept;
+
+    /// @brief Hardware Supportの分類を返す
+    [[nodiscard]] constexpr CapabilitySupport support() const noexcept;
+
+  private:
+    /// @brief 検証済みのQuery状態とSupport状態から内部生成する
+    constexpr CapabilitySupportState(
+        CapabilityQueryStatus a_queryStatus,
+        CapabilitySupport a_support) noexcept;
+
+    CapabilityQueryStatus m_queryStatus;
+    CapabilitySupport m_support;
 };
 
-struct CapabilityState final
+class CapabilityState final
 {
-    CapabilitySupportState hardware;
-    CapabilityImplementation implementation;
-    CapabilityEnablement enablement;
+  public:
+    /// @brief Hardware・実装・有効状態の組合せを検証して生成する
+    [[nodiscard]] static Result<CapabilityState> create(
+        CapabilitySupportState a_hardware,
+        CapabilityImplementation a_implementation,
+        CapabilityEnablement a_enablement,
+        EmergencyHandler &a_emergencyHandler) noexcept;
+
+    /// @brief Hardware Support状態を返す
+    [[nodiscard]] constexpr CapabilitySupportState hardware() const noexcept;
+
+    /// @brief CueEngine実装状態を返す
+    [[nodiscard]] constexpr CapabilityImplementation implementation() const noexcept;
+
+    /// @brief Runtime有効状態を返す
+    [[nodiscard]] constexpr CapabilityEnablement enablement() const noexcept;
+
+  private:
+    /// @brief 検証済みの3状態から内部生成する
+    constexpr CapabilityState(
+        CapabilitySupportState a_hardware,
+        CapabilityImplementation a_implementation,
+        CapabilityEnablement a_enablement) noexcept;
+
+    CapabilitySupportState m_hardware;
+    CapabilityImplementation m_implementation;
+    CapabilityEnablement m_enablement;
 };
 } // namespace cue
 ```
+
+状態型はAggregateにせずFieldを非公開にする。`CapabilitySupportState`は有効な4状態の名前付きFactoryだけから生成し、`CapabilityState`は検証済みFactoryだけから生成する。Default Constructor、任意値Constructor、Public Setterを提供せず、呼び出し側がInvariantを迂回できない型とする。
 
 `Unknown`、`Unsupported`、`QueryFailed`は次の組合せで表す。
 
@@ -127,6 +178,7 @@ struct CapabilityState final
 - `Succeeded`と`Unknown`
 - `Enabled`または`Disabled`と`NotImplemented`
 - `Enabled`または`Disabled`と`Succeeded + Supported`以外のHardware状態
+- `NotApplicable`と`Succeeded + Supported + Implemented`
 
 `QueryFailed`を`Unsupported`へ変換しない。Native Errorの詳細はModule境界で`cue::Error`とLogへ変換するが、Immutable SnapshotにはNative Error型または所有権を持つError Chainを格納しない。
 
@@ -203,7 +255,7 @@ Optional `CheckFeatureSupport`が失敗しても、Baseline Backend生成条件�
 
 必須Baseline CapabilityのQuery失敗または未対応はBackend生成失敗とする。必須条件とOptional条件の一覧はBackend Policyで明示し、Query関数の偶発的な失敗処理へ埋め込まない。
 
-Graphics BackendはSnapshotをBackend生成成功時に完成させ、Backend ObjectのDestructor完了までImmutableな`const`参照として公開する。`shutdown()`はNative Resourceの停止と解放を行うが、Snapshotを無効化または変更しない。
+Graphics BackendはSnapshotをBackend生成成功時に完成させ、Backend Objectの破棄開始前までImmutableな`const`参照として公開する。`shutdown()`はNative Resourceの停止と解放を行うが、Backend Objectが生存している間はSnapshotを無効化または変更しない。
 
 ### Snapshot Ownership and Thread Safety
 
@@ -214,9 +266,9 @@ SystemとGraphics Snapshotは次の規則に従う。
 - Copyまたは`const`参照で安全に読み取れる
 - 異なるThreadからの同時Readを許可する
 - Query処理中のBuilderまたはNative一時値を公開しない
-- Owner破棄後まで`const`参照を保持できると保証しない
+- Owner Objectの破棄開始後まで`const`参照を保持できると保証しない
 
-PlatformはPlatform Runtime ObjectのDestructor完了までSystem Snapshotを所有する。RHI BackendはBackend ObjectのDestructor完了までGraphics Snapshotを所有する。各OwnerのDestructor後も必要な診断値は、呼び出し側がDestructor前にSnapshotをCopyして保持する。
+PlatformはPlatform Runtime Objectの破棄開始前までSystem Snapshotを所有する。RHI BackendはBackend Objectの破棄開始前までGraphics Snapshotを所有する。各Ownerの破棄中または破棄後も必要な診断値は、呼び出し側が破棄開始前にSnapshotをCopyして保持する。
 
 Snapshotを更新する必要が生じるHot-plug、Adapter変更、Device Recoveryは、Generation付き再公開と利用側同期を決定する別ADRまで対象外とする。M08では起動時Snapshotを固定する。
 
@@ -249,7 +301,7 @@ ProjectCapabilityRequirements
     -> CompatibilityReport
 ```
 
-RequirementはRequiredとPreferredを区別する。Required CapabilityがUnsupported、Unknown、QueryFailed、NotImplemented、Disabledのいずれかなら、実行不可または明示Fallbackが必要な診断を返す。Preferred Capabilityの場合はWarningとFallback候補を返せる。
+RequirementはRequiredとPreferredを区別する。Required CapabilityがUnsupported、Unknown、QueryFailed、NotImplemented、Disabled、NotApplicableのいずれかなら、実行不可または明示Fallbackが必要な診断を返す。Preferred Capabilityの場合はWarningとFallback候補を返せる。
 
 互換性判定はProject Fileを現在Machine向けに書き換えない。Hardware Snapshot、Adapter名、Vendor ID、Memory量を「前回動作したMachine」の正本として永続化しない。診断Evidenceとして別LogまたはSession Reportへ記録することは許可する。
 
