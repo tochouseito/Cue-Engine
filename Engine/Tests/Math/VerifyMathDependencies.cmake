@@ -40,15 +40,18 @@ file(
     "${REPOSITORY_ROOT}/*.tpp"
 )
 
-list(
-    FILTER
-    cueRepositoryCppFiles
-    EXCLUDE
-    REGEX
-    "[/\\\\](\\.git|\\.vs|out|build)[/\\\\]"
-)
-
 foreach(cueRepositoryCppFile IN LISTS cueRepositoryCppFiles)
+    file(
+        RELATIVE_PATH
+        cueRepositoryCppRelativePath
+        "${REPOSITORY_ROOT}"
+        "${cueRepositoryCppFile}"
+    )
+
+    if(cueRepositoryCppRelativePath MATCHES "^(\\.git|\\.vs|out|build)[/\\\\]")
+        continue()
+    endif()
+
     file(READ "${cueRepositoryCppFile}" cueRepositoryCppContent)
     string(TOLOWER "${cueRepositoryCppContent}" cueRepositoryCppContentLower)
 
