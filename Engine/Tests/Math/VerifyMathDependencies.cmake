@@ -55,11 +55,9 @@ foreach(cueRepositoryCppFile IN LISTS cueRepositoryCppFiles)
     file(READ "${cueRepositoryCppFile}" cueRepositoryCppContent)
     string(TOLOWER "${cueRepositoryCppContent}" cueRepositoryCppContentLower)
 
-    if(
-        cueRepositoryCppContentLower
-        MATCHES
-        "directx(math|packedvector|collision|colors)(\\.h)?|directx::[ \\t\\r\\n]*(xm|packedvector)|xm(vector|matrix|float|uint|int|color|half|short|ushort|byte|ubyte|udecn|dec)[0-9a-z_]*"
-    )
+    if(cueRepositoryCppContentLower MATCHES
+       "directx(math|packedvector|collision|colors)(\\.h)?|directx::[ \\t\\r\\n]*(xm|packedvector)"
+       OR cueRepositoryCppContent MATCHES "(^|[^A-Za-z0-9_])XM[A-Z]")
         message(
             FATAL_ERROR
             "Repository-owned C++ source has a forbidden DirectXMath dependency: ${cueRepositoryCppFile}"
