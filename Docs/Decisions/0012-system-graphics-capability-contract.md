@@ -315,12 +315,14 @@ SystemとGraphics Snapshotは次の規則に従う。
 
 - 完成後に変更されない値型とする
 - Lazy Query、内部Mutex、Native Handle、非所有Pointerを持たない
-- Copyまたは`const`参照で安全に読み取れる
-- 異なるThreadからの同時Readを許可する
+- Ownerから独立してCopyした値は安全に読み取れる
+- 同じ独立Copyに対する異なるThreadからの同時Readを許可する
 - Query処理中のBuilderまたはNative一時値を公開しない
 - Owner Objectの破棄開始後まで`const`参照を保持できると保証しない
 
 System Snapshotは`query_windows_system_capabilities()`の呼び出し側が所有する独立値であり、`const`参照を返すPlatform Ownerを設けない。RHI BackendはBackend Objectの破棄開始前までGraphics Snapshotを所有する。Backendの破棄中または破棄後も必要なGraphics診断値は、呼び出し側が破棄開始前にSnapshotをCopyして保持する。
+
+ADR-0007に従い、`GraphicsBackend::capabilities()`の呼び出しと、その戻り値であるBackend所有`const`参照の読み取りはBackend生成Threadに限定する。Thread違反はProgrammer Errorとして既存RHI Assert契約で処理する。Worker ThreadへBackend所有参照を渡さず、Backend生成Thread上でSnapshotをCopyしてから独立値をMoveまたはCopyする。独立CopyのReadにはRHI Thread Affinityを適用しない。
 
 Snapshotを更新する必要が生じるHot-plug、Adapter変更、Device Recoveryは、Generation付き再公開と利用側同期を決定する別ADRまで対象外とする。M08では起動時Snapshotを固定する。
 
