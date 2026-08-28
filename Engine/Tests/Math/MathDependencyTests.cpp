@@ -1223,7 +1223,14 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                         const bool isBoundary =
                             index == 0U ||
                             std::isspace(static_cast<unsigned char>(
-                                option[index - 1U])) != 0;
+                                option[index - 1U])) != 0 ||
+                            option[index - 1U] == '"' ||
+                            option[index - 1U] == '\'';
+
+                        if (isBoundary && option[index] == '@')
+                        {
+                            return true;
+                        }
 
                         if (isBoundary &&
                             (option.substr(index, 3U) == "/fi" ||
@@ -1826,6 +1833,14 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         "COMPILE_OPTIONS=@SafeOptions.rsp\n";
 
     if (!has_forbidden_math_build_configuration(responseFileCompileOption))
+    {
+        return false;
+    }
+
+    constexpr std::string_view rawFlagResponseFile =
+        "COMPILE_FLAGS=/W4 @SafeOptions.rsp\n";
+
+    if (!has_forbidden_math_build_configuration(rawFlagResponseFile))
     {
         return false;
     }
