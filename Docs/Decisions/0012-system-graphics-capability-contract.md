@@ -274,9 +274,11 @@ struct SystemCapabilityQueryReport final
     const AssertContext &a_assertContext) noexcept;
 ```
 
-個別のOS Queryが失敗した場合は、そのFieldを`Failed + Unknown`にして、`a_assertContext.logger()`へNative Errorを同期出力する。全診断が配送できた場合は`diagnosticResult = Success`とする。一件でもSink配送に失敗した場合は`SinkFailure`、再入を検出した場合は`Contended`を返す。両方を観測した場合は`SinkFailure`を優先する。
+個別のOS Queryが失敗した場合は、そのFieldを`Failed + Unknown`にして、`a_assertContext.logger()`へNative Errorを同期出力する。全診断が配送できた場合は`diagnosticResult = Success`とする。一件でもSink配送に失敗した場合は`diagnosticResult = SinkFailure`とする。このAPIは通常の`Logger::log()`を使用するため、`Contended`を返却可能状態として扱わない。
 
-`SinkFailure`または`Contended`でもQueryを再試行せず、Loggerへ再帰せず、暗黙にFatal終了せず、完成済みSnapshotを返す。呼び出し側は`diagnosticResult`を確認し、Console以外のEmergency診断または起動終了が必要かをComposition RootのPolicyとして判断する。これによりNative Error配送の欠落を無視せず、System Capability Query自体をGlobal状態へ結合しない。
+`SinkFailure`でもQueryを再試行せず、Loggerへ再帰せず、暗黙にFatal終了せず、完成済みSnapshotを返す。呼び出し側は`diagnosticResult`を確認し、Console以外のEmergency診断または起動終了が必要かをComposition RootのPolicyとして判断する。これによりNative Error配送の欠落を無視せず、System Capability Query自体をGlobal状態へ結合しない。
+
+Sink CallbackからのLogger再入は既存Loggerの契約違反であり、LoggerがEmergency Handlerを呼び出してProcessを終了する。この経路からSystem Capability Query Reportは返らない。Logger再入を回復可能なCapability Query失敗へ変換しない。
 
 返却値は呼び出し側が所有し、`WindowSystem`または存在しないPlatform Runtime Objectの寿命へ結び付けない。別ThreadへCopyまたはMoveしたSnapshotは、元のPlatform Objectの有無に依存せず安全に読み取れる。`AssertContext`とその参照先はQuery呼び出し完了まで有効とし、返却Snapshotへ保持しない。
 
