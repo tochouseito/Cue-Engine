@@ -24,6 +24,9 @@ add_executable(CueMathPropertyTests MathPropertyTests.cpp)
 target_link_libraries(CueMathPropertyTests PRIVATE Cue.Math)
 target_compile_features(CueMathPropertyTests PRIVATE cxx_std_20)
 
+add_executable(CueMathDependencyTests MathDependencyTests.cpp)
+target_compile_features(CueMathDependencyTests PRIVATE cxx_std_20)
+
 add_executable(
     CueMathPublicHeaderTest
     AngleHeaderCompile.cpp
@@ -43,6 +46,7 @@ set(
     CueMathTests
     CueMathTransformTests
     CueMathPropertyTests
+    CueMathDependencyTests
     CueMathPublicHeaderTest
 )
 
@@ -83,11 +87,7 @@ add_test(NAME Cue.Math.Properties COMMAND CueMathPropertyTests)
 add_test(NAME Cue.Math.PublicHeaders COMMAND CueMathPublicHeaderTest)
 add_test(
     NAME Cue.Math.Dependencies
-    COMMAND
-        ${CMAKE_COMMAND}
-        -DMATH_SOURCE_DIR=${PROJECT_SOURCE_DIR}/Engine/Source/Math
-        -DREPOSITORY_ROOT=${PROJECT_SOURCE_DIR}
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyMathDependencies.cmake
+    COMMAND CueMathDependencyTests ${PROJECT_SOURCE_DIR}
 )
 
 set_tests_properties(
