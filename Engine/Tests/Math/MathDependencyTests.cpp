@@ -1200,33 +1200,42 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
             if (isCompileOption)
             {
                 constexpr std::string_view shellPrefix = "shell:";
-                auto shellOffset = normalized.find(shellPrefix);
+                auto options = std::string_view(normalized);
 
-                while (shellOffset != std::string::npos)
+                while (!options.empty())
                 {
-                    std::fill_n(
-                        normalized.begin() + shellOffset,
-                        shellPrefix.size(), ' ');
-                    shellOffset = normalized.find(
-                        shellPrefix, shellOffset + shellPrefix.size());
-                }
+                    const auto separator = options.find(';');
+                    auto option = trim_ascii(options.substr(0U, separator));
 
-                for (std::size_t index = 0U;
-                     index < normalized.size(); ++index)
-                {
-                    const bool isBoundary =
-                        index == 0U || normalized[index - 1U] == ';' ||
-                        std::isspace(static_cast<unsigned char>(
-                            normalized[index - 1U])) != 0;
-
-                    if (isBoundary &&
-                        (normalized.substr(index, 3U) == "/fi" ||
-                         normalized.substr(index, 3U) == "-fi" ||
-                         normalized.substr(index, 8U) == "-include" ||
-                         normalized.substr(index, 8U) == "-imacros"))
+                    if (option.substr(0U, shellPrefix.size()) == shellPrefix)
                     {
-                        return true;
+                        option = trim_ascii(option.substr(shellPrefix.size()));
                     }
+
+                    for (std::size_t index = 0U;
+                         index < option.size(); ++index)
+                    {
+                        const bool isBoundary =
+                            index == 0U ||
+                            std::isspace(static_cast<unsigned char>(
+                                option[index - 1U])) != 0;
+
+                        if (isBoundary &&
+                            (option.substr(index, 3U) == "/fi" ||
+                             option.substr(index, 3U) == "-fi" ||
+                             option.substr(index, 8U) == "-include" ||
+                             option.substr(index, 8U) == "-imacros"))
+                        {
+                            return true;
+                        }
+                    }
+
+                    if (separator == std::string_view::npos)
+                    {
+                        break;
+                    }
+
+                    options = options.substr(separator + 1U);
                 }
             }
         }
@@ -1268,8 +1277,13 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                 ? a_manifest.size() - valueStart
                 : valueEnd - valueStart)));
 
-        if (!value.empty() && value != "0" && value != "off" &&
-            value != "false" && value != "no")
+        const bool isFalseConstant =
+            value.empty() || value == "0" || value == "off" ||
+            value == "false" || value == "no" || value == "n" ||
+            value == "ignore" || value == "notfound" ||
+            value.ends_with("-notfound");
+
+        if (!isFalseConstant)
         {
             return true;
         }
@@ -1811,12 +1825,35 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         return false;
     }
 
+    constexpr std::string_view compileOptionWithEmbeddedShellPath =
+        "COMPILE_OPTIONS=/DPATH=SHELL:/FirstParty/include\n";
+
+    if (has_forced_include_option(compileOptionWithEmbeddedShellPath))
+    {
+        return false;
+    }
+
     constexpr std::string_view implicitBuildInclude =
         "CMAKE_INCLUDE_CURRENT_DIR=ON\n";
 
     if (!has_forbidden_math_build_configuration(implicitBuildInclude))
     {
         return false;
+    }
+
+    constexpr std::array<std::string_view, 4> falseCMakeValues = {
+        "CMAKE_INCLUDE_CURRENT_DIR=N\n",
+        "CMAKE_INCLUDE_CURRENT_DIR=IGNORE\n",
+        "CMAKE_INCLUDE_CURRENT_DIR=NOTFOUND\n",
+        "CMAKE_INCLUDE_CURRENT_DIR=VALUE-NOTFOUND\n",
+    };
+
+    for (const auto value : falseCMakeValues)
+    {
+        if (has_forbidden_math_build_configuration(value))
+        {
+            return false;
+        }
     }
 
     constexpr std::string_view generatedIncludeDirectory =
