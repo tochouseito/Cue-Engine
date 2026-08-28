@@ -24,6 +24,38 @@ class TestEmergencyHandler final : public cue::EmergencyHandler
     return static_cast<float>(sample) * a_scale;
 }
 
+/// @brief Matrix変換を使わずHamilton積だけでQuaternion同士を乗算する
+[[nodiscard]] cue::math::Quaternion hamilton_product(cue::math::Quaternion a_left,
+                                                      cue::math::Quaternion a_right) noexcept
+{
+    return cue::math::Quaternion{
+        a_left.w * a_right.x + a_left.x * a_right.w + a_left.y * a_right.z -
+            a_left.z * a_right.y,
+        a_left.w * a_right.y - a_left.x * a_right.z + a_left.y * a_right.w +
+            a_left.z * a_right.x,
+        a_left.w * a_right.z + a_left.x * a_right.y - a_left.y * a_right.x +
+            a_left.z * a_right.w,
+        a_left.w * a_right.w - a_left.x * a_right.x - a_left.y * a_right.y -
+            a_left.z * a_right.z,
+    };
+}
+
+/// @brief Matrix変換を使わずQuaternionのSandwich積でVector3を回転する
+[[nodiscard]] cue::math::Vector3 rotate_with_hamilton_product(
+    cue::math::Vector3 a_value, cue::math::Quaternion a_rotation) noexcept
+{
+    const auto value = cue::math::Quaternion{a_value.x, a_value.y, a_value.z, 0.0F};
+    const auto conjugate = cue::math::Quaternion{
+        -a_rotation.x,
+        -a_rotation.y,
+        -a_rotation.z,
+        a_rotation.w,
+    };
+    const auto rotated = hamilton_product(
+        hamilton_product(a_rotation, value), conjugate);
+    return cue::math::Vector3{rotated.x, rotated.y, rotated.z};
+}
+
 /// @brief 複数のAxisと角度でQuaternion回転がMatrix回転と一致することを検証する
 [[nodiscard]] bool test_quaternion_matrix_agreement(
     TestEmergencyHandler &a_handler, const cue::math::Tolerance &a_tolerance)
@@ -50,10 +82,13 @@ class TestEmergencyHandler final : public cue::EmergencyHandler
 
         auto matrix = cue::math::to_matrix3(a_handler, *rotation.try_value(), a_tolerance);
         auto rotated = cue::math::rotate(a_handler, source, *rotation.try_value(), a_tolerance);
+        const auto independentlyRotated =
+            rotate_with_hamilton_product(source, *rotation.try_value());
 
         if (!matrix || !rotated ||
-            !cue::math::is_near(*rotated.try_value(), source * *matrix.try_value(),
-                                a_tolerance))
+            !cue::math::is_near(independentlyRotated, source * *matrix.try_value(),
+                                a_tolerance) ||
+            !cue::math::is_near(independentlyRotated, *rotated.try_value(), a_tolerance))
         {
             return false;
         }
