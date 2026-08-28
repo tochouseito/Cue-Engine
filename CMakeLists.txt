@@ -16,6 +16,7 @@ if(CMAKE_CONFIGURATION_TYPES)
 endif()
 
 add_subdirectory(Engine/Source/Foundation)
+add_subdirectory(Engine/Source/Math)
 add_subdirectory(Engine/Source/Platform)
 add_subdirectory(Engine/Source/RHI)
 
@@ -62,6 +63,7 @@ endif()
 
 if(BUILD_TESTING)
     add_subdirectory(Engine/Tests/Foundation)
+    add_subdirectory(Engine/Tests/Math)
     add_subdirectory(Engine/Tests/Platform)
     add_subdirectory(Engine/Tests/RHI)
 
