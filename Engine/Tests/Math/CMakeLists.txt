@@ -108,14 +108,50 @@ string(
 
 get_target_property(cueMathSources Cue.Math SOURCES)
 get_target_property(cueMathSourceDirectory Cue.Math SOURCE_DIR)
+set(
+    cueMathAuditedSourceExtensions
+    .c++
+    .cc
+    .cpp
+    .cppm
+    .cxx
+    .cxxm
+    .h
+    .h++
+    .hh
+    .hpp
+    .hxx
+    .inl
+    .ipp
+    .ixx
+    .tpp
+)
 
 foreach(sourcePath IN LISTS cueMathSources)
+    if(sourcePath MATCHES "\\$<")
+        message(
+            FATAL_ERROR
+            "Cue.Math source generator expression cannot be audited: ${sourcePath}"
+        )
+    endif()
+
     get_filename_component(
         sourceAbsolutePath
         "${sourcePath}"
         ABSOLUTE
         BASE_DIR "${cueMathSourceDirectory}"
     )
+
+    get_filename_component(sourceExtension "${sourceAbsolutePath}" EXT)
+    string(TOLOWER "${sourceExtension}" sourceExtension)
+    list(FIND cueMathAuditedSourceExtensions "${sourceExtension}" sourceExtensionIndex)
+
+    if(sourceExtensionIndex EQUAL -1)
+        message(
+            FATAL_ERROR
+            "Cue.Math source extension cannot be audited: ${sourceAbsolutePath}"
+        )
+    endif()
 
     file(
         RELATIVE_PATH
@@ -154,6 +190,7 @@ foreach(sourcePath IN LISTS cueMathSources)
         COMPILE_OPTIONS
         COMPILE_FLAGS
         INCLUDE_DIRECTORIES
+        VS_SETTINGS
     )
         get_source_file_property(
             sourcePropertyValue
