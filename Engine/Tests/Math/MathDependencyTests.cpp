@@ -1191,8 +1191,7 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                 property.ends_with(".COMPILE_OPTIONS") ||
                 property.ends_with(".COMPILE_FLAGS");
 
-            if (isVisualStudioSetting &&
-                normalized.find("forcedincludefiles=") != std::string::npos)
+            if (isVisualStudioSetting && !normalized.empty())
             {
                 return true;
             }
@@ -1937,6 +1936,15 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         {
             return false;
         }
+    }
+
+    constexpr std::string_view visualStudioAdditionalOptions =
+        "SOURCE[Probe.cpp].VS_SETTINGS=AdditionalOptions=/FIInjected.h\n";
+
+    if (!has_forbidden_math_build_configuration(
+            visualStudioAdditionalOptions))
+    {
+        return false;
     }
 
     constexpr std::string_view implicitBuildInclude =
