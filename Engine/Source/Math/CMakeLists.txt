@@ -72,3 +72,14 @@ set_property(
     TARGET Cue.Math
     PROPERTY CUE_MATH_DIRECTORY_CXX_FLAGS "${cueMathDirectoryCxxFlags}"
 )
+
+set_property(
+    TARGET Cue.Math
+    PROPERTY CUE_MATH_INCLUDE_CURRENT_DIR "${CMAKE_INCLUDE_CURRENT_DIR}"
+)
+
+set_property(
+    TARGET Cue.Math
+    PROPERTY CUE_MATH_INCLUDE_CURRENT_DIR_IN_INTERFACE
+             "${CMAKE_INCLUDE_CURRENT_DIR_IN_INTERFACE}"
+)

@@ -1160,38 +1160,116 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 [[nodiscard]] bool has_forced_include_option(
     std::string_view a_manifest)
 {
-    auto normalized = lower_ascii(a_manifest);
-    constexpr std::string_view shellPrefix = "shell:";
-    auto shellOffset = normalized.find(shellPrefix);
+    std::size_t lineStart = 0U;
 
-    while (shellOffset != std::string::npos)
+    while (lineStart < a_manifest.size())
     {
-        std::fill_n(normalized.begin() + shellOffset, shellPrefix.size(), ' ');
-        shellOffset = normalized.find(shellPrefix, shellOffset + shellPrefix.size());
+        const auto lineEnd = a_manifest.find('\n', lineStart);
+        const auto line = trim_ascii(a_manifest.substr(
+            lineStart,
+            lineEnd == std::string_view::npos
+                ? a_manifest.size() - lineStart
+                : lineEnd - lineStart));
+        const auto assignment = line.find('=');
+
+        if (assignment != std::string_view::npos)
+        {
+            const auto property = line.substr(0U, assignment);
+            auto normalized = lower_ascii(line.substr(assignment + 1U));
+            const bool isVisualStudioSetting =
+                property.ends_with(".VS_SETTINGS") ||
+                property == "VS_SETTINGS";
+            const bool isCompileOption =
+                property == "COMPILE_OPTIONS" ||
+                property == "INTERFACE_COMPILE_OPTIONS" ||
+                property == "COMPILE_FLAGS" ||
+                property == "CMAKE_CXX_FLAGS" ||
+                property == "CMAKE_CXX_FLAGS_DEBUG" ||
+                property == "CMAKE_CXX_FLAGS_DEVELOPMENT" ||
+                property == "CMAKE_CXX_FLAGS_RELEASE" ||
+                property == "DIRECTORY_CXX_FLAGS" ||
+                property.ends_with(".COMPILE_OPTIONS") ||
+                property.ends_with(".COMPILE_FLAGS");
+
+            if (isVisualStudioSetting &&
+                normalized.find("forcedincludefiles=") != std::string::npos)
+            {
+                return true;
+            }
+
+            if (isCompileOption)
+            {
+                constexpr std::string_view shellPrefix = "shell:";
+                auto shellOffset = normalized.find(shellPrefix);
+
+                while (shellOffset != std::string::npos)
+                {
+                    std::fill_n(
+                        normalized.begin() + shellOffset,
+                        shellPrefix.size(), ' ');
+                    shellOffset = normalized.find(
+                        shellPrefix, shellOffset + shellPrefix.size());
+                }
+
+                for (std::size_t index = 0U;
+                     index < normalized.size(); ++index)
+                {
+                    const bool isBoundary =
+                        index == 0U || normalized[index - 1U] == ';' ||
+                        std::isspace(static_cast<unsigned char>(
+                            normalized[index - 1U])) != 0;
+
+                    if (isBoundary &&
+                        (normalized.substr(index, 3U) == "/fi" ||
+                         normalized.substr(index, 3U) == "-fi" ||
+                         normalized.substr(index, 8U) == "-include" ||
+                         normalized.substr(index, 8U) == "-imacros"))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        if (lineEnd == std::string_view::npos)
+        {
+            break;
+        }
+
+        lineStart = lineEnd + 1U;
     }
 
-    if (normalized.find("forcedincludefiles=") != std::string::npos)
-    {
-        return true;
-    }
+    return false;
+}
 
-    for (std::size_t index = 0U; index < normalized.size(); ++index)
-    {
-        const bool isBoundary =
-            index == 0U || normalized[index - 1U] == '=' ||
-            normalized[index - 1U] == ';' ||
-            std::isspace(static_cast<unsigned char>(
-                normalized[index - 1U])) != 0;
+/// @brief Build Directoryを暗黙IncludeするCMake設定が有効な場合にtrueを返す
+[[nodiscard]] bool has_implicit_include_directory(
+    std::string_view a_manifest)
+{
+    constexpr std::array<std::string_view, 2> properties = {
+        "CMAKE_INCLUDE_CURRENT_DIR=",
+        "CMAKE_INCLUDE_CURRENT_DIR_IN_INTERFACE=",
+    };
 
-        if (!isBoundary)
+    for (const auto property : properties)
+    {
+        const auto offset = a_manifest.find(property);
+
+        if (offset == std::string_view::npos)
         {
             continue;
         }
 
-        if (normalized.substr(index, 3U) == "/fi" ||
-            normalized.substr(index, 3U) == "-fi" ||
-            normalized.substr(index, 8U) == "-include" ||
-            normalized.substr(index, 8U) == "-imacros")
+        const auto valueStart = offset + property.size();
+        const auto valueEnd = a_manifest.find('\n', valueStart);
+        const auto value = lower_ascii(trim_ascii(a_manifest.substr(
+            valueStart,
+            valueEnd == std::string_view::npos
+                ? a_manifest.size() - valueStart
+                : valueEnd - valueStart)));
+
+        if (!value.empty() && value != "0" && value != "off" &&
+            value != "false" && value != "no")
         {
             return true;
         }
@@ -1373,7 +1451,8 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         contains_ascii_identifier(a_manifest, "DirectX");
     return hasForbiddenDependency || hasDirectXDefinition ||
            has_forced_include_option(a_manifest) ||
-           has_link_injection_option(a_manifest);
+           has_link_injection_option(a_manifest) ||
+           has_implicit_include_directory(a_manifest);
 }
 
 /// @brief CMakeが生成したCue.Math Build Property Manifestを検証する
@@ -1720,6 +1799,22 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         "INCLUDE_DIRECTORIES=C:/FirstParty/include\n";
 
     if (has_forced_include_option(driveIncludeDirectory))
+    {
+        return false;
+    }
+
+    constexpr std::string_view definitionWithShellPath =
+        "COMPILE_DEFINITIONS=PATH=SHELL:/FirstParty/include\n";
+
+    if (has_forced_include_option(definitionWithShellPath))
+    {
+        return false;
+    }
+
+    constexpr std::string_view implicitBuildInclude =
+        "CMAKE_INCLUDE_CURRENT_DIR=ON\n";
+
+    if (!has_forbidden_math_build_configuration(implicitBuildInclude))
     {
         return false;
     }
