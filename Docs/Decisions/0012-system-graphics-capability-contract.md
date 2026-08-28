@@ -130,12 +130,26 @@ class CapabilitySupportState final
 class CapabilityState final
 {
   public:
-    /// @brief Hardware・実装・有効状態の組合せを検証して生成する
-    [[nodiscard]] static Result<CapabilityState> create(
-        CapabilitySupportState a_hardware,
-        CapabilityImplementation a_implementation,
-        CapabilityEnablement a_enablement,
-        EmergencyHandler &a_emergencyHandler) noexcept;
+    /// @brief 未Queryで有効化対象外の状態を返す
+    [[nodiscard]] static constexpr CapabilityState not_queried(
+        CapabilityImplementation a_implementation) noexcept;
+
+    /// @brief Query失敗で有効化対象外の状態を返す
+    [[nodiscard]] static constexpr CapabilityState query_failed(
+        CapabilityImplementation a_implementation) noexcept;
+
+    /// @brief Hardware未対応で有効化対象外の状態を返す
+    [[nodiscard]] static constexpr CapabilityState unsupported(
+        CapabilityImplementation a_implementation) noexcept;
+
+    /// @brief Hardware対応済みだがEngine未実装の状態を返す
+    [[nodiscard]] static constexpr CapabilityState supported_not_implemented() noexcept;
+
+    /// @brief Hardware対応・Engine実装済みだがRuntime無効の状態を返す
+    [[nodiscard]] static constexpr CapabilityState supported_disabled() noexcept;
+
+    /// @brief Hardware対応・Engine実装済みでRuntime有効の状態を返す
+    [[nodiscard]] static constexpr CapabilityState supported_enabled() noexcept;
 
     /// @brief Hardware Support状態を返す
     [[nodiscard]] constexpr CapabilitySupportState hardware() const noexcept;
@@ -160,7 +174,9 @@ class CapabilityState final
 } // namespace cue
 ```
 
-状態型はAggregateにせずFieldを非公開にする。`CapabilitySupportState`は有効な4状態の名前付きFactoryだけから生成し、`CapabilityState`は検証済みFactoryだけから生成する。Default Constructor、任意値Constructor、Public Setterを提供せず、呼び出し側がInvariantを迂回できない型とする。
+状態型はAggregateにせずFieldを非公開にする。`CapabilitySupportState`は有効な4状態、`CapabilityState`は有効状態を表す6種類の名前付きFactoryだけから生成する。Default Constructor、任意値Constructor、Public Setterを提供せず、呼び出し側がInvariantを迂回できない型とする。
+
+不正な組合せは回復可能なRuntime入力ではなくProgrammer Errorである。任意の3状態を受け取る失敗可能Factoryを提供せず、型の公開生成経路から不正状態を表現不能にする。Private Constructor内部とUnit TestではInvariantをAssertし、`Result`の通常分岐へ変換しない。
 
 `Unknown`、`Unsupported`、`QueryFailed`は次の組合せで表す。
 
@@ -223,7 +239,7 @@ Versionは辞書順で比較可能なMajor／Minor値とし、文字列または
 
 ### System Capability Snapshot
 
-`Cue.Platform`は`SystemCapabilitySnapshot`を所有する。
+`Cue.Platform`は`SystemCapabilitySnapshot`の型とPlatform非依存契約を所有する。Windows実装は`Cue.Platform.Windows`の`query_windows_system_capabilities()`から完成済みSnapshotを所有値で返し、Composition RootがRuntimeで使用するSnapshotを所有する。
 
 - Process ArchitectureとNative Machine Architecture
 - Logical Processor Count
@@ -234,7 +250,14 @@ Versionは辞書順で比較可能なMajor／Minor値とし、文字列または
 
 CPU命令はCPUID BitだけでSupportedとしない。AVX系などOS Context Saveが必要な機能は、CPU SupportとOS Supportの両方を満たした場合だけ実行可能なSupportedとする。
 
-SnapshotはPlatform初期化中に完成させ、公開後は変更しない。Native Handle、CPUID Register配列、Windows構造体、可変Cacheを含めない。
+SnapshotはWindows Platform初期化中に完成させ、公開後は変更しない。Native Handle、CPUID Register配列、Windows構造体、可変Cacheを含めない。Query全体は各FieldのQuery状態を含むSnapshotを必ず値で返し、個別のOS Query失敗をSnapshot全体の`Result`失敗へ変換しない。
+
+```cpp
+/// @brief 現在MachineのWindows System Capability Snapshotを所有値で返す
+[[nodiscard]] SystemCapabilitySnapshot query_windows_system_capabilities() noexcept;
+```
+
+返却値は呼び出し側が所有し、`WindowSystem`または存在しないPlatform Runtime Objectの寿命へ結び付けない。別ThreadへCopyまたはMoveしたSnapshotは、元のPlatform Objectの有無に依存せず安全に読み取れる。
 
 `Cue.Platform`はHardware Supportの事実だけを報告し、GameCore、Renderer、Script等がその命令を実装・有効化しているかは判断しない。System Featureの完全な`CapabilityState`は、Platform SnapshotとEngine Implementation CatalogとRuntime設定をComposition Rootが組み合わせて作る。
 
@@ -268,7 +291,7 @@ SystemとGraphics Snapshotは次の規則に従う。
 - Query処理中のBuilderまたはNative一時値を公開しない
 - Owner Objectの破棄開始後まで`const`参照を保持できると保証しない
 
-PlatformはPlatform Runtime Objectの破棄開始前までSystem Snapshotを所有する。RHI BackendはBackend Objectの破棄開始前までGraphics Snapshotを所有する。各Ownerの破棄中または破棄後も必要な診断値は、呼び出し側が破棄開始前にSnapshotをCopyして保持する。
+System Snapshotは`query_windows_system_capabilities()`の呼び出し側が所有する独立値であり、`const`参照を返すPlatform Ownerを設けない。RHI BackendはBackend Objectの破棄開始前までGraphics Snapshotを所有する。Backendの破棄中または破棄後も必要なGraphics診断値は、呼び出し側が破棄開始前にSnapshotをCopyして保持する。
 
 Snapshotを更新する必要が生じるHot-plug、Adapter変更、Device Recoveryは、Generation付き再公開と利用側同期を決定する別ADRまで対象外とする。M08では起動時Snapshotを固定する。
 
@@ -310,7 +333,8 @@ Requirement SchemaにはVersionとMigration方針を持たせる。M08ではProj
 ### Public Boundary
 
 - `Cue.Foundation`: 共通状態VocabularyとVersion値型
-- `Cue.Platform`: System SnapshotとSystem Query実装
+- `Cue.Platform`: System Snapshot型
+- `Cue.Platform.Windows`: Windows System Queryと所有Snapshot値を返すFactory
 - `Cue.RHI`: Graphics Snapshot、Graphics Tier型、将来のLive Query契約
 - `Cue.RHI.D3D12`: D3D12／DXGIから公開値への変換
 - Composition Root: Implementation CatalogとEnablement Policyの統合
