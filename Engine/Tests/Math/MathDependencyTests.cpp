@@ -750,6 +750,7 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
             }
 
             constexpr std::string_view includeName = "include";
+            const auto directiveStart = index;
 
             if (line.substr(index, includeName.size()) == includeName &&
                 (index + includeName.size() == line.size() ||
@@ -792,6 +793,45 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                 if (!validate_header_operand(
                         header, a_isMathSource, a_path, a_reportsFailure))
                 {
+                    return false;
+                }
+            }
+
+            constexpr std::string_view defineName = "define";
+
+            if (line.substr(directiveStart, defineName.size()) == defineName &&
+                directiveStart + defineName.size() < line.size() &&
+                std::isspace(static_cast<unsigned char>(
+                    line[directiveStart + defineName.size()])) != 0)
+            {
+                auto replacement = trim_ascii_left(
+                    line.substr(directiveStart + defineName.size()));
+
+                while (!replacement.empty() &&
+                       is_identifier_continue(replacement.front()))
+                {
+                    replacement.remove_prefix(1U);
+                }
+
+                replacement = trim_ascii_left(replacement);
+
+                if (replacement.substr(0U, 2U) == "::")
+                {
+                    replacement = trim_ascii_left(replacement.substr(2U));
+                }
+
+                constexpr std::string_view directXName = "DirectX";
+
+                if (replacement.substr(0U, directXName.size()) == directXName &&
+                    (replacement.size() == directXName.size() ||
+                     !is_identifier_continue(replacement[directXName.size()])))
+                {
+                    if (a_reportsFailure)
+                    {
+                        std::cerr << "DirectX namespace macro alias is forbidden: "
+                                  << a_path.string() << '\n';
+                    }
+
                     return false;
                 }
             }
@@ -1021,6 +1061,15 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     if (validate_include_directives(
             platformPathInclude, true,
             "Engine/Source/Math/Private/PlatformPathProbe.cpp", false))
+    {
+        return false;
+    }
+
+    const auto namespaceMacroAlias = sanitize_cpp_source(
+        "#define DX ::DirectX\nDX::BoundingBox value{};\n");
+
+    if (validate_include_directives(
+            namespaceMacroAlias, false, "NamespaceMacroProbe.cpp", false))
     {
         return false;
     }
