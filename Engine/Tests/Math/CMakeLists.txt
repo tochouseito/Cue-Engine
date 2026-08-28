@@ -94,6 +94,7 @@ string(
     "COMPILE_DEFINITIONS=$<TARGET_PROPERTY:Cue.Math,COMPILE_DEFINITIONS>\n"
     "INTERFACE_COMPILE_DEFINITIONS=$<TARGET_PROPERTY:Cue.Math,INTERFACE_COMPILE_DEFINITIONS>\n"
     "COMPILE_OPTIONS=$<TARGET_PROPERTY:Cue.Math,COMPILE_OPTIONS>\n"
+    "COMPILE_FLAGS=$<TARGET_PROPERTY:Cue.Math,COMPILE_FLAGS>\n"
     "INTERFACE_COMPILE_OPTIONS=$<TARGET_PROPERTY:Cue.Math,INTERFACE_COMPILE_OPTIONS>\n"
     "INCLUDE_DIRECTORIES=$<TARGET_PROPERTY:Cue.Math,INCLUDE_DIRECTORIES>\n"
     "INTERFACE_INCLUDE_DIRECTORIES=$<TARGET_PROPERTY:Cue.Math,INTERFACE_INCLUDE_DIRECTORIES>\n"
@@ -115,6 +116,34 @@ foreach(sourcePath IN LISTS cueMathSources)
         ABSOLUTE
         BASE_DIR "${cueMathSourceDirectory}"
     )
+
+    file(
+        RELATIVE_PATH
+        sourceRelativeToMath
+        "${cueMathSourceDirectory}"
+        "${sourceAbsolutePath}"
+    )
+
+    if(sourceRelativeToMath MATCHES "^\\.\\.(/|$)")
+        message(
+            FATAL_ERROR
+            "Cue.Math source must remain under its source directory: ${sourceAbsolutePath}"
+        )
+    endif()
+
+    get_source_file_property(
+        sourceIsGenerated
+        "${sourceAbsolutePath}"
+        TARGET_DIRECTORY Cue.Math
+        GENERATED
+    )
+
+    if(sourceIsGenerated)
+        message(
+            FATAL_ERROR
+            "Cue.Math generated source cannot be audited: ${sourceAbsolutePath}"
+        )
+    endif()
 
     foreach(
         sourceProperty

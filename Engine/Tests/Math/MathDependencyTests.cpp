@@ -1445,6 +1445,14 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         return false;
     }
 
+    constexpr std::string_view targetCompileFlag =
+        "COMPILE_FLAGS=/FI:DirectXCollision.h\n";
+
+    if (!has_forbidden_math_build_configuration(targetCompileFlag))
+    {
+        return false;
+    }
+
     constexpr std::string_view allowedBuildManifest =
         "COMPILE_DEFINITIONS=CUE_BUILD_DEBUG=1\n"
         "LINK_LIBRARIES=Cue.Foundation\n";
