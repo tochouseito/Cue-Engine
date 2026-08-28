@@ -158,6 +158,27 @@ template <typename T>
            has_math_error(singularLarge, 3) && has_math_error(singularSmall, 3);
 }
 
+/// @brief float化したInverseが指定Toleranceで両側Identityを復元できない場合を拒否する
+[[nodiscard]] bool test_matrix_inverse_precision_failure(TestEmergencyHandler &a_handler)
+{
+    auto toleranceResult = cue::math::Tolerance::create(a_handler, 0.0001F, 0.0001F);
+
+    if (!toleranceResult)
+    {
+        return false;
+    }
+
+    auto matrix = cue::math::Matrix3{};
+    matrix.values[0][0] = -3.0E-15F;
+    matrix.values[0][1] = -0.003F;
+    matrix.values[0][2] = 0.0F;
+    matrix.values[1][0] = -3.0F;
+    matrix.values[1][1] = -1000.0F;
+    matrix.values[1][2] = 0.0F;
+    auto result = cue::math::inverse(a_handler, matrix, *toleranceResult.try_value());
+    return has_math_error(result, 3);
+}
+
 /// @brief ADR-0011のX、Y、Z正回転BasisをQuaternion固定値で検証する
 [[nodiscard]] bool test_quaternion_basis(TestEmergencyHandler &a_handler,
                                          const cue::math::Tolerance &a_tolerance)
@@ -415,6 +436,39 @@ template <typename T>
            has_math_error(rotation, 2);
 }
 
+/// @brief 有限入力からOverflowしたQuaternionとTransform演算を成功値として返さないことを検証する
+[[nodiscard]] bool test_transform_overflow_failures(TestEmergencyHandler &a_handler,
+                                                    const cue::math::Tolerance &a_tolerance)
+{
+    const auto maximum = std::numeric_limits<float>::max();
+    auto scaleTwo = cue::math::Transform::create(
+        a_handler, cue::math::Vector3{}, cue::math::Quaternion{},
+        cue::math::Vector3{2.0F, 1.0F, 1.0F}, a_tolerance);
+    auto scaleMaximum = cue::math::Transform::create(
+        a_handler, cue::math::Vector3{}, cue::math::Quaternion{},
+        cue::math::Vector3{maximum, 1.0F, 1.0F}, a_tolerance);
+    auto rotation = cue::math::from_axis_angle(
+        a_handler, cue::math::Vector3{0.0F, 0.0F, 1.0F},
+        cue::math::Radians(cue::math::pi() * 0.25F), a_tolerance);
+
+    if (!scaleTwo || !scaleMaximum || !rotation)
+    {
+        return false;
+    }
+
+    const auto extreme = cue::math::Vector3{maximum, maximum, 0.0F};
+    auto point = cue::math::transform_point(a_handler, extreme, *scaleTwo.try_value(),
+                                            a_tolerance);
+    auto direction = cue::math::transform_direction(a_handler, extreme,
+                                                    *scaleTwo.try_value(), a_tolerance);
+    auto rotated = cue::math::rotate(a_handler, extreme, *rotation.try_value(), a_tolerance);
+    auto composed = cue::math::compose(a_handler, *scaleMaximum.try_value(),
+                                       *scaleTwo.try_value(), a_tolerance);
+
+    return has_math_error(point, 1) && has_math_error(direction, 1) &&
+           has_math_error(rotated, 1) && has_math_error(composed, 1);
+}
+
 /// @brief 負Scaleを含むTRS分解がX Axisへ符号を決定的に割り当て再構築できることを検証する
 [[nodiscard]] bool test_transform_decomposition(TestEmergencyHandler &a_handler,
                                                 const cue::math::Tolerance &a_tolerance)
@@ -496,6 +550,7 @@ int main()
     return test_matrix_identity_and_order(tolerance) && test_matrix_inverse(handler, tolerance) &&
                    test_matrix_inverse_failures(handler, tolerance) &&
                    test_matrix_inverse_scale_awareness(handler) &&
+                   test_matrix_inverse_precision_failure(handler) &&
                    test_quaternion_basis(handler, tolerance) &&
                    test_quaternion_composition(handler, tolerance) &&
                    test_quaternion_failures(handler, tolerance) &&
@@ -504,6 +559,7 @@ int main()
                    test_transform_zero_scale(handler, tolerance) &&
                    test_transform_shear_composition(handler, tolerance) &&
                    test_transform_factory_failures(handler, tolerance) &&
+                   test_transform_overflow_failures(handler, tolerance) &&
                    test_transform_decomposition(handler, tolerance) &&
                    test_transform_decomposition_failures(handler, tolerance)
                ? 0

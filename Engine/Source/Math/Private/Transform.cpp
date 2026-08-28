@@ -187,6 +187,14 @@ cue::Result<Vector3> transform_point(cue::EmergencyHandler &a_emergencyHandler,
     }
 
     auto result = cue::math::transform_point(a_value, *matrixResult.try_value());
+
+    if (!is_finite(result))
+    {
+        auto error = make_transform_error(a_emergencyHandler, 1,
+                                          "Transform point result must be finite");
+        return cue::Result<Vector3>::failure(std::move(error));
+    }
+
     return cue::Result<Vector3>::success(std::move(result));
 }
 
@@ -211,6 +219,14 @@ cue::Result<Vector3> transform_direction(cue::EmergencyHandler &a_emergencyHandl
     }
 
     auto result = cue::math::transform_direction(a_value, *matrixResult.try_value());
+
+    if (!is_finite(result))
+    {
+        auto error = make_transform_error(a_emergencyHandler, 1,
+                                          "Transform direction result must be finite");
+        return cue::Result<Vector3>::failure(std::move(error));
+    }
+
     return cue::Result<Vector3>::success(std::move(result));
 }
 
@@ -236,6 +252,14 @@ cue::Result<Matrix4> compose(cue::EmergencyHandler &a_emergencyHandler,
     }
 
     auto result = *firstResult.try_value() * *secondResult.try_value();
+
+    if (!is_finite(result))
+    {
+        auto error = make_transform_error(a_emergencyHandler, 1,
+                                          "Transform composition result must be finite");
+        return cue::Result<Matrix4>::failure(std::move(error));
+    }
+
     return cue::Result<Matrix4>::success(std::move(result));
 }
 

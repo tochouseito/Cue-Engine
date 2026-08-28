@@ -279,6 +279,14 @@ cue::Result<Vector3> rotate(cue::EmergencyHandler &a_emergencyHandler, Vector3 a
     }
 
     auto result = a_value * *matrixResult.try_value();
+
+    if (!is_finite(result))
+    {
+        auto error = make_quaternion_error(a_emergencyHandler, 1,
+                                           "Quaternion rotation result must be finite");
+        return cue::Result<Vector3>::failure(std::move(error));
+    }
+
     return cue::Result<Vector3>::success(std::move(result));
 }
 

@@ -132,6 +132,17 @@ template <std::size_t Size, typename Matrix>
         }
     }
 
+    const auto identity = Matrix{};
+
+    if (!is_near(a_value * result, identity, a_tolerance) ||
+        !is_near(result * a_value, identity, a_tolerance))
+    {
+        auto error = make_matrix_error(
+            a_emergencyHandler, 3,
+            "Matrix inverse does not restore identity within the requested tolerance");
+        return cue::Result<Matrix>::failure(std::move(error));
+    }
+
     return cue::Result<Matrix>::success(std::move(result));
 }
 } // namespace
