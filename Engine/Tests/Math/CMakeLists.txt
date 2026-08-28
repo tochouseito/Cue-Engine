@@ -132,6 +132,7 @@ foreach(
     targetInjectionProperty
     UNITY_BUILD_CODE_BEFORE_INCLUDE
     UNITY_BUILD_CODE_AFTER_INCLUDE
+    VS_PROJECT_IMPORT
     VS_USER_PROPS
 )
     get_target_property(
@@ -163,72 +164,12 @@ foreach(
         set(cueMathPrecompiledHeaders "")
     endif()
 
-    foreach(precompiledHeader IN LISTS cueMathPrecompiledHeaders)
-        if(precompiledHeader MATCHES "\\$<")
-            message(
-                FATAL_ERROR
-                "Cue.Math precompiled header generator expression cannot be audited: ${precompiledHeader}"
-            )
-        endif()
-
-        if(precompiledHeader MATCHES "^<[^>]+>$")
-            continue()
-        endif()
-
-        get_filename_component(
-            precompiledHeaderAbsolutePath
-            "${precompiledHeader}"
-            ABSOLUTE
-            BASE_DIR "${cueMathSourceDirectory}"
+    if(cueMathPrecompiledHeaders)
+        message(
+            FATAL_ERROR
+            "Cue.Math precompiled headers are outside the auditable dependency contract: ${precompiledHeaderProperty}"
         )
-        get_filename_component(
-            precompiledHeaderExtension
-            "${precompiledHeaderAbsolutePath}"
-            LAST_EXT
-        )
-        string(TOLOWER "${precompiledHeaderExtension}" precompiledHeaderExtension)
-        list(
-            FIND
-            cueMathAuditedSourceExtensions
-            "${precompiledHeaderExtension}"
-            precompiledHeaderExtensionIndex
-        )
-
-        if(precompiledHeaderExtensionIndex EQUAL -1)
-            message(
-                FATAL_ERROR
-                "Cue.Math precompiled header extension cannot be audited: ${precompiledHeaderAbsolutePath}"
-            )
-        endif()
-
-        file(
-            RELATIVE_PATH
-            precompiledHeaderRelativePath
-            "${cueMathSourceDirectory}"
-            "${precompiledHeaderAbsolutePath}"
-        )
-
-        if(precompiledHeaderRelativePath MATCHES "^\\.\\.(/|$)")
-            message(
-                FATAL_ERROR
-                "Cue.Math precompiled header must remain under its source directory: ${precompiledHeaderAbsolutePath}"
-            )
-        endif()
-
-        get_source_file_property(
-            precompiledHeaderIsGenerated
-            "${precompiledHeaderAbsolutePath}"
-            TARGET_DIRECTORY Cue.Math
-            GENERATED
-        )
-
-        if(precompiledHeaderIsGenerated)
-            message(
-                FATAL_ERROR
-                "Cue.Math generated precompiled header cannot be audited: ${precompiledHeaderAbsolutePath}"
-            )
-        endif()
-    endforeach()
+    endif()
 endforeach()
 
 foreach(sourcePath IN LISTS cueMathSources)
