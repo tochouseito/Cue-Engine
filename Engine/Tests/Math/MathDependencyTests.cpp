@@ -1245,7 +1245,9 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                             return true;
                         }
 
-                        if (option.substr(candidate, 2U) == "/i" ||
+                        if (option.substr(candidate, 7U) == "/clang:" ||
+                            option.substr(candidate, 7U) == "-xclang" ||
+                            option.substr(candidate, 2U) == "/i" ||
                             option.substr(candidate, 2U) == "-i" ||
                             option.substr(candidate, 11U) == "/external:i" ||
                             option.substr(candidate, 3U) == "/fi" ||
@@ -1917,6 +1919,19 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     };
 
     for (const auto option : includePathOptions)
+    {
+        if (!has_forbidden_math_build_configuration(option))
+        {
+            return false;
+        }
+    }
+
+    constexpr std::array<std::string_view, 2> forwardingOptions = {
+        "COMPILE_OPTIONS=/clang:-I;/clang:C:/CueRepo/out/GeneratedInclude\n",
+        "COMPILE_OPTIONS=-Xclang;-include;-Xclang;Injected.h\n",
+    };
+
+    for (const auto option : forwardingOptions)
     {
         if (!has_forbidden_math_build_configuration(option))
         {
