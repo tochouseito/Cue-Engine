@@ -301,6 +301,10 @@ Graphics Snapshotには次の種類を含める。
 
 Optional `CheckFeatureSupport`が失敗しても、Baseline Backend生成条件を満たしていればBackend生成全体を失敗させない。そのFeatureだけを`Failed + Unknown`として記録し、Native失敗は診断Logへ残す。
 
+Optional Query失敗のNative Errorを`Logger::log()`へ渡し、`LogResult::Success`なら`Failed + Unknown`を保持したBackend生成を継続する。`LogResult::SinkFailure`の場合は、Optional Query失敗そのものではなく診断配送失敗をPrimary Errorとし、同じNative ErrorをCauseとして再構築した`Result`失敗を`create_d3d12_backend()`から返す。Native ErrorがMove済みになるため、既存D3D12診断Helperと同様にNative CodeからCauseを再構築する。
+
+したがって、Optional Capabilityの未対応またはQuery失敗だけではBackend全体を失敗させないが、診断配送Subsystemの失敗はBackend生成失敗となる。これをHardware UnsupportedまたはCapability QueryFailedとして報告せず、`Cue.RHI.D3D12`の診断配送Errorとして区別する。Logger再入は既存Logger契約どおりEmergency Handlerが非復帰終了し、Backend生成`Result`は返らない。
+
 必須Baseline CapabilityのQuery失敗または未対応はBackend生成失敗とする。必須条件とOptional条件の一覧はBackend Policyで明示し、Query関数の偶発的な失敗処理へ埋め込まない。
 
 Graphics BackendはSnapshotをBackend生成成功時に完成させ、Backend Objectの破棄開始前までImmutableな`const`参照として公開する。`shutdown()`はNative Resourceの停止と解放を行うが、Backend Objectが生存している間はSnapshotを無効化または変更しない。
