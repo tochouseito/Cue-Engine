@@ -170,14 +170,31 @@ class TestEmergencyHandler final : public cue::EmergencyHandler
 {
     for (std::size_t index = 0; index < 64U; ++index)
     {
-        const auto axis = cue::math::Vector3{
+        auto axis = cue::math::Vector3{
             1.0F + static_cast<float>(index % 4U),
             1.0F + static_cast<float>((index * 3U) % 6U),
             1.0F + static_cast<float>((index * 7U) % 8U),
         };
+        const auto angle = index < 3U
+                               ? cue::math::Radians(cue::math::pi())
+                               : cue::math::Radians(
+                                     sample_value(index, 41U, 0.07F));
+
+        if (index == 0U)
+        {
+            axis = cue::math::Vector3{8.0F, 1.0F, 1.0F};
+        }
+        else if (index == 1U)
+        {
+            axis = cue::math::Vector3{1.0F, 8.0F, 1.0F};
+        }
+        else if (index == 2U)
+        {
+            axis = cue::math::Vector3{1.0F, 1.0F, 8.0F};
+        }
+
         auto rotation = cue::math::from_axis_angle(
-            a_handler, axis, cue::math::Radians(sample_value(index, 41U, 0.07F)),
-            a_tolerance);
+            a_handler, axis, angle, a_tolerance);
 
         if (!rotation)
         {

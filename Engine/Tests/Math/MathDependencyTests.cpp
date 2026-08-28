@@ -259,8 +259,8 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     }
 
     if (line.substr(0U, importName.size()) != importName ||
-        line.size() <= importName.size() ||
-        std::isspace(static_cast<unsigned char>(line[importName.size()])) == 0)
+        (line.size() > importName.size() &&
+         std::isspace(static_cast<unsigned char>(line[importName.size()])) == 0))
     {
         return false;
     }
@@ -661,9 +661,13 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 /// @brief Cue.Mathが依存できないHeader名の場合にtrueを返す
 [[nodiscard]] bool is_forbidden_math_header(std::string_view a_header)
 {
-    const auto normalized = lower_ascii(trim_ascii(a_header));
-    return is_directxmath_header(normalized) || normalized == "windows.h" ||
-           normalized == "d3d12.h" || normalized == "intrin.h" ||
+    std::string portableHeader(trim_ascii(a_header));
+    std::replace(portableHeader.begin(), portableHeader.end(), '\\', '/');
+    const auto normalized = lower_ascii(portableHeader);
+    const auto fileName = lower_ascii(
+        std::filesystem::path(portableHeader).filename().string());
+    return is_directxmath_header(normalized) || fileName == "windows.h" ||
+           fileName == "d3d12.h" || fileName == "intrin.h" ||
            starts_with(normalized, "cue/platform/") ||
            starts_with(normalized, "cue/rhi/") ||
            starts_with(normalized, "cue/runtimehost/") ||
@@ -807,8 +811,9 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
         if (importLine.substr(0U, importName.size()) == importName &&
             importLine.size() > importName.size() &&
-            std::isspace(static_cast<unsigned char>(
-                importLine[importName.size()])) != 0)
+            (std::isspace(static_cast<unsigned char>(
+                 importLine[importName.size()])) != 0 ||
+             importLine[importName.size()] == '<'))
         {
             const auto operand = trim_ascii(importLine.substr(importName.size()));
 
@@ -997,6 +1002,25 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
     if (validate_include_directives(
             headerUnitImport, false, "HeaderUnitProbe.cpp", false))
+    {
+        return false;
+    }
+
+    const auto compactHeaderUnitImport =
+        sanitize_cpp_source("import<DirectXMath.h>;\n");
+
+    if (validate_include_directives(
+            compactHeaderUnitImport, false, "CompactHeaderUnitProbe.cpp", false))
+    {
+        return false;
+    }
+
+    const auto platformPathInclude =
+        sanitize_cpp_source("#include <../um/windows.h>\n");
+
+    if (validate_include_directives(
+            platformPathInclude, true,
+            "Engine/Source/Math/Private/PlatformPathProbe.cpp", false))
     {
         return false;
     }
