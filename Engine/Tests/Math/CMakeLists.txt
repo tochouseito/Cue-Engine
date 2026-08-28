@@ -20,6 +20,13 @@ add_executable(CueMathTransformTests MathTransformTests.cpp)
 target_link_libraries(CueMathTransformTests PRIVATE Cue.Math)
 target_compile_features(CueMathTransformTests PRIVATE cxx_std_20)
 
+add_executable(CueMathPropertyTests MathPropertyTests.cpp)
+target_link_libraries(CueMathPropertyTests PRIVATE Cue.Math)
+target_compile_features(CueMathPropertyTests PRIVATE cxx_std_20)
+
+add_executable(CueMathDependencyTests MathDependencyTests.cpp)
+target_compile_features(CueMathDependencyTests PRIVATE cxx_std_20)
+
 add_executable(
     CueMathPublicHeaderTest
     AngleHeaderCompile.cpp
@@ -34,7 +41,14 @@ add_executable(
 target_link_libraries(CueMathPublicHeaderTest PRIVATE Cue.Math)
 target_compile_features(CueMathPublicHeaderTest PRIVATE cxx_std_20)
 
-set(cueMathTestTargets CueMathTests CueMathTransformTests CueMathPublicHeaderTest)
+set(
+    cueMathTestTargets
+    CueMathTests
+    CueMathTransformTests
+    CueMathPropertyTests
+    CueMathDependencyTests
+    CueMathPublicHeaderTest
+)
 
 foreach(testTarget IN LISTS cueMathTestTargets)
     set_target_properties(
@@ -67,20 +81,209 @@ endforeach()
 
 add_custom_target(Cue.Math.Tests DEPENDS ${cueMathTestTargets})
 
+set(
+    cueMathBuildPropertiesPath
+    "${CMAKE_CURRENT_BINARY_DIR}/CueMathBuildProperties-$<CONFIG>.txt"
+)
+
+string(
+    CONCAT
+    cueMathBuildPropertiesContent
+    "PRECOMPILE_HEADERS=$<TARGET_PROPERTY:Cue.Math,PRECOMPILE_HEADERS>\n"
+    "INTERFACE_PRECOMPILE_HEADERS=$<TARGET_PROPERTY:Cue.Math,INTERFACE_PRECOMPILE_HEADERS>\n"
+    "COMPILE_DEFINITIONS=$<TARGET_PROPERTY:Cue.Math,COMPILE_DEFINITIONS>\n"
+    "INTERFACE_COMPILE_DEFINITIONS=$<TARGET_PROPERTY:Cue.Math,INTERFACE_COMPILE_DEFINITIONS>\n"
+    "COMPILE_OPTIONS=$<TARGET_PROPERTY:Cue.Math,COMPILE_OPTIONS>\n"
+    "COMPILE_FLAGS=$<TARGET_PROPERTY:Cue.Math,COMPILE_FLAGS>\n"
+    "INTERFACE_COMPILE_OPTIONS=$<TARGET_PROPERTY:Cue.Math,INTERFACE_COMPILE_OPTIONS>\n"
+    "INCLUDE_DIRECTORIES=$<TARGET_PROPERTY:Cue.Math,INCLUDE_DIRECTORIES>\n"
+    "INTERFACE_INCLUDE_DIRECTORIES=$<TARGET_PROPERTY:Cue.Math,INTERFACE_INCLUDE_DIRECTORIES>\n"
+    "LINK_LIBRARIES=$<TARGET_PROPERTY:Cue.Math,LINK_LIBRARIES>\n"
+    "INTERFACE_LINK_LIBRARIES=$<TARGET_PROPERTY:Cue.Math,INTERFACE_LINK_LIBRARIES>\n"
+    "LINK_OPTIONS=$<TARGET_PROPERTY:Cue.Math,LINK_OPTIONS>\n"
+    "INTERFACE_LINK_OPTIONS=$<TARGET_PROPERTY:Cue.Math,INTERFACE_LINK_OPTIONS>\n"
+    "LINK_FLAGS=$<TARGET_PROPERTY:Cue.Math,LINK_FLAGS>\n"
+    "STATIC_LIBRARY_OPTIONS=$<TARGET_PROPERTY:Cue.Math,STATIC_LIBRARY_OPTIONS>\n"
+    "CMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}\n"
+    "CMAKE_CXX_FLAGS_DEBUG=${CMAKE_CXX_FLAGS_DEBUG}\n"
+    "CMAKE_CXX_FLAGS_DEVELOPMENT=${CMAKE_CXX_FLAGS_DEVELOPMENT}\n"
+    "CMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE}\n"
+    "DIRECTORY_CXX_FLAGS=$<TARGET_PROPERTY:Cue.Math,CUE_MATH_DIRECTORY_CXX_FLAGS>\n"
+    "CMAKE_INCLUDE_CURRENT_DIR=$<TARGET_PROPERTY:Cue.Math,CUE_MATH_INCLUDE_CURRENT_DIR>\n"
+    "CMAKE_INCLUDE_CURRENT_DIR_IN_INTERFACE=$<TARGET_PROPERTY:Cue.Math,CUE_MATH_INCLUDE_CURRENT_DIR_IN_INTERFACE>\n"
+)
+
+get_target_property(cueMathSources Cue.Math SOURCES)
+get_target_property(cueMathSourceDirectory Cue.Math SOURCE_DIR)
+set(
+    cueMathAuditedSourceExtensions
+    .c++
+    .cc
+    .cpp
+    .cppm
+    .cxx
+    .cxxm
+    .h
+    .h++
+    .hh
+    .hpp
+    .hxx
+    .inl
+    .ipp
+    .ixx
+    .tpp
+)
+
+foreach(
+    targetInjectionProperty
+    UNITY_BUILD_CODE_BEFORE_INCLUDE
+    UNITY_BUILD_CODE_AFTER_INCLUDE
+    VS_PROJECT_IMPORT
+    VS_USER_PROPS
+)
+    get_target_property(
+        targetInjectionValue
+        Cue.Math
+        ${targetInjectionProperty}
+    )
+
+    if(targetInjectionValue)
+        message(
+            FATAL_ERROR
+            "Cue.Math target injection property cannot be audited: ${targetInjectionProperty}"
+        )
+    endif()
+endforeach()
+
+foreach(
+    precompiledHeaderProperty
+    PRECOMPILE_HEADERS
+    INTERFACE_PRECOMPILE_HEADERS
+)
+    get_target_property(
+        cueMathPrecompiledHeaders
+        Cue.Math
+        ${precompiledHeaderProperty}
+    )
+
+    if(cueMathPrecompiledHeaders MATCHES "-NOTFOUND$")
+        set(cueMathPrecompiledHeaders "")
+    endif()
+
+    if(cueMathPrecompiledHeaders)
+        message(
+            FATAL_ERROR
+            "Cue.Math precompiled headers are outside the auditable dependency contract: ${precompiledHeaderProperty}"
+        )
+    endif()
+endforeach()
+
+foreach(sourcePath IN LISTS cueMathSources)
+    if(sourcePath MATCHES "\\$<")
+        message(
+            FATAL_ERROR
+            "Cue.Math source generator expression cannot be audited: ${sourcePath}"
+        )
+    endif()
+
+    get_filename_component(
+        sourceAbsolutePath
+        "${sourcePath}"
+        ABSOLUTE
+        BASE_DIR "${cueMathSourceDirectory}"
+    )
+
+    get_filename_component(sourceExtension "${sourceAbsolutePath}" LAST_EXT)
+    string(TOLOWER "${sourceExtension}" sourceExtension)
+    list(FIND cueMathAuditedSourceExtensions "${sourceExtension}" sourceExtensionIndex)
+
+    if(sourceExtensionIndex EQUAL -1)
+        message(
+            FATAL_ERROR
+            "Cue.Math source extension cannot be audited: ${sourceAbsolutePath}"
+        )
+    endif()
+
+    file(
+        RELATIVE_PATH
+        sourceRelativeToMath
+        "${cueMathSourceDirectory}"
+        "${sourceAbsolutePath}"
+    )
+
+    if(sourceRelativeToMath MATCHES "^\\.\\.(/|$)")
+        message(
+            FATAL_ERROR
+            "Cue.Math source must remain under its source directory: ${sourceAbsolutePath}"
+        )
+    endif()
+
+    get_source_file_property(
+        sourceIsGenerated
+        "${sourceAbsolutePath}"
+        TARGET_DIRECTORY Cue.Math
+        GENERATED
+    )
+
+    if(sourceIsGenerated)
+        message(
+            FATAL_ERROR
+            "Cue.Math generated source cannot be audited: ${sourceAbsolutePath}"
+        )
+    endif()
+
+    foreach(
+        sourceProperty
+        COMPILE_DEFINITIONS
+        COMPILE_DEFINITIONS_DEBUG
+        COMPILE_DEFINITIONS_DEVELOPMENT
+        COMPILE_DEFINITIONS_RELEASE
+        COMPILE_OPTIONS
+        COMPILE_FLAGS
+        INCLUDE_DIRECTORIES
+        VS_SETTINGS
+    )
+        get_source_file_property(
+            sourcePropertyValue
+            "${sourceAbsolutePath}"
+            TARGET_DIRECTORY Cue.Math
+            ${sourceProperty}
+        )
+
+        if(sourcePropertyValue STREQUAL "NOTFOUND")
+            set(sourcePropertyValue "")
+        endif()
+
+        string(
+            APPEND
+            cueMathBuildPropertiesContent
+            "SOURCE[${sourcePath}].${sourceProperty}=${sourcePropertyValue}\n"
+        )
+    endforeach()
+endforeach()
+
+file(
+    GENERATE
+    OUTPUT "${cueMathBuildPropertiesPath}"
+    CONTENT "${cueMathBuildPropertiesContent}"
+)
+
 add_test(NAME Cue.Math.ScalarAngleVector COMMAND CueMathTests)
 add_test(NAME Cue.Math.MatrixQuaternionTransform COMMAND CueMathTransformTests)
+add_test(NAME Cue.Math.Properties COMMAND CueMathPropertyTests)
 add_test(NAME Cue.Math.PublicHeaders COMMAND CueMathPublicHeaderTest)
 add_test(
     NAME Cue.Math.Dependencies
     COMMAND
-        ${CMAKE_COMMAND}
-        -DMATH_SOURCE_DIR=${PROJECT_SOURCE_DIR}/Engine/Source/Math
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyMathDependencies.cmake
+        CueMathDependencyTests
+        ${PROJECT_SOURCE_DIR}
+        "${cueMathBuildPropertiesPath}"
 )
 
 set_tests_properties(
     Cue.Math.ScalarAngleVector
     Cue.Math.MatrixQuaternionTransform
+    Cue.Math.Properties
     Cue.Math.PublicHeaders
     Cue.Math.Dependencies
     PROPERTIES
