@@ -430,6 +430,13 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     return result;
 }
 
+/// @brief Sanitized SourceがMacro Token Paste Operatorを含む場合にtrueを返す
+[[nodiscard]] bool has_macro_token_paste(std::string_view a_code) noexcept
+{
+    return a_code.find("##") != std::string_view::npos ||
+           a_code.find("%:%:") != std::string_view::npos;
+}
+
 /// @brief PathがRepository Root直下の生成物または管理Directoryか判定する
 [[nodiscard]] bool is_excluded_root_directory(
     const std::filesystem::path &a_relativePath) noexcept
@@ -1070,6 +1077,13 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         return false;
     }
 
+    if (has_macro_token_paste(code))
+    {
+        std::cerr << "Macro token paste can hide forbidden dependencies: "
+                  << relativePath.string() << '\n';
+        return false;
+    }
+
     if (has_forbidden_directxmath_tokens(tokenize_cpp(code)))
     {
         std::cerr << "Forbidden DirectXMath token dependency: "
@@ -1142,6 +1156,23 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
     if (!has_forbidden_directxmath_tokens(
             tokenize_cpp(parameterizedNamespaceMacroAlias)))
+    {
+        return false;
+    }
+
+    const auto tokenPastedNamespace = sanitize_cpp_source(
+        "#define JOIN(a, b) a##b\n"
+        "JOIN(Direct, X)::BoundingBox value{};\n");
+
+    if (!has_macro_token_paste(tokenPastedNamespace))
+    {
+        return false;
+    }
+
+    const auto digraphTokenPaste = sanitize_cpp_source(
+        "%:define JOIN(a, b) a%:%:b\n");
+
+    if (!has_macro_token_paste(digraphTokenPaste))
     {
         return false;
     }
