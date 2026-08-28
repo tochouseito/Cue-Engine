@@ -228,6 +228,14 @@ cue::Result<Matrix3> to_matrix3(cue::EmergencyHandler &a_emergencyHandler,
     result.values[2][0] = 2.0F * (xz + yw);
     result.values[2][1] = 2.0F * (yz - xw);
     result.values[2][2] = 1.0F - 2.0F * (xx + yy);
+
+    if (!is_finite(result))
+    {
+        auto error = make_quaternion_error(a_emergencyHandler, 1,
+                                           "Quaternion rotation Matrix must be finite");
+        return cue::Result<Matrix3>::failure(std::move(error));
+    }
+
     return cue::Result<Matrix3>::success(std::move(result));
 }
 

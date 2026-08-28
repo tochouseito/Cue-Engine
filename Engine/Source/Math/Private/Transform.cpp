@@ -163,6 +163,14 @@ cue::Result<Matrix4> to_matrix4(cue::EmergencyHandler &a_emergencyHandler,
     result.values[3][0] = translation.x;
     result.values[3][1] = translation.y;
     result.values[3][2] = translation.z;
+
+    if (!is_finite(result))
+    {
+        auto error = make_transform_error(a_emergencyHandler, 1,
+                                          "Transform Matrix must be finite");
+        return cue::Result<Matrix4>::failure(std::move(error));
+    }
+
     return cue::Result<Matrix4>::success(std::move(result));
 }
 

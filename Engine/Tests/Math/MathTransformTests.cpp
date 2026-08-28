@@ -441,6 +441,14 @@ template <typename T>
                                                     const cue::math::Tolerance &a_tolerance)
 {
     const auto maximum = std::numeric_limits<float>::max();
+    auto permissiveToleranceResult = cue::math::Tolerance::create(a_handler, 0.0F, 1.0F);
+
+    if (!permissiveToleranceResult)
+    {
+        return false;
+    }
+
+    const auto permissiveTolerance = *permissiveToleranceResult.try_value();
     auto scaleTwo = cue::math::Transform::create(
         a_handler, cue::math::Vector3{}, cue::math::Quaternion{},
         cue::math::Vector3{2.0F, 1.0F, 1.0F}, a_tolerance);
@@ -450,8 +458,11 @@ template <typename T>
     auto rotation = cue::math::from_axis_angle(
         a_handler, cue::math::Vector3{0.0F, 0.0F, 1.0F},
         cue::math::Radians(cue::math::pi() * 0.25F), a_tolerance);
+    auto overflowingTransform = cue::math::Transform::create(
+        a_handler, cue::math::Vector3{}, cue::math::Quaternion{1.00004F, 0.0F, 0.0F, 0.0F},
+        cue::math::Vector3{1.0F, maximum, 1.0F}, a_tolerance);
 
-    if (!scaleTwo || !scaleMaximum || !rotation)
+    if (!scaleTwo || !scaleMaximum || !rotation || !overflowingTransform)
     {
         return false;
     }
@@ -464,9 +475,17 @@ template <typename T>
     auto rotated = cue::math::rotate(a_handler, extreme, *rotation.try_value(), a_tolerance);
     auto composed = cue::math::compose(a_handler, *scaleMaximum.try_value(),
                                        *scaleTwo.try_value(), a_tolerance);
+    auto quaternionMatrix3 = cue::math::to_matrix3(
+        a_handler, cue::math::Quaternion{maximum, 0.0F, 0.0F, 0.0F}, permissiveTolerance);
+    auto quaternionMatrix4 = cue::math::to_matrix4(
+        a_handler, cue::math::Quaternion{maximum, 0.0F, 0.0F, 0.0F}, permissiveTolerance);
+    auto transformMatrix = cue::math::to_matrix4(a_handler, *overflowingTransform.try_value(),
+                                                  a_tolerance);
 
     return has_math_error(point, 1) && has_math_error(direction, 1) &&
-           has_math_error(rotated, 1) && has_math_error(composed, 1);
+           has_math_error(rotated, 1) && has_math_error(composed, 1) &&
+           has_math_error(quaternionMatrix3, 1) && has_math_error(quaternionMatrix4, 1) &&
+           has_math_error(transformMatrix, 1);
 }
 
 /// @brief 負Scaleを含むTRS分解がX Axisへ符号を決定的に割り当て再構築できることを検証する
