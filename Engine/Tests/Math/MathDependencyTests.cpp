@@ -1160,7 +1160,15 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 [[nodiscard]] bool has_forced_include_option(
     std::string_view a_manifest)
 {
-    const auto normalized = lower_ascii(a_manifest);
+    auto normalized = lower_ascii(a_manifest);
+    constexpr std::string_view shellPrefix = "shell:";
+    auto shellOffset = normalized.find(shellPrefix);
+
+    while (shellOffset != std::string::npos)
+    {
+        std::fill_n(normalized.begin() + shellOffset, shellPrefix.size(), ' ');
+        shellOffset = normalized.find(shellPrefix, shellOffset + shellPrefix.size());
+    }
 
     if (normalized.find("forcedincludefiles=") != std::string::npos)
     {
@@ -1172,7 +1180,6 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         const bool isBoundary =
             index == 0U || normalized[index - 1U] == '=' ||
             normalized[index - 1U] == ';' ||
-            normalized[index - 1U] == ':' ||
             std::isspace(static_cast<unsigned char>(
                 normalized[index - 1U])) != 0;
 
@@ -1188,6 +1195,83 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         {
             return true;
         }
+    }
+
+    return false;
+}
+
+/// @brief Repository走査外の明示Include Directoryがある場合にtrueを返す
+[[nodiscard]] bool has_unaudited_include_directory(
+    std::string_view a_manifest,
+    const std::filesystem::path &a_repositoryRoot)
+{
+    std::size_t lineStart = 0U;
+
+    while (lineStart < a_manifest.size())
+    {
+        const auto lineEnd = a_manifest.find('\n', lineStart);
+        const auto line = trim_ascii(a_manifest.substr(
+            lineStart,
+            lineEnd == std::string_view::npos
+                ? a_manifest.size() - lineStart
+                : lineEnd - lineStart));
+        const auto assignment = line.find('=');
+        const auto property = line.substr(0U, assignment);
+        const bool isIncludeDirectoryProperty =
+            property == "INCLUDE_DIRECTORIES" ||
+            property == "INTERFACE_INCLUDE_DIRECTORIES" ||
+            (property.substr(0U, 7U) == "SOURCE[" &&
+             property.size() >= 21U &&
+             property.substr(property.size() - 21U) ==
+                 "].INCLUDE_DIRECTORIES");
+
+        if (assignment != std::string_view::npos &&
+            isIncludeDirectoryProperty)
+        {
+            auto directories = line.substr(assignment + 1U);
+
+            while (!directories.empty())
+            {
+                const auto separator = directories.find(';');
+                const auto directory = trim_ascii(
+                    directories.substr(0U, separator));
+
+                if (!directory.empty())
+                {
+                    std::error_code canonicalError;
+                    const auto canonicalDirectory =
+                        std::filesystem::weakly_canonical(
+                            std::filesystem::path(directory), canonicalError);
+                    std::error_code relativeError;
+                    const auto relativeDirectory = std::filesystem::relative(
+                        canonicalDirectory, a_repositoryRoot, relativeError);
+
+                    if (canonicalError || relativeError ||
+                        !std::filesystem::path(directory).is_absolute() ||
+                        relativeDirectory.empty() ||
+                        relativeDirectory.begin() == relativeDirectory.end() ||
+                        *relativeDirectory.begin() == ".." ||
+                        is_excluded_root_directory(relativeDirectory))
+                    {
+                        return true;
+                    }
+                }
+
+                if (separator == std::string_view::npos)
+                {
+                    break;
+                }
+
+                directories = directories.substr(separator + 1U);
+            }
+        }
+
+        if (lineEnd == std::string_view::npos)
+        {
+            break;
+        }
+
+        lineStart = lineEnd + 1U;
     }
 
     return false;
@@ -1294,7 +1378,8 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
 /// @brief CMakeが生成したCue.Math Build Property Manifestを検証する
 [[nodiscard]] bool validate_math_build_manifest(
-    const std::filesystem::path &a_path)
+    const std::filesystem::path &a_path,
+    const std::filesystem::path &a_repositoryRoot)
 {
     std::ifstream stream(a_path, std::ios::binary);
 
@@ -1310,7 +1395,8 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         std::istreambuf_iterator<char>{stream},
         std::istreambuf_iterator<char>{},
     };
-    if (!has_forbidden_math_build_configuration(source))
+    if (!has_forbidden_math_build_configuration(source) &&
+        !has_unaudited_include_directory(source, a_repositoryRoot))
     {
         return true;
     }
@@ -1630,6 +1716,23 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         return false;
     }
 
+    constexpr std::string_view driveIncludeDirectory =
+        "INCLUDE_DIRECTORIES=C:/FirstParty/include\n";
+
+    if (has_forced_include_option(driveIncludeDirectory))
+    {
+        return false;
+    }
+
+    constexpr std::string_view generatedIncludeDirectory =
+        "INCLUDE_DIRECTORIES=C:/CueRepo/out/GeneratedInclude\n";
+
+    if (!has_unaudited_include_directory(
+            generatedIncludeDirectory, "C:/CueRepo"))
+    {
+        return false;
+    }
+
     constexpr std::string_view interfaceLinkOption =
         "INTERFACE_LINK_OPTIONS=/DEFAULTLIB:SafeLibrary.lib\n";
 
@@ -1752,7 +1855,7 @@ int main(int a_argumentCount, char **a_arguments)
         return 4;
     }
 
-    if (!validate_math_build_manifest(a_arguments[2]))
+    if (!validate_math_build_manifest(a_arguments[2], repositoryRoot))
     {
         return 5;
     }
