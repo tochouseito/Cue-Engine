@@ -187,8 +187,11 @@ bool verify_d3d12_optional_capability_log_failure_for_probe(AssertContext &a_ass
     };
     Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(descriptor, a_assertContext);
     const Error *error = backendResult.try_error();
+    const NativeError *nativeError =
+        error != nullptr && !error->causes().empty() ? error->causes().front().try_native_error() : nullptr;
     return !backendResult && error != nullptr && error->code().domain() == "Cue.RHI.D3D12" &&
-           error->code().value() == 101;
+           error->code().value() == 101 && nativeError != nullptr && nativeError->domain() == "D3D12" &&
+           nativeError->value() == static_cast<std::int64_t>(E_UNEXPECTED);
 }
 
 bool verify_d3d12_required_capability_failure_for_probe(AssertContext &a_assertContext) noexcept
