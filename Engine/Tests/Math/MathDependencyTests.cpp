@@ -1232,8 +1232,9 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
                         auto candidate = index;
 
-                        if (option[candidate] == '"' ||
-                            option[candidate] == '\'')
+                        while (candidate < option.size() &&
+                               (option[candidate] == '"' ||
+                                option[candidate] == '\''))
                         {
                             ++candidate;
                         }
@@ -1868,6 +1869,14 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         "COMPILE_FLAGS=/DVALUE=\\\"@Safe\\\"\n";
 
     if (has_forbidden_math_build_configuration(quotedDefinitionValue))
+    {
+        return false;
+    }
+
+    constexpr std::string_view emptyQuotedResponseFile =
+        "COMPILE_FLAGS=/W4 \"\"@SafeOptions.rsp\n";
+
+    if (!has_forbidden_math_build_configuration(emptyQuotedResponseFile))
     {
         return false;
     }
