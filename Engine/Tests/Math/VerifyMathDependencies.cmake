@@ -61,7 +61,7 @@ foreach(cueRepositoryCppFile IN LISTS cueRepositoryCppFiles)
     string(TOLOWER "${cueRepositoryCppContent}" cueRepositoryCppContentLower)
 
     if(cueRepositoryCppContentLower MATCHES
-       "directx(math|packedvector|collision|colors)(\\.h)?|using[ \\t\\r\\n]+namespace[ \\t\\r\\n]+directx|namespace[ \\t\\r\\n]+[a-z_][a-z0-9_]*[ \\t\\r\\n]*=[ \\t\\r\\n]*(::[ \\t\\r\\n]*)?directx|directx::[ \\t\\r\\n]*(xm|packedvector|colors(linear)?|bounding(sphere|box|orientedbox|frustum)|containmenttype|planeintersectiontype|triangletests)"
+       "directx(math|packedvector|collision|colors)(\\.h)?|using[ \\t\\r\\n]+namespace[ \\t\\r\\n]+directx($|[^a-z0-9_])|namespace[ \\t\\r\\n]+[a-z_][a-z0-9_]*[ \\t\\r\\n]*=[ \\t\\r\\n]*(::[ \\t\\r\\n]*)?directx($|[^a-z0-9_])|directx::[ \\t\\r\\n]*(xm|packedvector|colors(linear)?|bounding(sphere|box|orientedbox|frustum)|containmenttype|planeintersectiontype|triangletests)"
        OR cueRepositoryCppContent MATCHES "${cueDirectXMathIdentifierPattern}")
         message(
             FATAL_ERROR
