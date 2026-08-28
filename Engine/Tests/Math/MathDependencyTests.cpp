@@ -173,6 +173,22 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     }
 }
 
+/// @brief 文字列の先頭と末尾のASCII空白を除いたViewを返す
+[[nodiscard]] std::string_view trim_ascii(std::string_view a_value) noexcept;
+
+/// @brief 文字列先頭のASCII空白だけを除いたViewを返す
+[[nodiscard]] std::string_view trim_ascii_left(
+    std::string_view a_value) noexcept
+{
+    while (!a_value.empty() &&
+           std::isspace(static_cast<unsigned char>(a_value.front())) != 0)
+    {
+        a_value.remove_prefix(1U);
+    }
+
+    return a_value;
+}
+
 /// @brief 現在行がQuote形式Include Operand直前の場合にtrueを返す
 [[nodiscard]] bool is_include_operand_position(std::string_view a_code) noexcept
 {
@@ -224,6 +240,39 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     }
 
     return index == line.size();
+}
+
+/// @brief 現在行がQuote形式Header Unit Import直前の場合にtrueを返す
+[[nodiscard]] bool is_import_operand_position(std::string_view a_code) noexcept
+{
+    const auto lineStart = a_code.find_last_of("\r\n");
+    auto line = trim_ascii_left(a_code.substr(
+        lineStart == std::string_view::npos ? 0U : lineStart + 1U));
+    constexpr std::string_view exportName = "export";
+    constexpr std::string_view importName = "import";
+
+    if (line.substr(0U, exportName.size()) == exportName &&
+        line.size() > exportName.size() &&
+        std::isspace(static_cast<unsigned char>(line[exportName.size()])) != 0)
+    {
+        line = trim_ascii_left(line.substr(exportName.size()));
+    }
+
+    if (line.substr(0U, importName.size()) != importName ||
+        line.size() <= importName.size() ||
+        std::isspace(static_cast<unsigned char>(line[importName.size()])) == 0)
+    {
+        return false;
+    }
+
+    return trim_ascii(line.substr(importName.size())).empty();
+}
+
+/// @brief 現在行がQuote形式Header依存のOperand直前の場合にtrueを返す
+[[nodiscard]] bool is_header_operand_position(std::string_view a_code) noexcept
+{
+    return is_include_operand_position(a_code) ||
+           is_import_operand_position(a_code);
 }
 
 /// @brief Quoteまたは文字Literalの終端直後を返す
@@ -291,7 +340,7 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         {
             const auto end = find_quoted_literal_end(source, index, '"');
 
-            if (is_include_operand_position(result) && end > index + 1U)
+            if (is_header_operand_position(result) && end > index + 1U)
             {
                 result.push_back('<');
                 result.append(source.substr(index + 1U, end - index - 2U));
@@ -522,11 +571,21 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
             a_tokens[index].kind == TokenKind::Identifier &&
             a_tokens[index].text == "using" &&
             a_tokens[index + 1U].kind == TokenKind::Identifier &&
-            a_tokens[index + 1U].text == "namespace" &&
-            a_tokens[index + 2U].kind == TokenKind::Identifier &&
-            a_tokens[index + 2U].text == "DirectX")
+            a_tokens[index + 1U].text == "namespace")
         {
-            return true;
+            auto targetIndex = index + 2U;
+
+            if (a_tokens[targetIndex].kind == TokenKind::Scope)
+            {
+                ++targetIndex;
+            }
+
+            if (targetIndex < a_tokens.size() &&
+                a_tokens[targetIndex].kind == TokenKind::Identifier &&
+                a_tokens[targetIndex].text == "DirectX")
+            {
+                return true;
+            }
         }
 
         if (index + 3U < a_tokens.size() &&
@@ -592,7 +651,10 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         "directxcollision.h",
         "directxcolors.h",
     };
-    const auto normalized = lower_ascii(trim_ascii(a_header));
+    std::string portableHeader(trim_ascii(a_header));
+    std::replace(portableHeader.begin(), portableHeader.end(), '\\', '/');
+    const auto normalized = lower_ascii(
+        std::filesystem::path(portableHeader).filename().string());
     return std::find(headers.begin(), headers.end(), normalized) != headers.end();
 }
 
@@ -622,6 +684,28 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
            starts_with(normalized, "engine/source/rhi/") ||
            starts_with(normalized, "engine/source/runtimehost/") ||
            starts_with(normalized, "engine/source/editor/");
+}
+
+/// @brief Header OperandがMath依存規則に違反する場合に診断してfalseを返す
+[[nodiscard]] bool validate_header_operand(
+    std::string_view a_header, bool a_isMathSource,
+    const std::filesystem::path &a_path, bool a_reportsFailure)
+{
+    if (!is_directxmath_header(a_header) &&
+        (!a_isMathSource ||
+         (!is_forbidden_math_header(a_header) &&
+          !is_forbidden_math_include_path(a_header, a_path))))
+    {
+        return true;
+    }
+
+    if (a_reportsFailure)
+    {
+        std::cerr << "Forbidden header dependency: " << a_path.string()
+                  << '\n';
+    }
+
+    return false;
 }
 
 /// @brief Sanitized SourceのInclude DirectiveとMacro Operandを検証する
@@ -701,17 +785,52 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
                 const auto header = line.substr(index + 1U, close - index - 1U);
 
-                if (is_directxmath_header(header) ||
-                    (a_isMathSource &&
-                     (is_forbidden_math_header(header) ||
-                      is_forbidden_math_include_path(header, a_path))))
+                if (!validate_header_operand(
+                        header, a_isMathSource, a_path, a_reportsFailure))
+                {
+                    return false;
+                }
+            }
+        }
+
+        auto importLine = line;
+        constexpr std::string_view exportName = "export";
+        constexpr std::string_view importName = "import";
+
+        if (importLine.substr(0U, exportName.size()) == exportName &&
+            importLine.size() > exportName.size() &&
+            std::isspace(static_cast<unsigned char>(
+                importLine[exportName.size()])) != 0)
+        {
+            importLine = trim_ascii(importLine.substr(exportName.size()));
+        }
+
+        if (importLine.substr(0U, importName.size()) == importName &&
+            importLine.size() > importName.size() &&
+            std::isspace(static_cast<unsigned char>(
+                importLine[importName.size()])) != 0)
+        {
+            const auto operand = trim_ascii(importLine.substr(importName.size()));
+
+            if (!operand.empty() && operand.front() == '<')
+            {
+                const auto close = operand.find('>', 1U);
+
+                if (close == std::string_view::npos)
                 {
                     if (a_reportsFailure)
                     {
-                        std::cerr << "Forbidden include dependency: "
+                        std::cerr << "Unterminated import operand: "
                                   << a_path.string() << '\n';
                     }
 
+                    return false;
+                }
+
+                if (!validate_header_operand(
+                        operand.substr(1U, close - 1U), a_isMathSource,
+                        a_path, a_reportsFailure))
+                {
                     return false;
                 }
             }
@@ -837,6 +956,14 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         return false;
     }
 
+    const auto globalUsing = sanitize_cpp_source(
+        "using namespace ::DirectX; BoundingBox value{};\n");
+
+    if (!has_forbidden_directxmath_tokens(tokenize_cpp(globalUsing)))
+    {
+        return false;
+    }
+
     const auto digraphInclude =
         sanitize_cpp_source("%:include <DirectXMath.h>\n");
 
@@ -852,6 +979,24 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     if (validate_include_directives(
             relativeModuleInclude, true,
             "Engine/Source/Math/Private/RelativeIncludeProbe.cpp", false))
+    {
+        return false;
+    }
+
+    const auto pathHeaderInclude =
+        sanitize_cpp_source("#include <../um/DirectXMath.h>\n");
+
+    if (validate_include_directives(
+            pathHeaderInclude, false, "PathHeaderProbe.cpp", false))
+    {
+        return false;
+    }
+
+    const auto headerUnitImport =
+        sanitize_cpp_source("export import \"DirectXMath.h\";\n");
+
+    if (validate_include_directives(
+            headerUnitImport, false, "HeaderUnitProbe.cpp", false))
     {
         return false;
     }

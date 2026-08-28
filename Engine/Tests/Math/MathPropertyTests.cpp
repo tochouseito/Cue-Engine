@@ -176,7 +176,7 @@ class TestEmergencyHandler final : public cue::EmergencyHandler
             1.0F + static_cast<float>((index * 7U) % 8U),
         };
         auto rotation = cue::math::from_axis_angle(
-            a_handler, axis, cue::math::Radians(sample_value(index, 41U, 0.004F)),
+            a_handler, axis, cue::math::Radians(sample_value(index, 41U, 0.07F)),
             a_tolerance);
 
         if (!rotation)
