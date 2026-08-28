@@ -12,6 +12,7 @@ namespace
 {
 constexpr std::int64_t k_optionalCapabilityQueryFailed = 100;
 constexpr std::int64_t k_capabilityDiagnosticDeliveryFailed = 101;
+constexpr std::int64_t k_requiredCapabilityQueryFailed = 102;
 thread_local std::optional<D3D12_FEATURE> g_failureFeature;
 
 /// @brief Production Queryを呼び、Probe指定FeatureだけSynthetic失敗へ差し替える
@@ -45,6 +46,14 @@ HRESULT check_feature_support(ID3D12Device *a_device, D3D12_FEATURE a_feature, v
         cue::d3d12_private::make_code(a_assertContext, k_capabilityDiagnosticDeliveryFailed),
         "D3D12 optional capability diagnostic delivery failed", std::move(cause));
     return cue::Result<void>::failure(std::move(deliveryError));
+}
+
+/// @brief Required Baseline Query失敗をBackend生成失敗として返すErrorへ変換する
+[[nodiscard]] cue::Error make_required_query_failure(HRESULT a_nativeCode, const char *a_summary,
+                                                      const cue::AssertContext &a_assertContext) noexcept
+{
+    return cue::d3d12_private::make_native_error(
+        a_assertContext, k_requiredCapabilityQueryFailed, a_summary, a_nativeCode);
 }
 
 /// @brief BOOL Feature値をSupport状態へ変換する
@@ -247,17 +256,17 @@ Result<CapabilityReport> query_d3d12_capability_report(
     if (SUCCEEDED(result))
     {
         const std::optional<GraphicsFeatureLevel> value = map_feature_level(levels.MaxSupportedFeatureLevel);
-        report.featureLevel = value ? GraphicsCapabilityValue<GraphicsFeatureLevel>::supported(*value)
-                                    : GraphicsCapabilityValue<GraphicsFeatureLevel>::query_failed();
+        if (!value)
+        {
+            return Result<CapabilityReport>::failure(make_required_query_failure(
+                E_UNEXPECTED, "D3D12 feature level query returned an unknown value", a_assertContext));
+        }
+        report.featureLevel = GraphicsCapabilityValue<GraphicsFeatureLevel>::supported(*value);
     }
     else
     {
-        report.featureLevel = GraphicsCapabilityValue<GraphicsFeatureLevel>::query_failed();
-        Result<void> failure = handle_failure(result, "D3D12 feature level query failed", a_assertContext);
-        if (!failure)
-        {
-            return Result<CapabilityReport>::failure(std::move(*failure.try_error()));
-        }
+        return Result<CapabilityReport>::failure(
+            make_required_query_failure(result, "D3D12 feature level query failed", a_assertContext));
     }
 
     constexpr std::array requestedShaderModels = {
@@ -278,17 +287,17 @@ Result<CapabilityReport> query_d3d12_capability_report(
     if (SUCCEEDED(result))
     {
         const std::optional<CapabilityVersion> value = map_shader_model(shaderModel.HighestShaderModel);
-        report.shaderModel = value ? GraphicsCapabilityValue<CapabilityVersion>::supported(*value)
-                                   : GraphicsCapabilityValue<CapabilityVersion>::query_failed();
+        if (!value)
+        {
+            return Result<CapabilityReport>::failure(make_required_query_failure(
+                E_UNEXPECTED, "D3D12 shader model query returned an unknown value", a_assertContext));
+        }
+        report.shaderModel = GraphicsCapabilityValue<CapabilityVersion>::supported(*value);
     }
     else
     {
-        report.shaderModel = GraphicsCapabilityValue<CapabilityVersion>::query_failed();
-        Result<void> failure = handle_failure(result, "D3D12 shader model query failed", a_assertContext);
-        if (!failure)
-        {
-            return Result<CapabilityReport>::failure(std::move(*failure.try_error()));
-        }
+        return Result<CapabilityReport>::failure(
+            make_required_query_failure(result, "D3D12 shader model query failed", a_assertContext));
     }
 
     D3D12_FEATURE_DATA_ROOT_SIGNATURE rootSignature = {D3D_ROOT_SIGNATURE_VERSION_1_1};
@@ -296,8 +305,12 @@ Result<CapabilityReport> query_d3d12_capability_report(
     if (SUCCEEDED(result))
     {
         const std::optional<CapabilityVersion> value = map_root_signature(rootSignature.HighestVersion);
-        report.rootSignature = value ? GraphicsCapabilityValue<CapabilityVersion>::supported(*value)
-                                     : GraphicsCapabilityValue<CapabilityVersion>::query_failed();
+        if (!value)
+        {
+            return Result<CapabilityReport>::failure(make_required_query_failure(
+                E_UNEXPECTED, "D3D12 root signature query returned an unknown value", a_assertContext));
+        }
+        report.rootSignature = GraphicsCapabilityValue<CapabilityVersion>::supported(*value);
     }
     else if (result == E_INVALIDARG)
     {
@@ -307,12 +320,8 @@ Result<CapabilityReport> query_d3d12_capability_report(
     }
     else
     {
-        report.rootSignature = GraphicsCapabilityValue<CapabilityVersion>::query_failed();
-        Result<void> failure = handle_failure(result, "D3D12 root signature query failed", a_assertContext);
-        if (!failure)
-        {
-            return Result<CapabilityReport>::failure(std::move(*failure.try_error()));
-        }
+        return Result<CapabilityReport>::failure(
+            make_required_query_failure(result, "D3D12 root signature query failed", a_assertContext));
     }
 
     D3D12_FEATURE_DATA_D3D12_OPTIONS options = {};

@@ -190,4 +190,29 @@ bool verify_d3d12_optional_capability_log_failure_for_probe(AssertContext &a_ass
     return !backendResult && error != nullptr && error->code().domain() == "Cue.RHI.D3D12" &&
            error->code().value() == 101;
 }
+
+bool verify_d3d12_required_capability_failure_for_probe(AssertContext &a_assertContext) noexcept
+{
+    struct FailureReset final
+    {
+        /// @brief Probe終了時にRequired Capability失敗注入を必ず解除する
+        ~FailureReset() noexcept
+        {
+            d3d12_private::clear_capability_query_failure_for_probe();
+        }
+    } reset;
+    static_cast<void>(reset);
+
+    d3d12_private::set_capability_query_failure_for_probe(D3D12_FEATURE_FEATURE_LEVELS);
+    D3d12BackendDescriptor descriptor = {
+        D3d12AdapterPolicy::Warp,
+        D3d12ValidationMode::Disabled,
+        false,
+        5'000,
+    };
+    Result<std::unique_ptr<D3d12Backend>> backendResult = create_d3d12_backend(descriptor, a_assertContext);
+    const Error *error = backendResult.try_error();
+    return !backendResult && error != nullptr && error->code().domain() == "Cue.RHI.D3D12" &&
+           error->code().value() == 102;
+}
 } // namespace cue
