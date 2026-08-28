@@ -243,6 +243,19 @@ template <typename T>
                               *firstMatrix.try_value() * *secondMatrix.try_value(), a_tolerance);
 }
 
+/// @brief Quaternion合成がMatrix合成との指定Toleranceを満たせない成功値を拒否する
+[[nodiscard]] bool test_quaternion_composition_precision_failure(
+    TestEmergencyHandler &a_handler, const cue::math::Tolerance &a_tolerance)
+{
+    const auto rootHalf = 0.70710678F;
+    const auto scale = 1.00009F;
+    auto result = cue::math::compose_rotation(
+        a_handler, cue::math::Quaternion{0.0F, 0.0F, 0.0F, 0.99995F},
+        cue::math::Quaternion{0.0F, 0.0F, rootHalf * scale, rootHalf * scale},
+        a_tolerance);
+    return has_math_error(result, 2);
+}
+
 /// @brief 非単位・Zero・非有限Quaternionの失敗契約と符号反転同一回転を検証する
 [[nodiscard]] bool test_quaternion_failures(TestEmergencyHandler &a_handler,
                                             const cue::math::Tolerance &a_tolerance)
@@ -572,6 +585,7 @@ int main()
                    test_matrix_inverse_precision_failure(handler) &&
                    test_quaternion_basis(handler, tolerance) &&
                    test_quaternion_composition(handler, tolerance) &&
+                   test_quaternion_composition_precision_failure(handler, tolerance) &&
                    test_quaternion_failures(handler, tolerance) &&
                    test_transform_order(handler, tolerance) &&
                    test_transform_composition_and_inverse(handler, tolerance) &&

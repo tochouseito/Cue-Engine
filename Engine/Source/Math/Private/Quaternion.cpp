@@ -321,6 +321,40 @@ cue::Result<Quaternion> compose_rotation(cue::EmergencyHandler &a_emergencyHandl
         return cue::Result<Quaternion>::failure(std::move(error));
     }
 
+    auto firstMatrix = to_matrix3(a_emergencyHandler, a_first, a_tolerance);
+
+    if (!firstMatrix)
+    {
+        auto error = std::move(*firstMatrix.try_error());
+        return cue::Result<Quaternion>::failure(std::move(error));
+    }
+
+    auto secondMatrix = to_matrix3(a_emergencyHandler, a_second, a_tolerance);
+
+    if (!secondMatrix)
+    {
+        auto error = std::move(*secondMatrix.try_error());
+        return cue::Result<Quaternion>::failure(std::move(error));
+    }
+
+    auto resultMatrix = to_matrix3(a_emergencyHandler, result, a_tolerance);
+
+    if (!resultMatrix)
+    {
+        auto error = std::move(*resultMatrix.try_error());
+        return cue::Result<Quaternion>::failure(std::move(error));
+    }
+
+    const auto expectedMatrix = *firstMatrix.try_value() * *secondMatrix.try_value();
+
+    if (!is_near(*resultMatrix.try_value(), expectedMatrix, a_tolerance))
+    {
+        auto error = make_quaternion_error(
+            a_emergencyHandler, 2,
+            "Quaternion and Matrix composition exceeded the requested tolerance");
+        return cue::Result<Quaternion>::failure(std::move(error));
+    }
+
     return cue::Result<Quaternion>::success(std::move(result));
 }
 } // namespace cue::math
