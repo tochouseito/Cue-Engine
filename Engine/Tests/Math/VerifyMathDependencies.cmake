@@ -23,10 +23,21 @@ file(
     GLOB_RECURSE
     cueRepositoryCppFiles
     LIST_DIRECTORIES FALSE
+    "${REPOSITORY_ROOT}/*.c++"
+    "${REPOSITORY_ROOT}/*.cc"
     "${REPOSITORY_ROOT}/*.cpp"
+    "${REPOSITORY_ROOT}/*.cppm"
+    "${REPOSITORY_ROOT}/*.cxx"
+    "${REPOSITORY_ROOT}/*.cxxm"
     "${REPOSITORY_ROOT}/*.h"
+    "${REPOSITORY_ROOT}/*.h++"
+    "${REPOSITORY_ROOT}/*.hh"
     "${REPOSITORY_ROOT}/*.hpp"
+    "${REPOSITORY_ROOT}/*.hxx"
+    "${REPOSITORY_ROOT}/*.inl"
+    "${REPOSITORY_ROOT}/*.ipp"
     "${REPOSITORY_ROOT}/*.ixx"
+    "${REPOSITORY_ROOT}/*.tpp"
 )
 
 list(
