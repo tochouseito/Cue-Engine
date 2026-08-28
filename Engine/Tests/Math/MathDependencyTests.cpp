@@ -186,12 +186,18 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         ++index;
     }
 
-    if (index >= line.size() || line[index] != '#')
+    if (index < line.size() && line[index] == '#')
+    {
+        ++index;
+    }
+    else if (line.substr(index, 2U) == "%:")
+    {
+        index += 2U;
+    }
+    else
     {
         return false;
     }
-
-    ++index;
 
     while (index < line.size() && (line[index] == ' ' || line[index] == '\t'))
     {
@@ -527,11 +533,22 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
             a_tokens[index].kind == TokenKind::Identifier &&
             a_tokens[index].text == "namespace" &&
             a_tokens[index + 1U].kind == TokenKind::Identifier &&
-            a_tokens[index + 2U].kind == TokenKind::Equal &&
-            a_tokens[index + 3U].kind == TokenKind::Identifier &&
-            a_tokens[index + 3U].text == "DirectX")
+            a_tokens[index + 2U].kind == TokenKind::Equal)
         {
-            return true;
+            auto targetIndex = index + 3U;
+
+            if (targetIndex < a_tokens.size() &&
+                a_tokens[targetIndex].kind == TokenKind::Scope)
+            {
+                ++targetIndex;
+            }
+
+            if (targetIndex < a_tokens.size() &&
+                a_tokens[targetIndex].kind == TokenKind::Identifier &&
+                a_tokens[targetIndex].text == "DirectX")
+            {
+                return true;
+            }
         }
 
         if (index + 2U < a_tokens.size() &&
@@ -591,6 +608,22 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
            starts_with(normalized, "cue/editor/");
 }
 
+/// @brief Math SourceからのInclude先をRepository相対Pathへ解決し禁止Moduleか判定する
+[[nodiscard]] bool is_forbidden_math_include_path(
+    std::string_view a_header,
+    const std::filesystem::path &a_sourceRelativePath)
+{
+    std::string portableHeader(a_header);
+    std::replace(portableHeader.begin(), portableHeader.end(), '\\', '/');
+    const auto resolved =
+        (a_sourceRelativePath.parent_path() / portableHeader).lexically_normal();
+    const auto normalized = lower_ascii(resolved.generic_string());
+    return starts_with(normalized, "engine/source/platform/") ||
+           starts_with(normalized, "engine/source/rhi/") ||
+           starts_with(normalized, "engine/source/runtimehost/") ||
+           starts_with(normalized, "engine/source/editor/");
+}
+
 /// @brief Sanitized SourceのInclude DirectiveとMacro Operandを検証する
 [[nodiscard]] bool validate_include_directives(
     std::string_view a_code, bool a_isMathSource,
@@ -610,7 +643,18 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
         if (!line.empty() && line[index] == '#')
         {
             ++index;
+        }
+        else if (line.substr(index, 2U) == "%:")
+        {
+            index += 2U;
+        }
+        else
+        {
+            index = line.size();
+        }
 
+        if (index < line.size())
+        {
             while (index < line.size() &&
                    std::isspace(static_cast<unsigned char>(line[index])) != 0)
             {
@@ -658,7 +702,9 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                 const auto header = line.substr(index + 1U, close - index - 1U);
 
                 if (is_directxmath_header(header) ||
-                    (a_isMathSource && is_forbidden_math_header(header)))
+                    (a_isMathSource &&
+                     (is_forbidden_math_header(header) ||
+                      is_forbidden_math_include_path(header, a_path))))
                 {
                     if (a_reportsFailure)
                     {
@@ -779,6 +825,33 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
     if (validate_include_directives(
             macroInclude, false, "MacroIncludeProbe.cpp", false))
+    {
+        return false;
+    }
+
+    const auto globalAlias = sanitize_cpp_source(
+        "namespace dx = ::DirectX; dx::BoundingBox value{};\n");
+
+    if (!has_forbidden_directxmath_tokens(tokenize_cpp(globalAlias)))
+    {
+        return false;
+    }
+
+    const auto digraphInclude =
+        sanitize_cpp_source("%:include <DirectXMath.h>\n");
+
+    if (validate_include_directives(
+            digraphInclude, false, "DigraphIncludeProbe.cpp", false))
+    {
+        return false;
+    }
+
+    const auto relativeModuleInclude = sanitize_cpp_source(
+        "#include \"../../Platform/Public/Cue/Platform/Window.h\"\n");
+
+    if (validate_include_directives(
+            relativeModuleInclude, true,
+            "Engine/Source/Math/Private/RelativeIncludeProbe.cpp", false))
     {
         return false;
     }
