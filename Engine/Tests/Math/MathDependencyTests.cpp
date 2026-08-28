@@ -718,6 +718,7 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     const std::filesystem::path &a_path, bool a_reportsFailure = true)
 {
     std::size_t lineStart = 0U;
+    std::vector<std::string> definedMacros;
 
     while (lineStart <= a_code.size())
     {
@@ -804,16 +805,31 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                 std::isspace(static_cast<unsigned char>(
                     line[directiveStart + defineName.size()])) != 0)
             {
-                auto replacement = trim_ascii_left(
+                auto definition = trim_ascii_left(
                     line.substr(directiveStart + defineName.size()));
+                const auto macroNameStart = definition.data();
 
-                while (!replacement.empty() &&
-                       is_identifier_continue(replacement.front()))
+                while (!definition.empty() &&
+                       is_identifier_continue(definition.front()))
                 {
-                    replacement.remove_prefix(1U);
+                    definition.remove_prefix(1U);
                 }
 
-                replacement = trim_ascii_left(replacement);
+                definedMacros.emplace_back(
+                    macroNameStart,
+                    static_cast<std::size_t>(definition.data() - macroNameStart));
+
+                if (!definition.empty() && definition.front() == '(')
+                {
+                    const auto close = definition.find(')');
+
+                    if (close != std::string_view::npos)
+                    {
+                        definition.remove_prefix(close + 1U);
+                    }
+                }
+
+                auto replacement = trim_ascii_left(definition);
 
                 if (replacement.substr(0U, 2U) == "::")
                 {
@@ -876,6 +892,31 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
                         operand.substr(1U, close - 1U), a_isMathSource,
                         a_path, a_reportsFailure))
                 {
+                    return false;
+                }
+            }
+            else if (!operand.empty() && is_identifier_start(operand.front()))
+            {
+                auto macroNameEnd = 1U;
+
+                while (macroNameEnd < operand.size() &&
+                       is_identifier_continue(operand[macroNameEnd]))
+                {
+                    ++macroNameEnd;
+                }
+
+                const auto macroName = operand.substr(0U, macroNameEnd);
+
+                if (std::find(
+                        definedMacros.begin(), definedMacros.end(), macroName) !=
+                    definedMacros.end())
+                {
+                    if (a_reportsFailure)
+                    {
+                        std::cerr << "Macro import operand is forbidden: "
+                                  << a_path.string() << '\n';
+                    }
+
                     return false;
                 }
             }
@@ -1070,6 +1111,25 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
 
     if (validate_include_directives(
             namespaceMacroAlias, false, "NamespaceMacroProbe.cpp", false))
+    {
+        return false;
+    }
+
+    const auto functionNamespaceMacroAlias = sanitize_cpp_source(
+        "#define DX() ::DirectX\nDX()::BoundingBox value{};\n");
+
+    if (validate_include_directives(
+            functionNamespaceMacroAlias, false,
+            "FunctionNamespaceMacroProbe.cpp", false))
+    {
+        return false;
+    }
+
+    const auto macroHeaderUnitImport = sanitize_cpp_source(
+        "#define H <DirectXMath.h>\nimport H;\n");
+
+    if (validate_include_directives(
+            macroHeaderUnitImport, false, "MacroHeaderUnitProbe.cpp", false))
     {
         return false;
     }
