@@ -42,7 +42,7 @@ file(
 
 set(
     cueDirectXMathIdentifierPattern
-    "(^|[^A-Za-z0-9_])(XM_[A-Z0-9_]+|g_XM[A-Za-z0-9_]*|XMVECTOR[A-Z0-9_]*|XMMATRIX|XM(FLOAT|INT|UINT|BYTE|UBYTE|SHORT|USHORT|HALF|COLOR|HENDN|DEC|UDEC|XDEC|UXDEC|U555|U565)[A-Z0-9_]*|XM(Vector|Matrix|Quaternion|Plane|Color|Scalar|Convert|Load|Store|Verify|Comparison|SinCos|Fresnel)[A-Za-z0-9_]*)($|[^A-Za-z0-9_])"
+    "(^|[^A-Za-z0-9_])([CFGH]XMVECTOR|[CF]XMMATRIX|XM_[A-Z0-9_]+|XM256_STREAM_PS|XMGLOBALCONST|XMMax|XMMin|g_XM[A-Za-z0-9_]*|XMVECTOR[A-Z0-9_]*|XMMATRIX|XM(FLOAT|INT|UINT|BYTE|UBYTE|SHORT|USHORT|HALF|COLOR|HENDN|DEC|UDEC|XDEC|UXDEC|UNIBBLE|U555|U565)[A-Z0-9_]*|XM(Vector|Matrix|Quaternion|Plane|Color|Scalar|Convert|Load|Store|Verify|Comparison|SinCos|Fresnel)[A-Za-z0-9_]*)($|[^A-Za-z0-9_])"
 )
 
 foreach(cueRepositoryCppFile IN LISTS cueRepositoryCppFiles)
