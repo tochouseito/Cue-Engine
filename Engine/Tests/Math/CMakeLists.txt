@@ -118,6 +118,7 @@ foreach(sourcePath IN LISTS cueMathSources)
         get_source_file_property(
             sourcePropertyValue
             "${sourcePath}"
+            TARGET_DIRECTORY Cue.Math
             ${sourceProperty}
         )
 
