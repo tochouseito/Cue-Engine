@@ -48,6 +48,8 @@ set(combinedOutput "${testOutput}\n${testError}")
 foreach(
     requiredMessage
     IN ITEMS
+        "System Capability Snapshot"
+        "Capability State: Name=Baseline3D, Query=Succeeded, Support=Supported, Implementation=Implemented, Enablement=Enabled"
         "D3D12 Render Loop ready: Width=640, Height=360, BufferCount=2, VSync=true"
         "D3D12 Render Loop completed: FrameCount=300"
         "D3D12 Render Loop shutdown completed"

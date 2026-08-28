@@ -54,8 +54,6 @@ foreach(
         "D3D12 Device Smoke ready"
         "System Capability Snapshot"
         "Capability State: Name=Baseline3D, Query=Succeeded, Support=Supported, Implementation=Implemented, Enablement=Enabled"
-        "Capability State: Name=RayTracing"
-        "Implementation=NotImplemented, Enablement=NotApplicable"
         "D3D12 Device Smoke shutdown completed"
 )
     string(FIND "${combinedOutput}" "${requiredMessage}" messagePosition)
@@ -64,6 +62,17 @@ foreach(
         message(FATAL_ERROR "D3D12 Device smoke output is missing: ${requiredMessage}")
     endif()
 endforeach()
+
+string(
+    REGEX MATCH
+    "Capability State: Name=RayTracing, (Query=Succeeded, Support=(Supported|Unsupported)|Query=(Failed|NotQueried), Support=Unknown), Implementation=NotImplemented, Enablement=NotApplicable"
+    rayTracingCapabilityLine
+    "${combinedOutput}"
+)
+
+if(rayTracingCapabilityLine STREQUAL "")
+    message(FATAL_ERROR "D3D12 Device smoke output has an invalid RayTracing Capability State\n${combinedOutput}")
+endif()
 
 string(
     FIND

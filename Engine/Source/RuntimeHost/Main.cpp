@@ -429,12 +429,6 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 [[nodiscard]] int run_graphics_smoke(const RuntimeOptions &a_options, cue::Logger &a_logger,
                                      cue::AssertContext &a_assertContext)
 {
-    // Platform Query と RHI Query を同じ Composition Root で記録し、Hardware 差分を一回の Smoke 出力から追跡する
-    if (log_system_capabilities(a_logger, a_assertContext) != cue::LogResult::Success)
-    {
-        return k_graphicsLogFailed;
-    }
-
     // Window を必要としない最小経路で Adapter と Device の生成、能力取得、安全な終了を検証する
     cue::D3d12BackendDescriptor descriptor = make_backend_descriptor(a_options);
     cue::Result<std::unique_ptr<cue::D3d12Backend>> backendResult =
@@ -501,6 +495,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
     }
 
     std::unique_ptr<cue::D3d12Backend> backend = std::move(*backendResult.try_value());
+    cue::LogResult capabilityStateLogResult = log_graphics_capability_states(a_logger, backend->capabilities());
     cue::PresentationDescriptor presentationDescriptor = {true};
     cue::Result<std::unique_ptr<cue::PresentationContext>> presentationResult =
         cue::create_d3d12_windows_presentation(*backend, a_window, presentationDescriptor);
@@ -562,7 +557,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
     backend.reset();
 
-    if (presentationLogResult != cue::LogResult::Success)
+    if (capabilityStateLogResult != cue::LogResult::Success || presentationLogResult != cue::LogResult::Success)
     {
         return k_graphicsLogFailed;
     }
@@ -593,6 +588,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
     }
 
     std::unique_ptr<cue::D3d12Backend> backend = std::move(*backendResult.try_value());
+    cue::LogResult capabilityStateLogResult = log_graphics_capability_states(a_logger, backend->capabilities());
     cue::PresentationDescriptor presentationDescriptor = {true};
     cue::Result<std::unique_ptr<cue::PresentationContext>> presentationResult =
         cue::create_d3d12_windows_presentation(*backend, a_window, presentationDescriptor);
@@ -952,7 +948,8 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
     cue::LogResult completionLogResult = a_logger.log(cue::LogLevel::Info, completionMessage);
     cue::LogResult shutdownLogResult = a_logger.log(cue::LogLevel::Info, "D3D12 Render Loop shutdown completed");
     cue::LogResult flushResult = a_logger.flush();
-    return readyLogResult == cue::LogResult::Success && resizeSmokeLogResult == cue::LogResult::Success &&
+    return capabilityStateLogResult == cue::LogResult::Success && readyLogResult == cue::LogResult::Success &&
+                   resizeSmokeLogResult == cue::LogResult::Success &&
                    completionLogResult == cue::LogResult::Success && shutdownLogResult == cue::LogResult::Success &&
                    flushResult == cue::LogResult::Success
                ? 0
@@ -971,6 +968,12 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 [[nodiscard]] int run(const RuntimeOptions &a_options, cue::Logger &a_logger, cue::AssertContext &a_assertContext)
 {
     static_cast<void>(a_logger.log(cue::LogLevel::Info, "Runtime Host initialization started"));
+
+    // Platform Query は全 Runtime Mode 共通の Composition Root で一度だけ実行し、起動経路による診断欠落を防ぐ
+    if (log_system_capabilities(a_logger, a_assertContext) != cue::LogResult::Success)
+    {
+        return k_graphicsLogFailed;
+    }
 
     // Graphics Smoke は Window 依存を除外し、Backend 単体の失敗範囲を明確にする
     if (a_options.isGraphicsSmoke)
