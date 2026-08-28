@@ -40,6 +40,11 @@ file(
     "${REPOSITORY_ROOT}/*.tpp"
 )
 
+set(
+    cueDirectXMathIdentifierPattern
+    "(^|[^A-Za-z0-9_])(XM_[A-Z0-9_]+|g_XM[A-Za-z0-9_]*|XMVECTOR|XMMATRIX|XM(FLOAT|INT|UINT|BYTE|UBYTE|SHORT|USHORT|HALF|COLOR|HENDN|DEC|UDEC|XDEC|UXDEC|U555|U565)[A-Z0-9_]*|XM(Vector|Matrix|Quaternion|Plane|Color|Scalar|Convert|Load|Store|Verify|Comparison|SinCos|Fresnel)[A-Za-z0-9_]*)($|[^A-Za-z0-9_])"
+)
+
 foreach(cueRepositoryCppFile IN LISTS cueRepositoryCppFiles)
     file(
         RELATIVE_PATH
@@ -57,7 +62,7 @@ foreach(cueRepositoryCppFile IN LISTS cueRepositoryCppFiles)
 
     if(cueRepositoryCppContentLower MATCHES
        "directx(math|packedvector|collision|colors)(\\.h)?|directx::[ \\t\\r\\n]*(xm|packedvector)"
-       OR cueRepositoryCppContent MATCHES "(^|[^A-Za-z0-9_])XM[A-Z]")
+       OR cueRepositoryCppContent MATCHES "${cueDirectXMathIdentifierPattern}")
         message(
             FATAL_ERROR
             "Repository-owned C++ source has a forbidden DirectXMath dependency: ${cueRepositoryCppFile}"
