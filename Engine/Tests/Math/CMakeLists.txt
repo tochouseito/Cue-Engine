@@ -16,18 +16,25 @@ add_executable(CueMathTests MathTests.cpp)
 target_link_libraries(CueMathTests PRIVATE Cue.Math)
 target_compile_features(CueMathTests PRIVATE cxx_std_20)
 
+add_executable(CueMathTransformTests MathTransformTests.cpp)
+target_link_libraries(CueMathTransformTests PRIVATE Cue.Math)
+target_compile_features(CueMathTransformTests PRIVATE cxx_std_20)
+
 add_executable(
     CueMathPublicHeaderTest
     AngleHeaderCompile.cpp
+    MatrixHeaderCompile.cpp
     PublicHeaderCompile.cpp
+    QuaternionHeaderCompile.cpp
     ScalarHeaderCompile.cpp
+    TransformHeaderCompile.cpp
     VectorHeaderCompile.cpp
 )
 
 target_link_libraries(CueMathPublicHeaderTest PRIVATE Cue.Math)
 target_compile_features(CueMathPublicHeaderTest PRIVATE cxx_std_20)
 
-set(cueMathTestTargets CueMathTests CueMathPublicHeaderTest)
+set(cueMathTestTargets CueMathTests CueMathTransformTests CueMathPublicHeaderTest)
 
 foreach(testTarget IN LISTS cueMathTestTargets)
     set_target_properties(
@@ -61,6 +68,7 @@ endforeach()
 add_custom_target(Cue.Math.Tests DEPENDS ${cueMathTestTargets})
 
 add_test(NAME Cue.Math.ScalarAngleVector COMMAND CueMathTests)
+add_test(NAME Cue.Math.MatrixQuaternionTransform COMMAND CueMathTransformTests)
 add_test(NAME Cue.Math.PublicHeaders COMMAND CueMathPublicHeaderTest)
 add_test(
     NAME Cue.Math.Dependencies
@@ -72,6 +80,7 @@ add_test(
 
 set_tests_properties(
     Cue.Math.ScalarAngleVector
+    Cue.Math.MatrixQuaternionTransform
     Cue.Math.PublicHeaders
     Cue.Math.Dependencies
     PROPERTIES

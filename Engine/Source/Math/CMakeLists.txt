@@ -4,14 +4,20 @@ target_sources(
     Cue.Math
     PRIVATE
         Private/Angle.cpp
+        Private/Matrix.cpp
+        Private/Quaternion.cpp
         Private/Scalar.cpp
+        Private/Transform.cpp
         Private/Vector.cpp
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS Public
         FILES
             Public/Cue/Math/Angle.h
+            Public/Cue/Math/Matrix.h
+            Public/Cue/Math/Quaternion.h
             Public/Cue/Math/Scalar.h
+            Public/Cue/Math/Transform.h
             Public/Cue/Math/Vector.h
 )
 
