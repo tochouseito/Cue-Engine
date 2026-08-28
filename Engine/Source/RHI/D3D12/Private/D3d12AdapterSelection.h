@@ -60,7 +60,7 @@ using D3d12FactoryCreator = HRESULT(WINAPI *)(UINT, REFIID, void **);
 
 /// @brief D3D12 Adapter 選択で使用する D3D12 Capability Report を生成し、呼び出し元へ返す
 [[nodiscard]] Result<CapabilityReport> make_d3d12_capability_report(
-    const D3d12AdapterReport &a_report, bool a_isUma, const AssertContext &a_assertContext) noexcept;
+    const D3d12AdapterReport &a_report, const AssertContext &a_assertContext) noexcept;
 
 /// @brief DXGI Adapter の UTF-16 名を既存の D3D12 Error 契約を保って UTF-8 へ変換する
 [[nodiscard]] Result<std::string> convert_d3d12_adapter_name(

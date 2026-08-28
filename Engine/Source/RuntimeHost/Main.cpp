@@ -80,8 +80,8 @@ struct RuntimeOptions final
             continue;
         }
 
-        bool isGraphicsModeArgument = argument == L"--graphics-smoke" || argument == L"--presentation-smoke" ||
-                                      argument == L"--render-smoke";
+        bool isGraphicsModeArgument =
+            argument == L"--graphics-smoke" || argument == L"--presentation-smoke" || argument == L"--render-smoke";
 #if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
         isGraphicsModeArgument = isGraphicsModeArgument || argument == L"--resize-smoke";
 #endif
@@ -223,8 +223,8 @@ void print_usage() noexcept
 [[nodiscard]] cue::Error make_runtime_error(const cue::AssertContext &a_assertContext,
                                             std::string_view a_summary) noexcept
 {
-    cue::ErrorCode code = cue::ErrorCode::create(a_assertContext.fatal_handler(), "Cue.RuntimeHost",
-                                                 k_resizeSmokeFailed);
+    cue::ErrorCode code =
+        cue::ErrorCode::create(a_assertContext.fatal_handler(), "Cue.RuntimeHost", k_resizeSmokeFailed);
     return cue::Error::create(a_assertContext.fatal_handler(), std::move(code), a_summary);
 }
 
@@ -235,8 +235,7 @@ void print_usage() noexcept
     if (a_actionIndex == k_resizeSmokeResizeActionCount)
     {
         return cue::issue_windows_window_lifecycle_probe_action(
-            a_window, cue::WindowsWindowLifecycleProbeAction::ResizeThenClose, {832, 468}, {768, 432},
-            a_assertContext);
+            a_window, cue::WindowsWindowLifecycleProbeAction::ResizeThenClose, {832, 468}, {768, 432}, a_assertContext);
     }
 
     const std::uint32_t phase = a_actionIndex % 3;
@@ -244,15 +243,13 @@ void print_usage() noexcept
     if (phase == 0)
     {
         const std::uint32_t cycleIndex = a_actionIndex / 3;
-        const cue::WindowSize finalSize = cycleIndex % 2 == 0 ? cue::WindowSize{768, 432}
-                                                              : cue::WindowSize{704, 396};
+        const cue::WindowSize finalSize = cycleIndex % 2 == 0 ? cue::WindowSize{768, 432} : cue::WindowSize{704, 396};
         return cue::issue_windows_window_lifecycle_probe_action(
             a_window, cue::WindowsWindowLifecycleProbeAction::Resize, {832, 468}, finalSize, a_assertContext);
     }
 
     const cue::WindowsWindowLifecycleProbeAction action =
-        phase == 1 ? cue::WindowsWindowLifecycleProbeAction::Minimize
-                   : cue::WindowsWindowLifecycleProbeAction::Restore;
+        phase == 1 ? cue::WindowsWindowLifecycleProbeAction::Minimize : cue::WindowsWindowLifecycleProbeAction::Restore;
     return cue::issue_windows_window_lifecycle_probe_action(a_window, action, {}, {}, a_assertContext);
 }
 // === Resize Smoke Test Probe End ===
@@ -264,9 +261,8 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
                                  std::source_location a_location = std::source_location::current()) noexcept
 {
     // 最初に処理を失敗させた Error を主因として保ち、後始末の失敗も同じ診断から追跡できるようにする
-    a_primaryError.append_secondary_diagnostics(
-        a_assertContext, a_secondaryError, a_context,
-        "Secondary Runtime Error", a_location);
+    a_primaryError.append_secondary_diagnostics(a_assertContext, a_secondaryError, a_context, "Secondary Runtime Error",
+                                                a_location);
 }
 
 /// @brief Window を生成せず D3D12 Backend の生成、能力取得、停止経路を検証する
@@ -289,8 +285,8 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
     std::string capabilityMessage =
         "D3D12 Device Smoke ready: Adapter=" + capabilities.adapterName +
         ", VendorId=" + std::to_string(capabilities.vendorId) + ", DeviceId=" + std::to_string(capabilities.deviceId) +
-        ", DedicatedVideoMemoryBytes=" + std::to_string(capabilities.dedicatedVideoMemoryBytes) +
-        ", UMA=" + (capabilities.isUma ? "true" : "false");
+        ", DedicatedVideoMemoryBytes=" + std::to_string(capabilities.dedicatedVideoMemoryBytes) + ", UMA=" +
+        (capabilities.uma.support() == cue::CapabilitySupport::Supported ? "supported" : "unsupported-or-unknown");
     cue::LogResult capabilityLogResult = a_logger.log(cue::LogLevel::Info, capabilityMessage);
     cue::Result<void> shutdownResult = backend->shutdown();
 
@@ -325,7 +321,8 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 [[nodiscard]] int run_presentation_smoke(const RuntimeOptions &a_options, cue::Window &a_window, cue::Logger &a_logger,
                                          cue::AssertContext &a_assertContext)
 {
-    // Presentation が参照する Device と Window を先に存続させ、描画 Loop を通さず Presentation Resource 一式の寿命を検証する
+    // Presentation が参照する Device と Window を先に存続させ、描画 Loop を通さず Presentation Resource
+    // 一式の寿命を検証する
     cue::D3d12BackendDescriptor backendDescriptor = make_backend_descriptor(a_options);
     cue::Result<std::unique_ptr<cue::D3d12Backend>> backendResult =
         cue::create_d3d12_backend(backendDescriptor, a_assertContext);
@@ -412,8 +409,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
 /// @brief Window Event、Resize、Frame 投入、GPU 停止を規定順で処理する Render Loop を実行する
 [[nodiscard]] int run_render_loop(const RuntimeOptions &a_options, cue::WindowSystem &a_windowSystem,
-                                  cue::Window &a_window, cue::Logger &a_logger,
-                                  cue::AssertContext &a_assertContext)
+                                  cue::Window &a_window, cue::Logger &a_logger, cue::AssertContext &a_assertContext)
 {
     constexpr std::uint64_t renderSmokeFrameCount = 300;
     constexpr std::array<float, 4> clearColor = {0.06F, 0.18F, 0.32F, 1.0F};
@@ -447,16 +443,15 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
         }
 
         backend.reset();
-        return report_error(a_logger, "Runtime Host failed to create D3D12 Presentation",
-                            std::move(presentationError), k_presentationCreationFailed);
+        return report_error(a_logger, "Runtime Host failed to create D3D12 Presentation", std::move(presentationError),
+                            k_presentationCreationFailed);
     }
 
     std::unique_ptr<cue::PresentationContext> presentation = std::move(*presentationResult.try_value());
-    std::string readyMessage =
-        "D3D12 Render Loop ready: Width=" + std::to_string(presentation->width()) +
-        ", Height=" + std::to_string(presentation->height()) +
-        ", BufferCount=" + std::to_string(presentation->buffer_count()) +
-        ", VSync=" + (presentation->is_vsync_enabled() ? "true" : "false");
+    std::string readyMessage = "D3D12 Render Loop ready: Width=" + std::to_string(presentation->width()) +
+                               ", Height=" + std::to_string(presentation->height()) +
+                               ", BufferCount=" + std::to_string(presentation->buffer_count()) +
+                               ", VSync=" + (presentation->is_vsync_enabled() ? "true" : "false");
     cue::LogResult readyLogResult = a_logger.log(cue::LogLevel::Info, readyMessage);
     std::optional<cue::Error> frameError;
     std::string_view loopErrorMessage = "Runtime Host rendering Frame failed";
@@ -484,9 +479,8 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
         if (a_options.isResizeSmoke && !isResizeSmokeStarted && !isResizeSmokeBatchProbeIssued)
         {
             cue::Result<void> minimizeResult = issue_resize_smoke_action(a_window, 1, a_assertContext);
-            cue::Result<void> restoreResult = minimizeResult
-                                                  ? issue_resize_smoke_action(a_window, 2, a_assertContext)
-                                                  : cue::Result<void>::success();
+            cue::Result<void> restoreResult =
+                minimizeResult ? issue_resize_smoke_action(a_window, 2, a_assertContext) : cue::Result<void>::success();
 
             if (!minimizeResult || !restoreResult)
             {
@@ -500,8 +494,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
             isResizeSmokeBatchProbeIssued = true;
         }
 
-        if (a_options.isResizeSmoke && isResizeSmokeStarted &&
-            resizeSmokeActionIndex < k_resizeSmokeActionCount)
+        if (a_options.isResizeSmoke && isResizeSmokeStarted && resizeSmokeActionIndex < k_resizeSmokeActionCount)
         {
             cue::Result<void> actionResult =
                 issue_resize_smoke_action(a_window, resizeSmokeActionIndex, a_assertContext);
@@ -576,15 +569,14 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 #if defined(CUE_RUNTIME_RESIZE_SMOKE_SUPPORT) && CUE_RUNTIME_RESIZE_SMOKE_SUPPORT
             if (a_options.isResizeSmoke)
             {
-                const bool smokeSequenceValid =
-                    resizeSmokeActionIndex == k_resizeSmokeActionCount &&
-                    resizeEventCount == k_resizeSmokeCycleCount * 2 + 2 &&
-                    minimizeEventCount == k_resizeSmokeCycleCount &&
-                    restoreEventCount == k_resizeSmokeCycleCount &&
-                    resizeApplyCount == k_resizeSmokeResizeActionCount &&
-                    minimizedFrameSkipCount == k_resizeSmokeCycleCount &&
-                    resizeSmokePresentedFrameCount == k_resizeSmokeCycleCount * 2 &&
-                    presentation->width() == 704 && presentation->height() == 396;
+                const bool smokeSequenceValid = resizeSmokeActionIndex == k_resizeSmokeActionCount &&
+                                                resizeEventCount == k_resizeSmokeCycleCount * 2 + 2 &&
+                                                minimizeEventCount == k_resizeSmokeCycleCount &&
+                                                restoreEventCount == k_resizeSmokeCycleCount &&
+                                                resizeApplyCount == k_resizeSmokeResizeActionCount &&
+                                                minimizedFrameSkipCount == k_resizeSmokeCycleCount &&
+                                                resizeSmokePresentedFrameCount == k_resizeSmokeCycleCount * 2 &&
+                                                presentation->width() == 704 && presentation->height() == 396;
 
                 if (!smokeSequenceValid)
                 {
@@ -602,8 +594,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
         if (pendingResize)
         {
             // Event drain 後に一度だけ適用し、非 0 Size は同期し、0 Size は Native Resize を延期する
-            cue::Result<void> resizeResult =
-                presentation->resize(pendingResize->width, pendingResize->height);
+            cue::Result<void> resizeResult = presentation->resize(pendingResize->width, pendingResize->height);
 
             if (!resizeResult)
             {
@@ -746,8 +737,7 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
         if (backendShutdownError)
         {
             add_secondary_runtime_error(*frameError, *backendShutdownError,
-                                        "D3D12 Backend shutdown also failed after rendering Error",
-                                        a_assertContext);
+                                        "D3D12 Backend shutdown also failed after rendering Error", a_assertContext);
         }
 
         return report_error(a_logger, loopErrorMessage, std::move(*frameError), loopErrorExitCode);
@@ -769,8 +759,8 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
 
     if (backendShutdownError)
     {
-        return report_error(a_logger, "Runtime Host failed to shutdown D3D12 Backend",
-                            std::move(*backendShutdownError), k_graphicsBackendShutdownFailed);
+        return report_error(a_logger, "Runtime Host failed to shutdown D3D12 Backend", std::move(*backendShutdownError),
+                            k_graphicsBackendShutdownFailed);
     }
 
     cue::LogResult resizeSmokeLogResult = cue::LogResult::Success;
@@ -789,16 +779,15 @@ void add_secondary_runtime_error(cue::Error &a_primaryError, const cue::Error &a
     }
 #endif
 
-    std::string completionMessage =
-        "D3D12 Render Loop completed: FrameCount=" + std::to_string(frameCount) +
-        ", OccludedFrameCount=" + std::to_string(occludedFrameCount) +
-        ", FinalBackBufferIndex=" + std::to_string(finalBackBufferIndex);
+    std::string completionMessage = "D3D12 Render Loop completed: FrameCount=" + std::to_string(frameCount) +
+                                    ", OccludedFrameCount=" + std::to_string(occludedFrameCount) +
+                                    ", FinalBackBufferIndex=" + std::to_string(finalBackBufferIndex);
     cue::LogResult completionLogResult = a_logger.log(cue::LogLevel::Info, completionMessage);
     cue::LogResult shutdownLogResult = a_logger.log(cue::LogLevel::Info, "D3D12 Render Loop shutdown completed");
     cue::LogResult flushResult = a_logger.flush();
     return readyLogResult == cue::LogResult::Success && resizeSmokeLogResult == cue::LogResult::Success &&
-                   completionLogResult == cue::LogResult::Success &&
-                   shutdownLogResult == cue::LogResult::Success && flushResult == cue::LogResult::Success
+                   completionLogResult == cue::LogResult::Success && shutdownLogResult == cue::LogResult::Success &&
+                   flushResult == cue::LogResult::Success
                ? 0
                : k_graphicsLogFailed;
 }

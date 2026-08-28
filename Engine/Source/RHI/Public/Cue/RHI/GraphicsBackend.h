@@ -1,8 +1,10 @@
 #pragma once
 
+#include <Cue/Foundation/Capability.h>
 #include <Cue/Foundation/Result.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace cue
@@ -25,6 +27,114 @@ enum class GraphicsProfile
 {
     Baseline3D,
 };
+
+/// @brief Native定数へ依存しないD3D12世代のGraphics Feature Level
+enum class GraphicsFeatureLevel
+{
+    Level12_0,
+    Level12_1,
+    Level12_2,
+};
+
+/// @brief Resource Descriptor BindingのHardware Tier
+enum class ResourceBindingTier
+{
+    Tier1,
+    Tier2,
+    Tier3,
+};
+
+/// @brief Resource Heap制約のHardware Tier
+enum class ResourceHeapTier
+{
+    Tier1,
+    Tier2,
+};
+
+/// @brief Hardware Ray Tracing機能のTier
+enum class RayTracingTier
+{
+    Tier1_0,
+    Tier1_1,
+};
+
+/// @brief Mesh Shader機能のTier
+enum class MeshShaderTier
+{
+    Tier1,
+};
+
+/// @brief Variable Rate Shading機能のTier
+enum class VariableRateShadingTier
+{
+    Tier1,
+    Tier2,
+};
+
+/// @brief Sampler Feedback機能のTier
+enum class SamplerFeedbackTier
+{
+    Tier0_9,
+    Tier1_0,
+};
+
+/// @brief Query状態、Support状態、対応時の型付き値を一つに束ねるGraphics Capability値
+template <typename Value> class GraphicsCapabilityValue final
+{
+  public:
+    /// @brief Query対象外または未実行により値が不明な状態を返す
+    [[nodiscard]] static constexpr GraphicsCapabilityValue not_queried() noexcept
+    {
+        return GraphicsCapabilityValue(CapabilitySupportState::not_queried(), std::nullopt);
+    }
+
+    /// @brief Query失敗により値が不明な状態を返す
+    [[nodiscard]] static constexpr GraphicsCapabilityValue query_failed() noexcept
+    {
+        return GraphicsCapabilityValue(CapabilitySupportState::query_failed(), std::nullopt);
+    }
+
+    /// @brief Query成功によりHardware未対応と判明した状態を返す
+    [[nodiscard]] static constexpr GraphicsCapabilityValue unsupported() noexcept
+    {
+        return GraphicsCapabilityValue(CapabilitySupportState::unsupported(), std::nullopt);
+    }
+
+    /// @brief Query成功で取得したHardware対応値を保持する状態を返す
+    [[nodiscard]] static constexpr GraphicsCapabilityValue supported(Value a_value) noexcept
+    {
+        return GraphicsCapabilityValue(CapabilitySupportState::supported(), a_value);
+    }
+
+    /// @brief Query結果とHardware対応状態を返す
+    [[nodiscard]] constexpr CapabilitySupportState support_state() const noexcept
+    {
+        return m_supportState;
+    }
+
+    /// @brief Hardware対応値がある場合だけ非所有Pointerを返す
+    [[nodiscard]] constexpr const Value *try_value() const noexcept
+    {
+        return m_value ? &*m_value : nullptr;
+    }
+
+  private:
+    /// @brief 名前付きFactoryが保証したSupport状態と任意値を保持する
+    constexpr GraphicsCapabilityValue(CapabilitySupportState a_supportState, std::optional<Value> a_value) noexcept
+        : m_value(a_value), m_supportState(a_supportState)
+    {
+    }
+
+    std::optional<Value> m_value;
+    CapabilitySupportState m_supportState;
+};
+
+static_assert(GraphicsCapabilityValue<GraphicsFeatureLevel>::supported(GraphicsFeatureLevel::Level12_0)
+                  .support_state()
+                  .support() == CapabilitySupport::Supported);
+static_assert(GraphicsCapabilityValue<ResourceBindingTier>::unsupported().try_value() == nullptr);
+static_assert(GraphicsCapabilityValue<ResourceHeapTier>::query_failed().support_state().query_status() ==
+              CapabilityQueryStatus::Failed);
 
 /// @brief Native Resource の保持段階と Owner の破棄可否を表す Graphics Backend の Lifecycle 状態
 enum class GraphicsBackendState
@@ -66,8 +176,49 @@ struct CapabilityReport final
     /// @brief 提供される Graphics Profile
     GraphicsProfile profile;
 
-    /// @brief Unified Memory Architecture の場合は true
-    bool isUma;
+    /// @brief Baselineを含む最大Feature LevelのQuery結果
+    GraphicsCapabilityValue<GraphicsFeatureLevel> featureLevel =
+        GraphicsCapabilityValue<GraphicsFeatureLevel>::not_queried();
+
+    /// @brief 最大Shader Model VersionのQuery結果
+    GraphicsCapabilityValue<CapabilityVersion> shaderModel = GraphicsCapabilityValue<CapabilityVersion>::not_queried();
+
+    /// @brief 最大Root Signature VersionのQuery結果
+    GraphicsCapabilityValue<CapabilityVersion> rootSignature =
+        GraphicsCapabilityValue<CapabilityVersion>::not_queried();
+
+    /// @brief Resource Binding TierのQuery結果
+    GraphicsCapabilityValue<ResourceBindingTier> resourceBinding =
+        GraphicsCapabilityValue<ResourceBindingTier>::not_queried();
+
+    /// @brief Resource Heap TierのQuery結果
+    GraphicsCapabilityValue<ResourceHeapTier> resourceHeap = GraphicsCapabilityValue<ResourceHeapTier>::not_queried();
+
+    /// @brief Ray Tracing TierのQuery結果
+    GraphicsCapabilityValue<RayTracingTier> rayTracing = GraphicsCapabilityValue<RayTracingTier>::not_queried();
+
+    /// @brief Mesh Shader TierのQuery結果
+    GraphicsCapabilityValue<MeshShaderTier> meshShader = GraphicsCapabilityValue<MeshShaderTier>::not_queried();
+
+    /// @brief Variable Rate Shading TierのQuery結果
+    GraphicsCapabilityValue<VariableRateShadingTier> variableRateShading =
+        GraphicsCapabilityValue<VariableRateShadingTier>::not_queried();
+
+    /// @brief Sampler Feedback TierのQuery結果
+    GraphicsCapabilityValue<SamplerFeedbackTier> samplerFeedback =
+        GraphicsCapabilityValue<SamplerFeedbackTier>::not_queried();
+
+    /// @brief Wave Operation対応のQuery結果
+    CapabilitySupportState waveOperations = CapabilitySupportState::not_queried();
+
+    /// @brief Enhanced Barrier対応のQuery結果
+    CapabilitySupportState enhancedBarriers = CapabilitySupportState::not_queried();
+
+    /// @brief Unified Memory Architecture対応のQuery結果
+    CapabilitySupportState uma = CapabilitySupportState::not_queried();
+
+    /// @brief Cache Coherent UMA対応のQuery結果
+    CapabilitySupportState cacheCoherentUma = CapabilitySupportState::not_queried();
 };
 
 /// @brief Platform 非依存の Graphics Backend 所有契約

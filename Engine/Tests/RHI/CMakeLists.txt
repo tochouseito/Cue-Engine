@@ -505,8 +505,8 @@ if(WIN32)
         NAME Cue.RHI.D3D12.Diagnostics.EmptyDredFallback
         COMMAND CueRhiD3d12DiagnosticsProcess EmptyDredFallback
     )
-    add_test(
-        NAME Cue.RHI.D3D12.Backend.InvalidWaitTimeout
+add_test(
+    NAME Cue.RHI.D3D12.Backend.InvalidWaitTimeout
         COMMAND CueRhiD3d12BackendProcess InvalidWaitTimeout
     )
     add_test(
@@ -833,6 +833,16 @@ set_tests_properties(
     PROPERTIES
         LABELS RHI
         TIMEOUT 10
+)
+
+add_test(
+    NAME Cue.RHI.D3D12.Backend.OptionalCapabilityFailure
+    COMMAND CueRhiD3d12BackendProcess OptionalCapabilityFailure
+)
+
+add_test(
+    NAME Cue.RHI.D3D12.Backend.OptionalCapabilityLogFailure
+    COMMAND CueRhiD3d12BackendProcess OptionalCapabilityLogFailure
 )
 
 if(WIN32)
