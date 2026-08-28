@@ -125,8 +125,8 @@ struct CapabilityState final
 - `NotQueried`と`Supported`または`Unsupported`
 - `Failed`と`Supported`または`Unsupported`
 - `Succeeded`と`Unknown`
-- `Enabled`と`NotImplemented`
-- `Enabled`と`Unknown`または`Unsupported`
+- `Enabled`または`Disabled`と`NotImplemented`
+- `Enabled`または`Disabled`と`Succeeded + Supported`以外のHardware状態
 
 `QueryFailed`を`Unsupported`へ変換しない。Native Errorの詳細はModule境界で`cue::Error`とLogへ変換するが、Immutable SnapshotにはNative Error型または所有権を持つError Chainを格納しない。
 
@@ -203,7 +203,7 @@ Optional `CheckFeatureSupport`が失敗しても、Baseline Backend生成条件�
 
 必須Baseline CapabilityのQuery失敗または未対応はBackend生成失敗とする。必須条件とOptional条件の一覧はBackend Policyで明示し、Query関数の偶発的な失敗処理へ埋め込まない。
 
-Graphics BackendはSnapshotをBackend生成成功時に完成させ、Backend破棄開始までImmutableな`const`参照として公開する。
+Graphics BackendはSnapshotをBackend生成成功時に完成させ、Backend ObjectのDestructor完了までImmutableな`const`参照として公開する。`shutdown()`はNative Resourceの停止と解放を行うが、Snapshotを無効化または変更しない。
 
 ### Snapshot Ownership and Thread Safety
 
@@ -216,7 +216,7 @@ SystemとGraphics Snapshotは次の規則に従う。
 - Query処理中のBuilderまたはNative一時値を公開しない
 - Owner破棄後まで`const`参照を保持できると保証しない
 
-PlatformはPlatform RuntimeのShutdownまでSystem Snapshotを所有する。RHI BackendはBackendのShutdown開始までGraphics Snapshotを所有する。Shutdown後も必要な診断値は呼び出し側がSnapshotをCopyして保持する。
+PlatformはPlatform Runtime ObjectのDestructor完了までSystem Snapshotを所有する。RHI BackendはBackend ObjectのDestructor完了までGraphics Snapshotを所有する。各OwnerのDestructor後も必要な診断値は、呼び出し側がDestructor前にSnapshotをCopyして保持する。
 
 Snapshotを更新する必要が生じるHot-plug、Adapter変更、Device Recoveryは、Generation付き再公開と利用側同期を決定する別ADRまで対象外とする。M08では起動時Snapshotを固定する。
 
