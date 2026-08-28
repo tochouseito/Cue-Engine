@@ -246,6 +246,16 @@ Error生成には`cue::EmergencyHandler`への非所有参照が必要になる�
 成功経路ではErrorと所有文字列を生成せず、Emergency Handlerを呼び出さない。
 失敗時はDomain `Cue.Math`のError Codeと開発者向けSummaryを持つErrorを生成し、Math Module内ではLogしない。
 
+Math APIはProcess GlobalまたはThread-localな共有可変状態を持たず、呼び出し中に非同期処理を開始しない。
+Math値型は外部Resourceと非所有参照を保持せず、値の寿命は所有する呼び出し側だけが管理する。
+異なるMath Objectに対する演算と、同じObjectへのConst Readは複数Threadから並行実行できる。
+同じObjectに対するWrite、またはWriteとReadの並行実行は呼び出し側が同期する。
+
+`EmergencyHandler`はError生成中のAllocation失敗に備えて、そのMath API呼び出しのDynamic Extent内だけで使用し、返却した`Result<T>`または`Error`へ参照を保持しない。
+呼び出し側はAPIが復帰するまでHandlerを生存させる。
+同じHandlerを複数Threadから同時に渡す場合は、その派生Handlerが並行した`terminate`呼び出しに対応することをOwnerが保証するか、呼び出し側で直列化する。
+Math ModuleはHandlerのThread Safetyを補うLockを持たず、Thread Affinityも要求しない。
+
 最小Error分類は次のとおりとする。
 
 - Non-finite input
