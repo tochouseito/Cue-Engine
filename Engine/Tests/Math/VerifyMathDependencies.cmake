@@ -58,7 +58,7 @@ foreach(cueRepositoryCppFile IN LISTS cueRepositoryCppFiles)
     if(
         cueRepositoryCppContentLower
         MATCHES
-        "directxmath(\\.h)?|directx::[ \\t\\r\\n]*xm|xmvector|xmmatrix|xmfloat[0-9a-z_]*|xmuint[0-9a-z_]*|xmint[0-9a-z_]*"
+        "directx(math|packedvector|collision|colors)(\\.h)?|directx::[ \\t\\r\\n]*(xm|packedvector)|xm(vector|matrix|float|uint|int|color|half|short|ushort|byte|ubyte|udecn|dec)[0-9a-z_]*"
     )
         message(
             FATAL_ERROR
