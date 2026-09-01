@@ -154,7 +154,9 @@ Asset Pipelineの別Research Issueで決定する。非null Default Sceneを導�
 `schemaVersion`はProject Descriptor Formatの単調増加する正の整数であり、CueEngine Release Versionではない。
 Fieldの意味、必須性、既定値、正規化規則を変更する場合に増加させる。
 
-`engineCompatibility`はProjectが要求するCueEngine Version範囲であり、`major.minor.patch`の非負整数3要素を使用する。
+`engineCompatibility`はProjectが要求するCueEngine Version範囲であり、`major.minor.patch`の非負整数3要素を使用する。各要素は
+0から4294967295までの32-bit unsigned integerとし、JSON String内ではASCII decimal digitだけを使用する。値0は`0`、正の値は
+先頭Zeroなしのcanonical表現だけを受理し、空要素、符号、空白、Suffix、4要素以上を拒否する。
 `minimum`はInclusive、`maximumExclusive`はExclusiveまたは`null`とする。現在Engine Versionの提供元と比較結果の分類はIssue #140で
 実装する。`maximumExclusive`が非nullの場合は`minimum`より厳密に大きい値だけを受理し、空または逆転した範囲を拒否する。
 
@@ -169,9 +171,10 @@ Parserは次の順序で判定する。
 Formatが読めることとProjectを現在環境で実行できることを同じ成功値にしない。互換性判定は
 `Compatible`、`Degraded`、`Unsupported`、`Unknown`と理由を返し、Project Open可否とRuntime Feature Enablementも分離する。
 
-未来の未対応`schemaVersion`を推測して読み込まない。既知Versionの未知Top-level Fieldは、意味を理解せず破棄して再保存することを
-避けるため拒否する。ModuleまたはTool固有のOptional Dataは`extensions`内でNamespace付きObjectとして保存し、未認識Entryを
-Opaque JSONとして保持してRound-tripする。未知ExtensionをProject Coreの必須条件にしない。
+未来の未対応`schemaVersion`を推測して読み込まない。既知Versionでは`extensions`の値を除く全ての固定Schema Objectについて、
+Top-levelとNestedの両方で未知Fieldおよび重複Fieldを拒否する。意味を理解しないDataをModel構築時に破棄して再保存しない。
+ModuleまたはTool固有のOptional Dataは`extensions`内でNamespace付きObjectとして保存し、未認識EntryをOpaque JSONとして保持して
+Round-tripする。未知ExtensionをProject Coreの必須条件にしない。JSON Object自身の重複Member名はOpaque Extension内も含めて拒否する。
 
 MigrationはVersionごとの`N -> N + 1`変換として登録し、途中Versionを飛ばさない。Open時に共有Descriptorを暗黙更新せず、
 Migration Requiredを呼び出し側へ返す。明示的なMigrationは元Dataを検証後、Memory上で段階変換し、現行Schemaとして再検証してから
