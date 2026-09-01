@@ -10,6 +10,7 @@
 #include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <span>
 #include <string>
@@ -24,6 +25,13 @@ constexpr std::size_t k_maximumStringBytes = 256U * 1024U;
 constexpr std::size_t k_maximumContainerElements = 4096U;
 constexpr std::size_t k_maximumNestingDepth = 32U;
 constexpr std::uint32_t k_supportedSchemaVersion = 1U;
+
+/// @brief Project 処理中の予期しない例外を追加 Allocation なしで Fatal 境界へ渡す
+[[noreturn]] void terminate_project_exception(const cue::AssertContext &a_assertContext) noexcept
+{
+    a_assertContext.fatal_handler().terminate("Project descriptor operation failed unexpectedly");
+    std::abort();
+}
 
 enum class JsonType : std::uint8_t
 {
@@ -782,7 +790,14 @@ Result<ProjectId> ProjectId::parse(std::string_view a_text, const AssertContext 
                                    "ProjectId contains a non-lowercase hexadecimal digit"));
         }
     }
-    return Result<ProjectId>::success(ProjectId(std::string(a_text)));
+    try
+    {
+        return Result<ProjectId>::success(ProjectId(std::string(a_text)));
+    }
+    catch (...)
+    {
+        terminate_project_exception(a_assertContext);
+    }
 }
 
 std::string_view ProjectId::text() const noexcept
@@ -842,243 +857,266 @@ bool ProjectDescriptor::equivalent_to(const ProjectDescriptor &a_other) const no
 Result<ProjectDescriptor> parse_project_descriptor(std::string_view a_json,
                                                    const AssertContext &a_assertContext) noexcept
 {
-    if (a_json.size() > k_maximumDescriptorBytes)
+    try
     {
-        return Result<ProjectDescriptor>::failure(
-            make_project_error(a_assertContext, ProjectError::InvalidFormat, "Project descriptor exceeds 1 MiB"));
-    }
-    if (a_json.starts_with("\xEF\xBB\xBF"))
-    {
-        return Result<ProjectDescriptor>::failure(make_project_error(
-            a_assertContext, ProjectError::InvalidFormat, "Project descriptor must not contain a UTF-8 BOM"));
-    }
+        if (a_json.size() > k_maximumDescriptorBytes)
+        {
+            return Result<ProjectDescriptor>::failure(
+                make_project_error(a_assertContext, ProjectError::InvalidFormat, "Project descriptor exceeds 1 MiB"));
+        }
+        if (a_json.starts_with("\xEF\xBB\xBF"))
+        {
+            return Result<ProjectDescriptor>::failure(make_project_error(
+                a_assertContext, ProjectError::InvalidFormat, "Project descriptor must not contain a UTF-8 BOM"));
+        }
 
-    JsonValue root;
-    JsonParser parser(a_json);
-    if (!parser.parse(root))
-    {
-        return Result<ProjectDescriptor>::failure(
-            make_project_error(a_assertContext, ProjectError::InvalidFormat, parser.error()));
-    }
-    if (root.type != JsonType::Object)
-    {
-        return Result<ProjectDescriptor>::failure(make_project_error(a_assertContext, ProjectError::InvalidFormat,
-                                                                     "Project descriptor root must be a JSON object"));
-    }
+        JsonValue root;
+        JsonParser parser(a_json);
+        if (!parser.parse(root))
+        {
+            return Result<ProjectDescriptor>::failure(
+                make_project_error(a_assertContext, ProjectError::InvalidFormat, parser.error()));
+        }
+        if (root.type != JsonType::Object)
+        {
+            return Result<ProjectDescriptor>::failure(make_project_error(
+                a_assertContext, ProjectError::InvalidFormat, "Project descriptor root must be a JSON object"));
+        }
 
-    const JsonValue *schemaVersionMember = find_member(root, "schemaVersion");
-    std::uint32_t parsedSchemaVersion = 0U;
-    if (schemaVersionMember == nullptr || schemaVersionMember->type != JsonType::Number ||
-        !parse_canonical_u32(schemaVersionMember->text, false, parsedSchemaVersion))
-    {
-        return Result<ProjectDescriptor>::failure(
-            make_project_error(a_assertContext, ProjectError::InvalidFormat,
-                               "schemaVersion is missing or is not a canonical positive uint32"));
-    }
-    if (parsedSchemaVersion != k_supportedSchemaVersion)
-    {
-        return Result<ProjectDescriptor>::failure(
-            make_project_error(a_assertContext, ProjectError::UnsupportedSchemaVersion,
-                               "Project descriptor schemaVersion is unsupported"));
-    }
+        const JsonValue *schemaVersionMember = find_member(root, "schemaVersion");
+        std::uint32_t parsedSchemaVersion = 0U;
+        if (schemaVersionMember == nullptr || schemaVersionMember->type != JsonType::Number ||
+            !parse_canonical_u32(schemaVersionMember->text, false, parsedSchemaVersion))
+        {
+            return Result<ProjectDescriptor>::failure(
+                make_project_error(a_assertContext, ProjectError::InvalidFormat,
+                                   "schemaVersion is missing or is not a canonical positive uint32"));
+        }
+        if (parsedSchemaVersion != k_supportedSchemaVersion)
+        {
+            return Result<ProjectDescriptor>::failure(
+                make_project_error(a_assertContext, ProjectError::UnsupportedSchemaVersion,
+                                   "Project descriptor schemaVersion is unsupported"));
+        }
 
-    constexpr std::array topLevelNames = {
-        std::string_view("schemaVersion"),        std::string_view("projectId"), std::string_view("displayName"),
-        std::string_view("engineCompatibility"),  std::string_view("roots"),     std::string_view("defaultScene"),
-        std::string_view("requiredCapabilities"), std::string_view("extensions")};
-    if (!has_exact_members(root, topLevelNames))
-    {
-        return Result<ProjectDescriptor>::failure(
-            make_project_error(a_assertContext, ProjectError::InvalidFormat,
-                               "Project descriptor has missing or unknown top-level members"));
-    }
+        constexpr std::array topLevelNames = {
+            std::string_view("schemaVersion"),        std::string_view("projectId"), std::string_view("displayName"),
+            std::string_view("engineCompatibility"),  std::string_view("roots"),     std::string_view("defaultScene"),
+            std::string_view("requiredCapabilities"), std::string_view("extensions")};
+        if (!has_exact_members(root, topLevelNames))
+        {
+            return Result<ProjectDescriptor>::failure(
+                make_project_error(a_assertContext, ProjectError::InvalidFormat,
+                                   "Project descriptor has missing or unknown top-level members"));
+        }
 
-    const JsonValue &projectIdValue = *find_member(root, "projectId");
-    if (projectIdValue.type != JsonType::String)
-    {
-        return Result<ProjectDescriptor>::failure(
-            make_project_error(a_assertContext, ProjectError::InvalidProjectId, "projectId must be a JSON string"));
-    }
-    Result<ProjectId> projectIdResult = ProjectId::parse(projectIdValue.text, a_assertContext);
-    if (!projectIdResult)
-    {
-        return Result<ProjectDescriptor>::failure(std::move(*projectIdResult.try_error()));
-    }
+        const JsonValue &projectIdValue = *find_member(root, "projectId");
+        if (projectIdValue.type != JsonType::String)
+        {
+            return Result<ProjectDescriptor>::failure(
+                make_project_error(a_assertContext, ProjectError::InvalidProjectId, "projectId must be a JSON string"));
+        }
+        Result<ProjectId> projectIdResult = ProjectId::parse(projectIdValue.text, a_assertContext);
+        if (!projectIdResult)
+        {
+            return Result<ProjectDescriptor>::failure(std::move(*projectIdResult.try_error()));
+        }
 
-    const JsonValue &displayName = *find_member(root, "displayName");
-    if (displayName.type != JsonType::String || !is_valid_display_name(displayName.text))
-    {
-        return Result<ProjectDescriptor>::failure(
-            make_project_error(a_assertContext, ProjectError::InvalidDisplayName,
-                               "displayName is empty, too long, invalid UTF-8, or contains a control character"));
-    }
+        const JsonValue &displayName = *find_member(root, "displayName");
+        if (displayName.type != JsonType::String || !is_valid_display_name(displayName.text))
+        {
+            return Result<ProjectDescriptor>::failure(
+                make_project_error(a_assertContext, ProjectError::InvalidDisplayName,
+                                   "displayName is empty, too long, invalid UTF-8, or contains a control character"));
+        }
 
-    const JsonValue &compatibility = *find_member(root, "engineCompatibility");
-    constexpr std::array compatibilityNames = {std::string_view("minimum"), std::string_view("maximumExclusive")};
-    if (!has_exact_members(compatibility, compatibilityNames))
-    {
-        return Result<ProjectDescriptor>::failure(
-            make_project_error(a_assertContext, ProjectError::InvalidEngineCompatibility,
-                               "engineCompatibility has missing or unknown members"));
-    }
-    const JsonValue &minimumValue = *find_member(compatibility, "minimum");
-    EngineCompatibility engineCompatibility;
-    if (minimumValue.type != JsonType::String || !parse_engine_version(minimumValue.text, engineCompatibility.minimum))
-    {
-        return Result<ProjectDescriptor>::failure(make_project_error(
-            a_assertContext, ProjectError::InvalidEngineCompatibility, "minimum engine version is not canonical"));
-    }
-    const JsonValue &maximumValue = *find_member(compatibility, "maximumExclusive");
-    if (maximumValue.type == JsonType::String)
-    {
-        EngineVersion maximum;
-        if (!parse_engine_version(maximumValue.text, maximum) || maximum <= engineCompatibility.minimum)
+        const JsonValue &compatibility = *find_member(root, "engineCompatibility");
+        constexpr std::array compatibilityNames = {std::string_view("minimum"), std::string_view("maximumExclusive")};
+        if (!has_exact_members(compatibility, compatibilityNames))
         {
             return Result<ProjectDescriptor>::failure(
                 make_project_error(a_assertContext, ProjectError::InvalidEngineCompatibility,
-                                   "maximumExclusive must be canonical and greater than minimum"));
+                                   "engineCompatibility has missing or unknown members"));
         }
-        engineCompatibility.maximumExclusive = maximum;
-    }
-    else if (maximumValue.type != JsonType::Null)
-    {
-        return Result<ProjectDescriptor>::failure(
-            make_project_error(a_assertContext, ProjectError::InvalidEngineCompatibility,
-                               "maximumExclusive must be a version string or null"));
-    }
+        const JsonValue &minimumValue = *find_member(compatibility, "minimum");
+        EngineCompatibility engineCompatibility;
+        if (minimumValue.type != JsonType::String ||
+            !parse_engine_version(minimumValue.text, engineCompatibility.minimum))
+        {
+            return Result<ProjectDescriptor>::failure(make_project_error(
+                a_assertContext, ProjectError::InvalidEngineCompatibility, "minimum engine version is not canonical"));
+        }
+        const JsonValue &maximumValue = *find_member(compatibility, "maximumExclusive");
+        if (maximumValue.type == JsonType::String)
+        {
+            EngineVersion maximum;
+            if (!parse_engine_version(maximumValue.text, maximum) || maximum <= engineCompatibility.minimum)
+            {
+                return Result<ProjectDescriptor>::failure(
+                    make_project_error(a_assertContext, ProjectError::InvalidEngineCompatibility,
+                                       "maximumExclusive must be canonical and greater than minimum"));
+            }
+            engineCompatibility.maximumExclusive = maximum;
+        }
+        else if (maximumValue.type != JsonType::Null)
+        {
+            return Result<ProjectDescriptor>::failure(
+                make_project_error(a_assertContext, ProjectError::InvalidEngineCompatibility,
+                                   "maximumExclusive must be a version string or null"));
+        }
 
-    const JsonValue &rootsValue = *find_member(root, "roots");
-    constexpr std::array rootNames = {std::string_view("sourceAssets"), std::string_view("runtimeAssets"),
-                                      std::string_view("generated"), std::string_view("saved")};
-    if (!has_exact_members(rootsValue, rootNames))
-    {
-        return Result<ProjectDescriptor>::failure(
-            make_project_error(a_assertContext, ProjectError::InvalidRoots, "roots has missing or unknown members"));
-    }
-    const std::array<const JsonValue *, 4U> rootValues = {
-        find_member(rootsValue, "sourceAssets"), find_member(rootsValue, "runtimeAssets"),
-        find_member(rootsValue, "generated"), find_member(rootsValue, "saved")};
-    if (!std::ranges::all_of(rootValues,
-                             [](const JsonValue *a_value) noexcept { return a_value->type == JsonType::String; }))
-    {
-        return Result<ProjectDescriptor>::failure(
-            make_project_error(a_assertContext, ProjectError::InvalidRoots, "root role must be a JSON string"));
-    }
-    std::array<Result<RelativePath>, 4U> rootResults = {RelativePath::parse(rootValues[0]->text, a_assertContext),
-                                                        RelativePath::parse(rootValues[1]->text, a_assertContext),
-                                                        RelativePath::parse(rootValues[2]->text, a_assertContext),
-                                                        RelativePath::parse(rootValues[3]->text, a_assertContext)};
-    if (!std::ranges::all_of(rootResults,
-                             [](const Result<RelativePath> &a_result) noexcept { return a_result.has_value(); }))
-    {
-        return Result<ProjectDescriptor>::failure(make_project_error(
-            a_assertContext, ProjectError::InvalidRoots, "root role is not a valid portable relative path"));
-    }
-    ProjectRoots roots{std::move(*rootResults[0].try_value()), std::move(*rootResults[1].try_value()),
-                       std::move(*rootResults[2].try_value()), std::move(*rootResults[3].try_value())};
-    if (!validate_roots(roots, a_assertContext))
-    {
-        return Result<ProjectDescriptor>::failure(make_project_error(
-            a_assertContext, ProjectError::InvalidRoots, "root roles overlap, nest, or collide with CueProject.json"));
-    }
+        const JsonValue &rootsValue = *find_member(root, "roots");
+        constexpr std::array rootNames = {std::string_view("sourceAssets"), std::string_view("runtimeAssets"),
+                                          std::string_view("generated"), std::string_view("saved")};
+        if (!has_exact_members(rootsValue, rootNames))
+        {
+            return Result<ProjectDescriptor>::failure(make_project_error(a_assertContext, ProjectError::InvalidRoots,
+                                                                         "roots has missing or unknown members"));
+        }
+        const std::array<const JsonValue *, 4U> rootValues = {
+            find_member(rootsValue, "sourceAssets"), find_member(rootsValue, "runtimeAssets"),
+            find_member(rootsValue, "generated"), find_member(rootsValue, "saved")};
+        if (!std::ranges::all_of(rootValues,
+                                 [](const JsonValue *a_value) noexcept { return a_value->type == JsonType::String; }))
+        {
+            return Result<ProjectDescriptor>::failure(
+                make_project_error(a_assertContext, ProjectError::InvalidRoots, "root role must be a JSON string"));
+        }
+        std::array<Result<RelativePath>, 4U> rootResults = {RelativePath::parse(rootValues[0]->text, a_assertContext),
+                                                            RelativePath::parse(rootValues[1]->text, a_assertContext),
+                                                            RelativePath::parse(rootValues[2]->text, a_assertContext),
+                                                            RelativePath::parse(rootValues[3]->text, a_assertContext)};
+        if (!std::ranges::all_of(rootResults,
+                                 [](const Result<RelativePath> &a_result) noexcept { return a_result.has_value(); }))
+        {
+            return Result<ProjectDescriptor>::failure(make_project_error(
+                a_assertContext, ProjectError::InvalidRoots, "root role is not a valid portable relative path"));
+        }
+        ProjectRoots roots{std::move(*rootResults[0].try_value()), std::move(*rootResults[1].try_value()),
+                           std::move(*rootResults[2].try_value()), std::move(*rootResults[3].try_value())};
+        if (!validate_roots(roots, a_assertContext))
+        {
+            return Result<ProjectDescriptor>::failure(
+                make_project_error(a_assertContext, ProjectError::InvalidRoots,
+                                   "root roles overlap, nest, or collide with CueProject.json"));
+        }
 
-    const JsonValue &defaultScene = *find_member(root, "defaultScene");
-    const JsonValue &requiredCapabilities = *find_member(root, "requiredCapabilities");
-    if (defaultScene.type != JsonType::Null || requiredCapabilities.type != JsonType::Array ||
-        !requiredCapabilities.elements.empty())
-    {
-        return Result<ProjectDescriptor>::failure(
-            make_project_error(a_assertContext, ProjectError::InvalidFormat,
-                               "schema version 1 requires null defaultScene and an empty requiredCapabilities array"));
-    }
-    const JsonValue &extensions = *find_member(root, "extensions");
-    if (extensions.type != JsonType::Object)
-    {
-        return Result<ProjectDescriptor>::failure(
-            make_project_error(a_assertContext, ProjectError::InvalidFormat, "extensions must be a JSON object"));
-    }
-    std::string extensionsJson;
-    append_json_value(extensionsJson, extensions);
+        const JsonValue &defaultScene = *find_member(root, "defaultScene");
+        const JsonValue &requiredCapabilities = *find_member(root, "requiredCapabilities");
+        if (defaultScene.type != JsonType::Null || requiredCapabilities.type != JsonType::Array ||
+            !requiredCapabilities.elements.empty())
+        {
+            return Result<ProjectDescriptor>::failure(make_project_error(
+                a_assertContext, ProjectError::InvalidFormat,
+                "schema version 1 requires null defaultScene and an empty requiredCapabilities array"));
+        }
+        const JsonValue &extensions = *find_member(root, "extensions");
+        if (extensions.type != JsonType::Object)
+        {
+            return Result<ProjectDescriptor>::failure(
+                make_project_error(a_assertContext, ProjectError::InvalidFormat, "extensions must be a JSON object"));
+        }
+        std::string extensionsJson;
+        append_json_value(extensionsJson, extensions);
 
-    return Result<ProjectDescriptor>::success(ProjectDescriptor(std::move(*projectIdResult.try_value()),
-                                                                std::string(displayName.text), engineCompatibility,
-                                                                std::move(roots), std::move(extensionsJson)));
+        return Result<ProjectDescriptor>::success(ProjectDescriptor(std::move(*projectIdResult.try_value()),
+                                                                    std::string(displayName.text), engineCompatibility,
+                                                                    std::move(roots), std::move(extensionsJson)));
+    }
+    catch (...)
+    {
+        terminate_project_exception(a_assertContext);
+    }
 }
 
 Result<void> validate_project_descriptor(const ProjectDescriptor &a_descriptor,
                                          const AssertContext &a_assertContext) noexcept
 {
-    if (!is_valid_display_name(a_descriptor.display_name()))
+    try
     {
-        return Result<void>::failure(
-            make_project_error(a_assertContext, ProjectError::InvalidDisplayName, "Descriptor displayName is invalid"));
-    }
-    if (a_descriptor.engine_compatibility().maximumExclusive.has_value() &&
-        *a_descriptor.engine_compatibility().maximumExclusive <= a_descriptor.engine_compatibility().minimum)
-    {
-        return Result<void>::failure(make_project_error(a_assertContext, ProjectError::InvalidEngineCompatibility,
-                                                        "Descriptor maximumExclusive is not greater than minimum"));
-    }
-    if (!validate_roots(a_descriptor.roots(), a_assertContext))
-    {
-        return Result<void>::failure(
-            make_project_error(a_assertContext, ProjectError::InvalidRoots, "Descriptor root roles overlap or nest"));
-    }
+        if (!is_valid_display_name(a_descriptor.display_name()))
+        {
+            return Result<void>::failure(make_project_error(a_assertContext, ProjectError::InvalidDisplayName,
+                                                            "Descriptor displayName is invalid"));
+        }
+        if (a_descriptor.engine_compatibility().maximumExclusive.has_value() &&
+            *a_descriptor.engine_compatibility().maximumExclusive <= a_descriptor.engine_compatibility().minimum)
+        {
+            return Result<void>::failure(make_project_error(a_assertContext, ProjectError::InvalidEngineCompatibility,
+                                                            "Descriptor maximumExclusive is not greater than minimum"));
+        }
+        if (!validate_roots(a_descriptor.roots(), a_assertContext))
+        {
+            return Result<void>::failure(make_project_error(a_assertContext, ProjectError::InvalidRoots,
+                                                            "Descriptor root roles overlap or nest"));
+        }
 
-    JsonValue extensions;
-    JsonParser parser(a_descriptor.extensions_json());
-    if (!parser.parse(extensions) || extensions.type != JsonType::Object)
-    {
-        return Result<void>::failure(make_project_error(a_assertContext, ProjectError::InvalidFormat,
-                                                        "Descriptor extensions are not a valid JSON object"));
+        JsonValue extensions;
+        JsonParser parser(a_descriptor.extensions_json());
+        if (!parser.parse(extensions) || extensions.type != JsonType::Object)
+        {
+            return Result<void>::failure(make_project_error(a_assertContext, ProjectError::InvalidFormat,
+                                                            "Descriptor extensions are not a valid JSON object"));
+        }
+        return Result<void>::success();
     }
-    return Result<void>::success();
+    catch (...)
+    {
+        terminate_project_exception(a_assertContext);
+    }
 }
 
 Result<std::string> serialize_project_descriptor(const ProjectDescriptor &a_descriptor,
                                                  const AssertContext &a_assertContext) noexcept
 {
-    Result<void> validation = validate_project_descriptor(a_descriptor, a_assertContext);
-    if (!validation)
+    try
     {
-        return Result<std::string>::failure(std::move(*validation.try_error()));
-    }
+        Result<void> validation = validate_project_descriptor(a_descriptor, a_assertContext);
+        if (!validation)
+        {
+            return Result<std::string>::failure(std::move(*validation.try_error()));
+        }
 
-    std::string output;
-    output.append("{\"schemaVersion\":1,\"projectId\":");
-    append_json_string(output, a_descriptor.project_id().text());
-    output.append(",\"displayName\":");
-    append_json_string(output, a_descriptor.display_name());
-    output.append(",\"engineCompatibility\":{\"minimum\":\"");
-    append_engine_version(output, a_descriptor.engine_compatibility().minimum);
-    output.append("\",\"maximumExclusive\":");
-    if (a_descriptor.engine_compatibility().maximumExclusive.has_value())
-    {
-        output.push_back('"');
-        append_engine_version(output, *a_descriptor.engine_compatibility().maximumExclusive);
-        output.push_back('"');
+        std::string output;
+        output.append("{\"schemaVersion\":1,\"projectId\":");
+        append_json_string(output, a_descriptor.project_id().text());
+        output.append(",\"displayName\":");
+        append_json_string(output, a_descriptor.display_name());
+        output.append(",\"engineCompatibility\":{\"minimum\":\"");
+        append_engine_version(output, a_descriptor.engine_compatibility().minimum);
+        output.append("\",\"maximumExclusive\":");
+        if (a_descriptor.engine_compatibility().maximumExclusive.has_value())
+        {
+            output.push_back('"');
+            append_engine_version(output, *a_descriptor.engine_compatibility().maximumExclusive);
+            output.push_back('"');
+        }
+        else
+        {
+            output.append("null");
+        }
+        output.append("},\"roots\":{\"sourceAssets\":");
+        append_json_string(output, a_descriptor.roots().sourceAssets.text());
+        output.append(",\"runtimeAssets\":");
+        append_json_string(output, a_descriptor.roots().runtimeAssets.text());
+        output.append(",\"generated\":");
+        append_json_string(output, a_descriptor.roots().generated.text());
+        output.append(",\"saved\":");
+        append_json_string(output, a_descriptor.roots().saved.text());
+        output.append("},\"defaultScene\":null,\"requiredCapabilities\":[],\"extensions\":");
+        output.append(a_descriptor.extensions_json());
+        output.push_back('}');
+        if (output.size() > k_maximumDescriptorBytes)
+        {
+            return Result<std::string>::failure(make_project_error(a_assertContext, ProjectError::InvalidFormat,
+                                                                   "Serialized project descriptor exceeds 1 MiB"));
+        }
+        return Result<std::string>::success(std::move(output));
     }
-    else
+    catch (...)
     {
-        output.append("null");
+        terminate_project_exception(a_assertContext);
     }
-    output.append("},\"roots\":{\"sourceAssets\":");
-    append_json_string(output, a_descriptor.roots().sourceAssets.text());
-    output.append(",\"runtimeAssets\":");
-    append_json_string(output, a_descriptor.roots().runtimeAssets.text());
-    output.append(",\"generated\":");
-    append_json_string(output, a_descriptor.roots().generated.text());
-    output.append(",\"saved\":");
-    append_json_string(output, a_descriptor.roots().saved.text());
-    output.append("},\"defaultScene\":null,\"requiredCapabilities\":[],\"extensions\":");
-    output.append(a_descriptor.extensions_json());
-    output.push_back('}');
-    if (output.size() > k_maximumDescriptorBytes)
-    {
-        return Result<std::string>::failure(make_project_error(a_assertContext, ProjectError::InvalidFormat,
-                                                               "Serialized project descriptor exceeds 1 MiB"));
-    }
-    return Result<std::string>::success(std::move(output));
 }
 
 Result<ProjectDescriptor> load_project_descriptor(FilesystemRoot &a_filesystem,
