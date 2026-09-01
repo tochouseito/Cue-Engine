@@ -194,7 +194,7 @@ template <typename Value>
     if (!parsed || parsed.try_value()->schema_version() != 1U ||
         parsed.try_value()->project_id().text() != "12345678-1234-4abc-8def-1234567890ab" ||
         parsed.try_value()->display_name() != "Cue テスト" ||
-        parsed.try_value()->roots().sourceAssets.text() != "Assets/Source" ||
+        parsed.try_value()->roots().source_assets().text() != "Assets/Source" ||
         parsed.try_value()->extensions_json() != "{\"sample.plugin\":{\"enabled\":true,\"weights\":[1,2.5,null]}}")
     {
         return false;

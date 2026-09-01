@@ -69,8 +69,9 @@ struct EngineCompatibility final
 };
 
 /// @brief Project Root 配下で役割が重ならない 4 種の Directory
-struct ProjectRoots final
+class ProjectRoots final
 {
+  public:
     /// @brief 検証済み 4 種 Root の所有権を一つの値へ束ねる
     ProjectRoots(RelativePath &&a_sourceAssets, RelativePath &&a_runtimeAssets, RelativePath &&a_generated,
                  RelativePath &&a_saved) noexcept;
@@ -87,10 +88,20 @@ struct ProjectRoots final
     /// @brief 4 種 Root の所有 Storage を解放する
     ~ProjectRoots() = default;
 
-    RelativePath sourceAssets;
-    RelativePath runtimeAssets;
-    RelativePath generated;
-    RelativePath saved;
+    /// @brief Source Asset を配置する Project 内相対 Directory を返す
+    [[nodiscard]] const RelativePath &source_assets() const noexcept;
+    /// @brief Runtime Asset を配置する Project 内相対 Directory を返す
+    [[nodiscard]] const RelativePath &runtime_assets() const noexcept;
+    /// @brief 生成物を配置する Project 内相対 Directory を返す
+    [[nodiscard]] const RelativePath &generated() const noexcept;
+    /// @brief 保存データを配置する Project 内相対 Directory を返す
+    [[nodiscard]] const RelativePath &saved() const noexcept;
+
+  private:
+    RelativePath m_sourceAssets;
+    RelativePath m_runtimeAssets;
+    RelativePath m_generated;
+    RelativePath m_saved;
 };
 
 /// @brief 検証済み Project Descriptor v1 の所有 Model

@@ -717,8 +717,9 @@ void append_json_value(std::string &a_output, const JsonValue &a_value)
 [[nodiscard]] bool validate_roots(const cue::ProjectRoots &a_roots, const cue::AssertContext &a_assertContext) noexcept
 {
     const std::array<std::string, 4U> keys = {
-        a_roots.sourceAssets.comparison_key(a_assertContext), a_roots.runtimeAssets.comparison_key(a_assertContext),
-        a_roots.generated.comparison_key(a_assertContext), a_roots.saved.comparison_key(a_assertContext)};
+        a_roots.source_assets().comparison_key(a_assertContext),
+        a_roots.runtime_assets().comparison_key(a_assertContext),
+        a_roots.generated().comparison_key(a_assertContext), a_roots.saved().comparison_key(a_assertContext)};
     for (const std::string &key : keys)
     {
         const std::size_t separator = key.find('/');
@@ -807,9 +808,29 @@ std::string_view ProjectId::text() const noexcept
 
 ProjectRoots::ProjectRoots(RelativePath &&a_sourceAssets, RelativePath &&a_runtimeAssets, RelativePath &&a_generated,
                            RelativePath &&a_saved) noexcept
-    : sourceAssets(std::move(a_sourceAssets)), runtimeAssets(std::move(a_runtimeAssets)),
-      generated(std::move(a_generated)), saved(std::move(a_saved))
+    : m_sourceAssets(std::move(a_sourceAssets)), m_runtimeAssets(std::move(a_runtimeAssets)),
+      m_generated(std::move(a_generated)), m_saved(std::move(a_saved))
 {
+}
+
+const RelativePath &ProjectRoots::source_assets() const noexcept
+{
+    return m_sourceAssets;
+}
+
+const RelativePath &ProjectRoots::runtime_assets() const noexcept
+{
+    return m_runtimeAssets;
+}
+
+const RelativePath &ProjectRoots::generated() const noexcept
+{
+    return m_generated;
+}
+
+const RelativePath &ProjectRoots::saved() const noexcept
+{
+    return m_saved;
 }
 
 ProjectDescriptor::ProjectDescriptor(ProjectId &&a_projectId, std::string &&a_displayName,
@@ -855,10 +876,10 @@ bool ProjectDescriptor::equivalent_to(const ProjectDescriptor &a_other) const no
 {
     return m_projectId == a_other.m_projectId && m_displayName == a_other.m_displayName &&
            m_engineCompatibility == a_other.m_engineCompatibility &&
-           m_roots.sourceAssets.text() == a_other.m_roots.sourceAssets.text() &&
-           m_roots.runtimeAssets.text() == a_other.m_roots.runtimeAssets.text() &&
-           m_roots.generated.text() == a_other.m_roots.generated.text() &&
-           m_roots.saved.text() == a_other.m_roots.saved.text() && m_extensionsJson == a_other.m_extensionsJson;
+           m_roots.source_assets().text() == a_other.m_roots.source_assets().text() &&
+           m_roots.runtime_assets().text() == a_other.m_roots.runtime_assets().text() &&
+           m_roots.generated().text() == a_other.m_roots.generated().text() &&
+           m_roots.saved().text() == a_other.m_roots.saved().text() && m_extensionsJson == a_other.m_extensionsJson;
 }
 
 Result<ProjectDescriptor> parse_project_descriptor(std::string_view a_json,
@@ -1103,13 +1124,13 @@ Result<std::string> serialize_project_descriptor(const ProjectDescriptor &a_desc
             output.append("null");
         }
         output.append("},\"roots\":{\"sourceAssets\":");
-        append_json_string(output, a_descriptor.roots().sourceAssets.text());
+        append_json_string(output, a_descriptor.roots().source_assets().text());
         output.append(",\"runtimeAssets\":");
-        append_json_string(output, a_descriptor.roots().runtimeAssets.text());
+        append_json_string(output, a_descriptor.roots().runtime_assets().text());
         output.append(",\"generated\":");
-        append_json_string(output, a_descriptor.roots().generated.text());
+        append_json_string(output, a_descriptor.roots().generated().text());
         output.append(",\"saved\":");
-        append_json_string(output, a_descriptor.roots().saved.text());
+        append_json_string(output, a_descriptor.roots().saved().text());
         output.append("},\"defaultScene\":null,\"requiredCapabilities\":[],\"extensions\":");
         output.append(a_descriptor.extensions_json());
         output.push_back('}');
