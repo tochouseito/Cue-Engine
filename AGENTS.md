@@ -30,6 +30,14 @@ CueEngineは、旧CueEngineで得た実装経験を材料にしながら、ゲ�
 - Architecture、ABI、永続形式、Error Handlingなどの未決定事項は、Coding Rulesだけで確定せずADRを作成します。
 - 既存コードとCoding Rulesが衝突する場合は、周辺コードの一貫性を優先し、最終報告で理由を書きます。
 
+## 1.2 License and External Code
+
+- 新しい第三者Library、OSS Package、外部Sample Codeを依存関係またはSourceとして導入しない。
+- 外部Project、旧CueEngine、記事、SampleからSource Codeをコピー、移植、部分抽出しない。
+- 外部資料は問題、制約、API仕様、設計比較の確認だけに使用し、実装はCueEngineの現在要件からFirst-party Codeとして作成する。
+- C++標準Library、Compiler、CMake、Windows SDK等のToolchain API利用は許可するが、それらのSource CodeをRepositoryへ取り込まない。
+- 例外を設けず、必要な機能はFirst-party実装またはResearch Issueとして扱う。
+
 ## 2. Authoritative Branch
 
 - 新CueEngineの統合先は`Rebuild`ブランチです。

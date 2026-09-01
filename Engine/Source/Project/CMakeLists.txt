@@ -3,6 +3,7 @@ add_library(Cue.Project STATIC)
 target_sources(
     Cue.Project
     PRIVATE
+        Private/Compatibility.cpp
         Private/Json.h
         Private/Descriptor.cpp
         Private/Error.cpp
@@ -12,6 +13,7 @@ target_sources(
         FILE_SET HEADERS
         BASE_DIRS Public
         FILES
+            Public/Cue/Project/Compatibility.h
             Public/Cue/Project/Descriptor.h
             Public/Cue/Project/Error.h
             Public/Cue/Project/Generator.h

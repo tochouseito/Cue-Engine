@@ -284,6 +284,23 @@ ADR-0012のSupported、Implemented、Enabledを混同せず、互換性判定時
 Hardware QueryがFailedまたはNotQueriedの場合はUnsupportedへ変換せず、互換性を`Unknown`として理由を残す。
 Project Openの可否と、個別Runtime FeatureをEnabledにする判断は別結果とする。
 
+Issue #140では、RHIまたはPlatformのNative型をProjectへ漏らさない初期Capability Identityとして、`Baseline3D`、
+`WaveOperations`、`EnhancedBarriers`、`RayTracing`、`MeshShader`、`VariableRateShading`、`SamplerFeedback`を定義する。
+Requirementは`Required`と`Preferred`を区別し、VersionまたはTierで表現できる条件はNative数値ではなく任意の最小
+`CapabilityVersion`を持つ。現在環境は同じIdentityごとにADR-0012の`CapabilityState`と任意Versionを渡し、Hardware対応、
+CueEngine実装、Runtime有効化を別の状態として保つ。
+
+`ProjectCapabilityProfile` schema version 1は互換性Serviceへ渡す所有値契約であり、Project Descriptor schema version 1の
+Wire Formatを変更しない。Descriptor v1の`requiredCapabilities`は引き続き空Arrayだけを受理し、実機Snapshot、Adapter情報、
+Vendor情報、現在のEnablementを保存しない。非空ProfileをProjectへ永続化するWire Schemaは、Migration経路と共にDescriptor
+schema version 2以降として別Issueで導入する。
+
+`ProjectCompatibilityReport`は`Compatible`、`Degraded`、`Unsupported`、`Unknown`、理由Code、Runtime Featureごとの有効状態を
+返す。FormatまたはEngine Version範囲の不一致だけが`can_open = false`となる。Hardware未対応、Engine未実装、Query不明は
+Project Dataを開いて診断または編集すること自体を妨げず、全体互換性とRuntime Feature判定へ反映する。RequiredのQuery不明は
+`Unknown`、RequiredのHardware未対応・Engine未実装・Version不足は`Unsupported`、Preferredの未達とRuntime無効は`Degraded`
+とする。これにより、Project Open可否をRuntime Feature Enablementへ暗黙連結しない。
+
 ### Module, Ownership, and Threading Boundary
 
 M09で`Cue.Project`をFirst-party Static Libraryとして追加する。
