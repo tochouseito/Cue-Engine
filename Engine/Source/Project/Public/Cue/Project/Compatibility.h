@@ -76,7 +76,9 @@ class ProjectCapabilityProfile final
         std::span<const ProjectCapabilityRequirement> a_requirements,
         const AssertContext &a_assertContext) noexcept;
 
-    /// @brief Profile Wire契約のVersionを値として返す
+    /// @brief Profile Wire契約のVersionを失敗なく値として返す
+    /// @return Profile Storageと寿命に依存しないschema version 1の値
+    /// @details 同一InstanceがMove、Move代入、破棄されない間は複数Threadからの並行Readを許可する
     [[nodiscard]] std::uint32_t schema_version() const noexcept;
     /// @brief Projectが宣言した要件をProfile所有の非変更Viewとして安定した入力順で返す
     /// @return このInstanceが所有し、このInstanceのMove、Move代入、破棄時に無効化される要件View
