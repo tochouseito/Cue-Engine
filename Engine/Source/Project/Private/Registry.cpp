@@ -182,6 +182,11 @@ Result<void> RecentProjectRegistry::register_project(const ProjectDescriptor &a_
             return Result<void>::failure(make_project_error(a_assertContext, ProjectError::ProjectLocatorConflict,
                                                             "Project locator belongs to another ProjectId"));
         }
+        if (m_entries.size() >= project_private::k_maximumJsonContainerElements)
+        {
+            return Result<void>::failure(make_project_error(a_assertContext, ProjectError::InvalidWorkspaceFormat,
+                                                            "Workspace entry limit is exceeded"));
+        }
         if (m_nextRegistrationOrder == std::numeric_limits<std::uint64_t>::max())
         {
             return Result<void>::failure(make_project_error(
@@ -502,6 +507,11 @@ Result<std::string> serialize_recent_project_registry(const RecentProjectRegistr
 {
     try
     {
+        if (a_registry.m_entries.size() > project_private::k_maximumJsonContainerElements)
+        {
+            return Result<std::string>::failure(make_project_error(
+                a_assertContext, ProjectError::InvalidWorkspaceFormat, "Workspace entry limit is exceeded"));
+        }
         if (!a_registry.is_valid(a_assertContext))
         {
             return Result<std::string>::failure(make_project_error(

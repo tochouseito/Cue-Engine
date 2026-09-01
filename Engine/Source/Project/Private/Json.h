@@ -10,6 +10,9 @@
 
 namespace cue::project_private
 {
+/// JSON Object／Array が保持できる最大要素数
+inline constexpr std::size_t k_maximumJsonContainerElements = 4096U;
+
 /// @brief Project Module 内で共有する JSON Value の種類
 enum class JsonType : std::uint8_t
 {

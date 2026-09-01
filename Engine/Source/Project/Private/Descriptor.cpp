@@ -24,7 +24,6 @@ namespace
 {
 constexpr std::size_t k_maximumDescriptorBytes = 1024U * 1024U;
 constexpr std::size_t k_maximumStringBytes = 256U * 1024U;
-constexpr std::size_t k_maximumContainerElements = 4096U;
 constexpr std::size_t k_maximumNestingDepth = 32U;
 constexpr std::uint32_t k_supportedSchemaVersion = 1U;
 
@@ -244,7 +243,7 @@ class JsonParser final
         }
         while (true)
         {
-            if (a_value.members.size() >= k_maximumContainerElements)
+            if (a_value.members.size() >= cue::project_private::k_maximumJsonContainerElements)
             {
                 return fail("JSON object exceeds 4096 members");
             }
@@ -300,7 +299,7 @@ class JsonParser final
         }
         while (true)
         {
-            if (a_value.elements.size() >= k_maximumContainerElements)
+            if (a_value.elements.size() >= cue::project_private::k_maximumJsonContainerElements)
             {
                 return fail("JSON array exceeds 4096 elements");
             }

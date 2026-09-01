@@ -165,6 +165,19 @@ class WorkspaceFilesystem final : public cue::FilesystemRoot
            a_result.try_error()->code().value() == static_cast<std::int64_t>(a_error);
 }
 
+/// @brief Entry上限Test用のIndexをcanonical UUID Version 4へ変換する
+[[nodiscard]] std::string make_indexed_project_id(std::uint64_t a_index)
+{
+    constexpr char hexadecimal[] = "0123456789abcdef";
+    std::string id = "00000000-0000-4000-8000-000000000000";
+    for (std::size_t digit = 0U; digit < 12U; ++digit)
+    {
+        id[id.size() - 1U - digit] = hexadecimal[a_index & 0x0FU];
+        a_index >>= 4U;
+    }
+    return id;
+}
+
 /// @brief Recent 登録、重複、移動、欠損、Pin、除外の状態遷移を検証する
 [[nodiscard]] bool test_registry_operations(const cue::AssertContext &a_assertContext)
 {
@@ -295,6 +308,31 @@ class WorkspaceFilesystem final : public cue::FilesystemRoot
     auto saved = cue::save_recent_project_registry(workspace, registry, a_assertContext);
     return has_project_error(saved, cue::ProjectError::IoFailure);
 }
+
+/// @brief JSON Reader上限まで登録でき、上限を超えるEntryを保存前に拒否するか検証する
+[[nodiscard]] bool test_entry_limit(const cue::AssertContext &a_assertContext)
+{
+    cue::RecentProjectRegistry registry;
+    for (std::uint64_t index = 0U; index < 4096U; ++index)
+    {
+        const std::string id = make_indexed_project_id(index);
+        auto descriptor = make_descriptor(id, a_assertContext);
+        const std::string locator = "C:/Projects/" + std::to_string(index);
+        if (!descriptor || !registry.register_project(*descriptor.try_value(), locator, index, a_assertContext))
+        {
+            return false;
+        }
+    }
+
+    auto overflowDescriptor = make_descriptor(make_indexed_project_id(4096U), a_assertContext);
+    if (!overflowDescriptor)
+    {
+        return false;
+    }
+    auto overflow = registry.register_project(*overflowDescriptor.try_value(), "C:/Projects/4096", 4096U,
+                                              a_assertContext);
+    return has_project_error(overflow, cue::ProjectError::InvalidWorkspaceFormat);
+}
 } // namespace
 
 /// @brief Recent Project Registry と User Workspace Storage の全 Acceptance 状態を終了 Code で検証する
@@ -317,5 +355,9 @@ int main()
     {
         return 3;
     }
-    return test_storage_failure(assertContext) ? 0 : 4;
+    if (!test_storage_failure(assertContext))
+    {
+        return 4;
+    }
+    return test_entry_limit(assertContext) ? 0 : 5;
 }
