@@ -31,7 +31,9 @@ class StagingArea final
     StagingArea &operator=(const StagingArea &) = delete;
     /// @brief Staging 所有 Token を移動し、移動元を無効にする
     StagingArea(StagingArea &&a_other) noexcept;
-    /// @brief 既存 Token を破棄せず Staging 所有権を移動代入する
+    /// @brief 両方の Operation 所有権を失わないよう Path と Token を交換する
+    ///
+    /// 移動元は代入先が以前所有していた Staging を保持するため、必要なら明示 Rollback する
     StagingArea &operator=(StagingArea &&a_other) noexcept;
     /// @brief 値だけを破棄し、Filesystem 変更を暗黙実行しない
     ~StagingArea() = default;
@@ -75,9 +77,16 @@ class FilesystemRoot
     /// @brief 最終 Destination の Sibling に Operation 所有 Staging Directory を排他的に作成する
     [[nodiscard]] virtual Result<StagingArea> create_staging_area(const RelativePath &a_destination) noexcept = 0;
     /// @brief Operation 所有 Staging を既存 Destination へ上書きせず一度だけ公開する
+    ///
+    /// Publish 前失敗では Destination を変更せず Token を有効に保ち、Rollback を再試行できる
+    /// Publish 後の DurabilityUnknown では Destination が公開済みで Token は無効になる
+    /// 成功時は Destination が公開済みになり Token は無効になる
     [[nodiscard]] virtual Result<void> publish_staging_area(StagingArea &&a_staging,
                                                             const RelativePath &a_destination) noexcept = 0;
     /// @brief Operation 所有 Staging だけを再帰削除し、Token を無効化する
+    ///
+    /// 削除失敗では Staging と Token を保持し、診断後に Rollback を再試行できる
+    /// 成功時だけ Staging を削除して Token を無効にする
     [[nodiscard]] virtual Result<void> rollback_staging_area(StagingArea &&a_staging) noexcept = 0;
 
   protected:

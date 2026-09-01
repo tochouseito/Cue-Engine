@@ -211,6 +211,31 @@ class UniqueFindHandle final
     return std::move(a_primary);
 }
 
+/// @brief Windows の Publish と耐久性試行を分離せず、失敗時に可視化済みかを保持する
+struct NativePublishOutcome final
+{
+    bool isPublished;
+    DWORD nativeCode;
+};
+
+/// @brief MOVEFILE_WRITE_THROUGH の失敗後も Source と Destination から公開状態を分類する
+[[nodiscard]] NativePublishOutcome publish_with_durability(const std::wstring &a_source,
+                                                           const std::wstring &a_destination, DWORD a_flags) noexcept
+{
+    if (MoveFileExW(a_source.c_str(), a_destination.c_str(), a_flags | MOVEFILE_WRITE_THROUGH) != FALSE)
+    {
+        return NativePublishOutcome{true, ERROR_SUCCESS};
+    }
+
+    const DWORD publishCode = GetLastError();
+    const DWORD sourceAttributes = GetFileAttributesW(a_source.c_str());
+    const DWORD sourceCode = sourceAttributes == INVALID_FILE_ATTRIBUTES ? GetLastError() : ERROR_SUCCESS;
+    const DWORD destinationAttributes = GetFileAttributesW(a_destination.c_str());
+    const bool isSourceMissing = sourceAttributes == INVALID_FILE_ATTRIBUTES &&
+                                 (sourceCode == ERROR_FILE_NOT_FOUND || sourceCode == ERROR_PATH_NOT_FOUND);
+    return NativePublishOutcome{isSourceMissing && destinationAttributes != INVALID_FILE_ATTRIBUTES, publishCode};
+}
+
 /// @brief UTF-8 を Strict UTF-16 へ変換して IO Error として失敗を返す
 [[nodiscard]] cue::Result<std::wstring> to_utf16(std::string_view a_text, const cue::AssertContext &a_context) noexcept
 {
@@ -330,6 +355,31 @@ class UniqueFindHandle final
 [[nodiscard]] cue::Result<void> validate_tree(const std::wstring &a_directory,
                                               const cue::AssertContext &a_context) noexcept
 {
+    UniqueHandle directory(CreateFileW(a_directory.c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+                                       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                       FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    if (!directory.is_valid())
+    {
+        return cue::Result<void>::failure(
+            make_windows_error(a_context, GetLastError(), "Staging directory inspection failed"));
+    }
+    BY_HANDLE_FILE_INFORMATION information{};
+    if (GetFileInformationByHandle(directory.get(), &information) == FALSE)
+    {
+        return cue::Result<void>::failure(
+            make_windows_error(a_context, GetLastError(), "Staging directory inspection failed"));
+    }
+    if ((information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+    {
+        return cue::Result<void>::failure(
+            cue::make_io_error(a_context, cue::IoError::UnsupportedEntry, "Staging root is a reparse point"));
+    }
+    if ((information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
+    {
+        return cue::Result<void>::failure(
+            cue::make_io_error(a_context, cue::IoError::TypeMismatch, "Staging root is not a directory"));
+    }
+
     std::wstring pattern;
     try
     {
@@ -843,8 +893,17 @@ cue::Result<void> WindowsFilesystemRoot::write_file_atomic(const cue::RelativePa
         }
         if (*parentType.try_value() != cue::EntryType::Directory)
         {
-            return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::TypeMismatch,
-                                                                 "Atomic file parent is not a directory"));
+            cue::IoError code = cue::IoError::TypeMismatch;
+            if (*parentType.try_value() == cue::EntryType::Missing)
+            {
+                code = cue::IoError::NotFound;
+            }
+            else if (*parentType.try_value() == cue::EntryType::UnsupportedEntry)
+            {
+                code = cue::IoError::UnsupportedEntry;
+            }
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, code, "Atomic file parent is unavailable"));
         }
     }
 
@@ -930,23 +989,31 @@ cue::Result<void> WindowsFilesystemRoot::write_file_atomic(const cue::RelativePa
     if (*destinationType.try_value() == cue::EntryType::Directory ||
         *destinationType.try_value() == cue::EntryType::UnsupportedEntry)
     {
-        cue::Error primary = cue::make_io_error(*m_assertContext, cue::IoError::TypeMismatch,
-                                                "Atomic destination is not a regular file");
+        const cue::IoError code = *destinationType.try_value() == cue::EntryType::UnsupportedEntry
+                                      ? cue::IoError::UnsupportedEntry
+                                      : cue::IoError::TypeMismatch;
+        cue::Error primary = cue::make_io_error(*m_assertContext, code, "Atomic destination is not a regular file");
         return cue::Result<void>::failure(
             remove_temporary_after_failure(*m_assertContext, temporaryPath, std::move(primary)));
     }
 
-    DWORD flags = MOVEFILE_WRITE_THROUGH;
+    DWORD flags = 0;
     if (*destinationType.try_value() == cue::EntryType::RegularFile)
     {
         flags |= MOVEFILE_REPLACE_EXISTING;
     }
-    if (MoveFileExW(temporaryPath.c_str(), destination.try_value()->c_str(), flags) == FALSE)
+    const NativePublishOutcome publish = publish_with_durability(temporaryPath, *destination.try_value(), flags);
+    if (!publish.isPublished)
     {
-        const DWORD code = GetLastError();
-        cue::Error primary = make_windows_error(*m_assertContext, code, "Atomic file publish failed");
+        cue::Error primary = make_windows_error(*m_assertContext, publish.nativeCode, "Atomic file publish failed");
         return cue::Result<void>::failure(
             remove_temporary_after_failure(*m_assertContext, temporaryPath, std::move(primary)));
+    }
+    if (publish.nativeCode != ERROR_SUCCESS)
+    {
+        return cue::Result<void>::failure(cue::make_io_error(
+            *m_assertContext, cue::IoError::DurabilityUnknown,
+            "Atomic file is published but Windows durability confirmation failed", publish.nativeCode));
     }
     return cue::Result<void>::success();
 }
@@ -1051,15 +1118,22 @@ cue::Result<void> WindowsFilesystemRoot::publish_staging_area(cue::StagingArea &
     {
         return validation;
     }
-    if (MoveFileExW(stagingPath.try_value()->c_str(), destinationPath.try_value()->c_str(), MOVEFILE_WRITE_THROUGH) ==
-        FALSE)
+    const NativePublishOutcome publish =
+        publish_with_durability(*stagingPath.try_value(), *destinationPath.try_value(), 0);
+    if (!publish.isPublished)
     {
         return cue::Result<void>::failure(
-            make_windows_error(*m_assertContext, GetLastError(), "Staging directory publish failed"));
+            make_windows_error(*m_assertContext, publish.nativeCode, "Staging directory publish failed"));
     }
     const std::uint64_t token = staging_token(a_staging);
     m_stagingPaths.erase(token);
     invalidate_staging(a_staging);
+    if (publish.nativeCode != ERROR_SUCCESS)
+    {
+        return cue::Result<void>::failure(cue::make_io_error(
+            *m_assertContext, cue::IoError::DurabilityUnknown,
+            "Staging directory is published but Windows durability confirmation failed", publish.nativeCode));
+    }
     return cue::Result<void>::success();
 }
 

@@ -4,7 +4,6 @@
 #include <Cue/IO/Error.h>
 
 #include <algorithm>
-#include <cctype>
 #include <cstdlib>
 #include <string>
 #include <utility>
@@ -25,8 +24,10 @@ constexpr std::size_t k_maxSegmentCount = 16;
 /// @brief Portable Path が許可する ASCII 文字だけか判定する
 [[nodiscard]] bool is_allowed_character(char a_character) noexcept
 {
-    const unsigned char value = static_cast<unsigned char>(a_character);
-    return std::isalnum(value) != 0 || a_character == '_' || a_character == '-' || a_character == '.';
+    const bool isUppercase = a_character >= 'A' && a_character <= 'Z';
+    const bool isLowercase = a_character >= 'a' && a_character <= 'z';
+    const bool isDigit = a_character >= '0' && a_character <= '9';
+    return isUppercase || isLowercase || isDigit || a_character == '_' || a_character == '-' || a_character == '.';
 }
 
 /// @brief ASCII 文字列を大小文字を区別せず比較する
@@ -39,8 +40,12 @@ constexpr std::size_t k_maxSegmentCount = 16;
 
     for (std::size_t index = 0; index < a_left.size(); ++index)
     {
-        if (std::tolower(static_cast<unsigned char>(a_left[index])) !=
-            std::tolower(static_cast<unsigned char>(a_right[index])))
+        const char left = a_left[index] >= 'A' && a_left[index] <= 'Z' ? static_cast<char>(a_left[index] + ('a' - 'A'))
+                                                                       : a_left[index];
+        const char right = a_right[index] >= 'A' && a_right[index] <= 'Z'
+                               ? static_cast<char>(a_right[index] + ('a' - 'A'))
+                               : a_right[index];
+        if (left != right)
         {
             return false;
         }
@@ -149,7 +154,8 @@ std::string RelativePath::comparison_key(const AssertContext &a_assertContext) c
         key.reserve(m_text.size());
         for (const char character : m_text)
         {
-            key.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(character))));
+            key.push_back(character >= 'A' && character <= 'Z' ? static_cast<char>(character + ('a' - 'A'))
+                                                               : character);
         }
     }
     catch (...)

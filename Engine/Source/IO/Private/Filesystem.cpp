@@ -18,9 +18,8 @@ StagingArea &StagingArea::operator=(StagingArea &&a_other) noexcept
 {
     if (this != &a_other)
     {
-        m_path = std::move(a_other.m_path);
-        m_token = a_other.m_token;
-        a_other.m_token = 0;
+        std::swap(m_path, a_other.m_path);
+        std::swap(m_token, a_other.m_token);
     }
 
     return *this;
