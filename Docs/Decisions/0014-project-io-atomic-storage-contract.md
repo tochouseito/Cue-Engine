@@ -97,7 +97,7 @@ Windowsの公開File APIだけでは、悪意ある別Processが検査直後にD
 - Root Roleの先頭Segmentが`cueproject.json`のComparison Keyと一致する場合を拒否する
 
 Windows実装は結合後のAbsolute PathについてNative APIの長さ上限も検査し、超過をPortable PathのFormat Errorではなく
-Host Path Unsupportedとして返す。Long Path対応の有無をProcessのCurrent DirectoryやManifestへ暗黙依存させない。
+`CapacityExceeded`として返す。Long Path対応の有無をProcessのCurrent DirectoryやManifestへ暗黙依存させない。
 
 ### File and Directory Operations
 
@@ -171,7 +171,8 @@ Step 6成功後のFlush失敗は`PublishedButDurabilityUnknown`であり、完�
 | `PublishedButDurabilityUnknown` | New Data | Publish後Flush失敗 | 再読込して診断、成功扱いにしない |
 
 WindowsでDirectory HandleのFlushがFilesystemまたはDeviceによりUnsupportedの場合、実装はその事実を成功へ変換しない。
-`DurabilityUnsupported`または`PublishedButDurabilityUnknown`として返し、呼び出し側がPolicyを決める。
+Portable Error分類`DurabilityUnknown`の失敗として返し、Native ErrorにUnsupported理由を保持する。`DurabilityUnknown`は必ず
+Outcome `PublishedButDurabilityUnknown`へ対応し、別のPortable分類名を追加しない。呼び出し側はこの分類からPublish済みと判定する。
 
 ### Reparse Point and Symlink Policy
 
