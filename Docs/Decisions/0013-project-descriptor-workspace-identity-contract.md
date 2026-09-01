@@ -151,7 +151,8 @@ Asset Pipelineの別Research Issueで決定する。非null Default Sceneを導�
 
 ### Version and Compatibility
 
-`schemaVersion`はProject Descriptor Formatの単調増加する正の整数であり、CueEngine Release Versionではない。
+`schemaVersion`はProject Descriptor Formatの単調増加する正の32-bit unsigned integerであり、CueEngine Release Versionではない。
+JSON Number Tokenは1から4294967295までのASCII decimal digitだけで表し、先頭Zero、符号、小数点、指数表記を拒否する。
 Fieldの意味、必須性、既定値、正規化規則を変更する場合に増加させる。
 
 `engineCompatibility`はProjectが要求するCueEngine Version範囲であり、`major.minor.patch`の非負整数3要素を使用する。各要素は
