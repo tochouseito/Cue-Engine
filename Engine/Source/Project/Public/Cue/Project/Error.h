@@ -19,7 +19,13 @@ enum class ProjectError : std::int64_t
     InvalidEngineCompatibility = 5,
     InvalidRoots = 6,
     IoFailure = 7,
-    InvalidProjectName = 8
+    InvalidProjectName = 8,
+    InvalidWorkspaceFormat = 9,
+    UnsupportedWorkspaceVersion = 10,
+    DuplicateProjectId = 11,
+    ProjectNotRegistered = 12,
+    InvalidProjectLocator = 13,
+    ProjectLocatorConflict = 14
 };
 
 /// @brief Project Error を診断 Summary と共に生成する

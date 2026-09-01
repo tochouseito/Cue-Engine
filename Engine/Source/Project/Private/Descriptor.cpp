@@ -1,5 +1,7 @@
 #include <Cue/Project/Descriptor.h>
 
+#include "Json.h"
+
 #include <Cue/Foundation/Assert.h>
 #include <Cue/IO/Filesystem.h>
 #include <Cue/Project/Error.h>
@@ -22,7 +24,6 @@ namespace
 {
 constexpr std::size_t k_maximumDescriptorBytes = 1024U * 1024U;
 constexpr std::size_t k_maximumStringBytes = 256U * 1024U;
-constexpr std::size_t k_maximumContainerElements = 4096U;
 constexpr std::size_t k_maximumNestingDepth = 32U;
 constexpr std::uint32_t k_supportedSchemaVersion = 1U;
 
@@ -33,24 +34,8 @@ constexpr std::uint32_t k_supportedSchemaVersion = 1U;
     std::abort();
 }
 
-enum class JsonType : std::uint8_t
-{
-    Null,
-    Boolean,
-    Number,
-    String,
-    Array,
-    Object
-};
-
-struct JsonValue final
-{
-    JsonType type = JsonType::Null;
-    bool boolean = false;
-    std::string text;
-    std::vector<JsonValue> elements;
-    std::vector<std::pair<std::string, JsonValue>> members;
-};
+using cue::project_private::JsonType;
+using cue::project_private::JsonValue;
 
 /// @brief UTF-8 の先頭 Byte から Scalar と消費 Byte 数を厳密に復号する
 [[nodiscard]] bool decode_utf8_scalar(std::string_view a_text, std::size_t a_offset, std::uint32_t &a_scalar,
@@ -258,7 +243,7 @@ class JsonParser final
         }
         while (true)
         {
-            if (a_value.members.size() >= k_maximumContainerElements)
+            if (a_value.members.size() >= cue::project_private::k_maximumJsonContainerElements)
             {
                 return fail("JSON object exceeds 4096 members");
             }
@@ -314,7 +299,7 @@ class JsonParser final
         }
         while (true)
         {
-            if (a_value.elements.size() >= k_maximumContainerElements)
+            if (a_value.elements.size() >= cue::project_private::k_maximumJsonContainerElements)
             {
                 return fail("JSON array exceeds 4096 elements");
             }
@@ -762,6 +747,48 @@ void append_engine_version(std::string &a_output, const cue::EngineVersion &a_ve
     return cue::Error::reclassify(a_assertContext.fatal_handler(), std::move(code), a_summary, std::move(a_cause));
 }
 } // namespace
+
+namespace cue::project_private
+{
+bool parse_json_document(std::string_view a_input, JsonValue &a_value, std::string_view &a_error)
+{
+    JsonParser parser(a_input);
+    const bool isParsed = parser.parse(a_value);
+    a_error = parser.error();
+    return isParsed;
+}
+
+const JsonValue *find_json_member(const JsonValue &a_object, std::string_view a_name) noexcept
+{
+    return find_member(a_object, a_name);
+}
+
+void write_json_string(std::string &a_output, std::string_view a_text)
+{
+    append_json_string(a_output, a_text);
+}
+
+bool is_valid_json_text(std::string_view a_text, std::size_t a_maximumBytes) noexcept
+{
+    if (a_text.empty() || a_text.size() > a_maximumBytes)
+    {
+        return false;
+    }
+    std::size_t offset = 0U;
+    while (offset < a_text.size())
+    {
+        std::uint32_t scalar = 0U;
+        std::size_t length = 0U;
+        if (!decode_utf8_scalar(a_text, offset, scalar, length) || scalar <= 0x1FU ||
+            (scalar >= 0x7FU && scalar <= 0x9FU))
+        {
+            return false;
+        }
+        offset += length;
+    }
+    return true;
+}
+} // namespace cue::project_private
 
 namespace cue
 {
