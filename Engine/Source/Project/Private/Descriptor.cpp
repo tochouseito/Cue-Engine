@@ -805,6 +805,13 @@ std::string_view ProjectId::text() const noexcept
     return m_text;
 }
 
+ProjectRoots::ProjectRoots(RelativePath &&a_sourceAssets, RelativePath &&a_runtimeAssets, RelativePath &&a_generated,
+                           RelativePath &&a_saved) noexcept
+    : sourceAssets(std::move(a_sourceAssets)), runtimeAssets(std::move(a_runtimeAssets)),
+      generated(std::move(a_generated)), saved(std::move(a_saved))
+{
+}
+
 ProjectDescriptor::ProjectDescriptor(ProjectId &&a_projectId, std::string &&a_displayName,
                                      EngineCompatibility a_engineCompatibility, ProjectRoots &&a_roots,
                                      std::string &&a_extensionsJson) noexcept

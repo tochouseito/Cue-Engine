@@ -19,10 +19,10 @@ class ProjectId final
   public:
     /// @brief 未検証または Nil の Identity を作らせないため既定構築を禁止する
     ProjectId() = delete;
-    /// @brief 検証済み Identity を複製する
-    ProjectId(const ProjectId &) = default;
-    /// @brief 検証済み Identity を複製代入する
-    ProjectId &operator=(const ProjectId &) = default;
+    /// @brief Allocation 例外を境界外へ出さないため Identity の暗黙 Copy 構築を禁止する
+    ProjectId(const ProjectId &) = delete;
+    /// @brief Allocation 例外を境界外へ出さないため Identity の暗黙 Copy 代入を禁止する
+    ProjectId &operator=(const ProjectId &) = delete;
     /// @brief 検証済み Identity の所有権を移動する
     ProjectId(ProjectId &&) noexcept = default;
     /// @brief 検証済み Identity を移動代入する
@@ -71,6 +71,22 @@ struct EngineCompatibility final
 /// @brief Project Root 配下で役割が重ならない 4 種の Directory
 struct ProjectRoots final
 {
+    /// @brief 検証済み 4 種 Root の所有権を一つの値へ束ねる
+    ProjectRoots(RelativePath &&a_sourceAssets, RelativePath &&a_runtimeAssets, RelativePath &&a_generated,
+                 RelativePath &&a_saved) noexcept;
+    /// @brief 必須 Root を欠く値を作らせないため既定構築を禁止する
+    ProjectRoots() = delete;
+    /// @brief 所有 Path の Allocation 例外を境界外へ出さないため Copy 構築を禁止する
+    ProjectRoots(const ProjectRoots &) = delete;
+    /// @brief 所有 Path の Allocation 例外を境界外へ出さないため Copy 代入を禁止する
+    ProjectRoots &operator=(const ProjectRoots &) = delete;
+    /// @brief 4 種 Root の所有権を移動する
+    ProjectRoots(ProjectRoots &&) noexcept = default;
+    /// @brief 4 種 Root の所有権を移動代入する
+    ProjectRoots &operator=(ProjectRoots &&) noexcept = default;
+    /// @brief 4 種 Root の所有 Storage を解放する
+    ~ProjectRoots() = default;
+
     RelativePath sourceAssets;
     RelativePath runtimeAssets;
     RelativePath generated;
@@ -83,10 +99,10 @@ class ProjectDescriptor final
   public:
     /// @brief 必須値を欠く Descriptor を作らせないため既定構築を禁止する
     ProjectDescriptor() = delete;
-    /// @brief 検証済み Descriptor を複製する
-    ProjectDescriptor(const ProjectDescriptor &) = default;
-    /// @brief 検証済み Descriptor を複製代入する
-    ProjectDescriptor &operator=(const ProjectDescriptor &) = default;
+    /// @brief 所有値の Allocation 例外を境界外へ出さないため Copy 構築を禁止する
+    ProjectDescriptor(const ProjectDescriptor &) = delete;
+    /// @brief 所有値の Allocation 例外を境界外へ出さないため Copy 代入を禁止する
+    ProjectDescriptor &operator=(const ProjectDescriptor &) = delete;
     /// @brief Descriptor の所有権を移動する
     ProjectDescriptor(ProjectDescriptor &&) noexcept = default;
     /// @brief Descriptor を移動代入する
