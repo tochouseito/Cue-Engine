@@ -76,9 +76,11 @@ class ProjectCapabilityProfile final
         std::span<const ProjectCapabilityRequirement> a_requirements,
         const AssertContext &a_assertContext) noexcept;
 
-    /// @brief Profile Wire契約のVersionを返す
+    /// @brief Profile Wire契約のVersionを値として返す
     [[nodiscard]] std::uint32_t schema_version() const noexcept;
-    /// @brief Projectが宣言した要件を安定した入力順で返す
+    /// @brief Projectが宣言した要件をProfile所有の非変更Viewとして安定した入力順で返す
+    /// @return このInstanceが所有し、このInstanceのMove、Move代入、破棄時に無効化される要件View
+    /// @details 同一InstanceがMove、Move代入、破棄されない間は複数Threadからの並行Readを許可する
     [[nodiscard]] std::span<const ProjectCapabilityRequirement> requirements() const noexcept;
 
   private:
@@ -116,7 +118,9 @@ class ProjectCapabilitySnapshot final
         std::span<const ProjectCapabilityObservation> a_observations,
         const AssertContext &a_assertContext) noexcept;
 
-    /// @brief 現在環境の観測値を安定した入力順で返す
+    /// @brief 現在環境の観測値をSnapshot所有の非変更Viewとして安定した入力順で返す
+    /// @return このInstanceが所有し、このInstanceのMove、Move代入、破棄時に無効化される観測View
+    /// @details 同一InstanceがMove、Move代入、破棄されない間は複数Threadからの並行Readを許可する
     [[nodiscard]] std::span<const ProjectCapabilityObservation> observations() const noexcept;
 
   private:
@@ -184,13 +188,19 @@ class ProjectCompatibilityReport final
     /// @brief 所有診断Storageを解放する
     ~ProjectCompatibilityReport() = default;
 
-    /// @brief Project全体の互換性分類を返す
+    /// @brief Project全体の互換性分類を値として返す
+    /// @details 同一InstanceがMove、Move代入、破棄されない間は複数Threadからの並行Readを許可する
     [[nodiscard]] ProjectCompatibilityStatus status() const noexcept;
-    /// @brief FormatとEngine Versionの条件を満たしProjectを開けるか返す
+    /// @brief FormatとEngine Versionの条件を満たしProjectを開けるか値として返す
+    /// @details 同一InstanceがMove、Move代入、破棄されない間は複数Threadからの並行Readを許可する
     [[nodiscard]] bool can_open() const noexcept;
-    /// @brief UIまたはLogが意味付けする理由一覧を返す
+    /// @brief UIまたはLogが意味付けする理由一覧をReport所有の非変更Viewとして返す
+    /// @return このInstanceが所有し、このInstanceのMove、Move代入、破棄時に無効化される理由View
+    /// @details 同一InstanceがMove、Move代入、破棄されない間は複数Threadからの並行Readを許可する
     [[nodiscard]] std::span<const ProjectCompatibilityReason> reasons() const noexcept;
-    /// @brief Project Open可否とは独立したRuntime Feature判定を返す
+    /// @brief Project Open可否とは独立したRuntime Feature判定をReport所有の非変更Viewとして返す
+    /// @return このInstanceが所有し、このInstanceのMove、Move代入、破棄時に無効化されるRuntime判定View
+    /// @details 同一InstanceがMove、Move代入、破棄されない間は複数Threadからの並行Readを許可する
     [[nodiscard]] std::span<const RuntimeCapabilityDecision> runtime_decisions() const noexcept;
 
   private:
