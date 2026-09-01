@@ -563,19 +563,31 @@ class WindowsFilesystemRoot final : public cue::FilesystemRoot
     [[nodiscard]] cue::Result<void> rollback_staging_area(cue::StagingArea &&a_staging) noexcept override;
 
   private:
+    /// @brief Operation が作成した Staging Directory の Path と Native Identity を保持する
+    struct StagingRecord final
+    {
+        std::string path;
+        DWORD volumeSerial;
+        DWORD fileIndexHigh;
+        DWORD fileIndexLow;
+    };
+
     /// @brief Root Absolute Path と検証済み Relative Path を Extended Windows Path へ結合する
     [[nodiscard]] cue::Result<std::wstring> absolute_path(const cue::RelativePath &a_path) const noexcept;
     /// @brief Relative Path の既存 Component に Reparse Point がないか検証する
     [[nodiscard]] cue::Result<cue::EntryType> validate_entry(const cue::RelativePath &a_path) const noexcept;
     /// @brief Staging Token と Path がこの Root の発行値に一致するか判定する
     [[nodiscard]] bool owns_staging(const cue::StagingArea &a_staging) const noexcept;
+    /// @brief Staging Path が Token 発行時と同じ Native Directory Object か検証する
+    [[nodiscard]] cue::Result<void> validate_staging_identity(std::uint64_t a_token,
+                                                              const cue::RelativePath &a_path) const noexcept;
     /// @brief Root Path が Binding 時と同じ Directory Object を指すか再検証する
     [[nodiscard]] cue::Result<void> verify_root_identity() const noexcept;
 
     const cue::AssertContext *m_assertContext;
     std::wstring m_rootPath;
     UniqueHandle m_rootHandle;
-    std::unordered_map<std::uint64_t, std::string> m_stagingPaths;
+    std::unordered_map<std::uint64_t, StagingRecord> m_stagingPaths;
     DWORD m_rootVolumeSerial;
     DWORD m_rootFileIndexHigh;
     DWORD m_rootFileIndexLow;
@@ -584,11 +596,10 @@ class WindowsFilesystemRoot final : public cue::FilesystemRoot
 
 WindowsFilesystemRoot::~WindowsFilesystemRoot()
 {
-    for (const auto &[token, pathText] : m_stagingPaths)
+    for (const auto &[token, record] : m_stagingPaths)
     {
-        static_cast<void>(token);
-        cue::Result<cue::RelativePath> path = cue::RelativePath::parse(pathText, *m_assertContext);
-        if (path)
+        cue::Result<cue::RelativePath> path = cue::RelativePath::parse(record.path, *m_assertContext);
+        if (path && validate_staging_identity(token, *path.try_value()))
         {
             cue::Result<std::wstring> full = absolute_path(*path.try_value());
             if (full)
@@ -1053,6 +1064,26 @@ cue::Result<cue::StagingArea> WindowsFilesystemRoot::create_staging_area(
         }
         if (CreateDirectoryW(full.try_value()->c_str(), nullptr) != FALSE)
         {
+            UniqueHandle stagingHandle(
+                CreateFileW(full.try_value()->c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+            if (!stagingHandle.is_valid())
+            {
+                const DWORD code = GetLastError();
+                RemoveDirectoryW(full.try_value()->c_str());
+                return cue::Result<cue::StagingArea>::failure(
+                    make_windows_error(*m_assertContext, code, "Staging directory identity open failed"));
+            }
+            BY_HANDLE_FILE_INFORMATION information{};
+            if (GetFileInformationByHandle(stagingHandle.get(), &information) == FALSE)
+            {
+                const DWORD code = GetLastError();
+                stagingHandle.reset();
+                RemoveDirectoryW(full.try_value()->c_str());
+                return cue::Result<cue::StagingArea>::failure(
+                    make_windows_error(*m_assertContext, code, "Staging directory identity query failed"));
+            }
             std::uint64_t token = m_nextToken++;
             if (token == 0)
             {
@@ -1060,7 +1091,8 @@ cue::Result<cue::StagingArea> WindowsFilesystemRoot::create_staging_area(
             }
             try
             {
-                m_stagingPaths.emplace(token, relativeText);
+                m_stagingPaths.emplace(token, StagingRecord{relativeText, information.dwVolumeSerialNumber,
+                                                            information.nFileIndexHigh, information.nFileIndexLow});
             }
             catch (...)
             {
@@ -1082,7 +1114,54 @@ cue::Result<cue::StagingArea> WindowsFilesystemRoot::create_staging_area(
 bool WindowsFilesystemRoot::owns_staging(const cue::StagingArea &a_staging) const noexcept
 {
     const auto found = m_stagingPaths.find(staging_token(a_staging));
-    return found != m_stagingPaths.end() && found->second == a_staging.path().text();
+    return found != m_stagingPaths.end() && found->second.path == a_staging.path().text();
+}
+
+cue::Result<void> WindowsFilesystemRoot::validate_staging_identity(std::uint64_t a_token,
+                                                                   const cue::RelativePath &a_path) const noexcept
+{
+    const auto found = m_stagingPaths.find(a_token);
+    if (found == m_stagingPaths.end() || found->second.path != a_path.text())
+    {
+        return cue::Result<void>::failure(
+            cue::make_io_error(*m_assertContext, cue::IoError::OutsideRoot, "Staging ownership token is invalid"));
+    }
+
+    cue::Result<std::wstring> full = absolute_path(a_path);
+    if (!full)
+    {
+        return cue::Result<void>::failure(std::move(*full.try_error()));
+    }
+    UniqueHandle current(CreateFileW(full.try_value()->c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+                                     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                     FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    if (!current.is_valid())
+    {
+        return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::OutsideRoot,
+                                                             "Staging directory no longer resolves to the owned object",
+                                                             static_cast<std::int64_t>(GetLastError())));
+    }
+    BY_HANDLE_FILE_INFORMATION information{};
+    if (GetFileInformationByHandle(current.get(), &information) == FALSE)
+    {
+        return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::OutsideRoot,
+                                                             "Staging directory identity could not be verified",
+                                                             static_cast<std::int64_t>(GetLastError())));
+    }
+    if ((information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+    {
+        return cue::Result<void>::failure(
+            cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry, "Staging root is a reparse point"));
+    }
+    if ((information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ||
+        information.dwVolumeSerialNumber != found->second.volumeSerial ||
+        information.nFileIndexHigh != found->second.fileIndexHigh ||
+        information.nFileIndexLow != found->second.fileIndexLow)
+    {
+        return cue::Result<void>::failure(
+            cue::make_io_error(*m_assertContext, cue::IoError::OutsideRoot, "Staging directory identity changed"));
+    }
+    return cue::Result<void>::success();
 }
 
 cue::Result<void> WindowsFilesystemRoot::publish_staging_area(cue::StagingArea &&a_staging,
@@ -1092,6 +1171,11 @@ cue::Result<void> WindowsFilesystemRoot::publish_staging_area(cue::StagingArea &
     {
         return cue::Result<void>::failure(
             cue::make_io_error(*m_assertContext, cue::IoError::OutsideRoot, "Staging ownership token is invalid"));
+    }
+    cue::Result<void> identity = validate_staging_identity(staging_token(a_staging), a_staging.path());
+    if (!identity)
+    {
+        return identity;
     }
     cue::Result<cue::EntryType> destinationType = validate_entry(a_destination);
     if (!destinationType)
@@ -1143,6 +1227,11 @@ cue::Result<void> WindowsFilesystemRoot::rollback_staging_area(cue::StagingArea 
     {
         return cue::Result<void>::failure(
             cue::make_io_error(*m_assertContext, cue::IoError::OutsideRoot, "Staging ownership token is invalid"));
+    }
+    cue::Result<void> identity = validate_staging_identity(staging_token(a_staging), a_staging.path());
+    if (!identity)
+    {
+        return identity;
     }
     cue::Result<std::wstring> stagingPath = absolute_path(a_staging.path());
     if (!stagingPath)

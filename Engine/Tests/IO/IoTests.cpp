@@ -566,6 +566,30 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
            (outsideAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
 
+/// @brief Staging Path を同名 Directory へ差し替えても Operation 所有物として扱わないことを検証する
+[[nodiscard]] bool test_staging_identity_replacement(cue::FilesystemRoot &a_filesystem,
+                                                     const TestDirectory &a_directory,
+                                                     const cue::AssertContext &a_assertContext)
+{
+    auto destination = cue::RelativePath::parse("IdentityProject", a_assertContext);
+    auto staging = a_filesystem.create_staging_area(*destination.try_value());
+    if (!staging)
+    {
+        return false;
+    }
+    const std::wstring stagingPath = a_directory.child_path(widen_ascii(staging.try_value()->path().text()));
+    if (RemoveDirectoryW(stagingPath.c_str()) == FALSE || CreateDirectoryW(stagingPath.c_str(), nullptr) == FALSE)
+    {
+        return false;
+    }
+
+    auto publish = a_filesystem.publish_staging_area(std::move(*staging.try_value()), *destination.try_value());
+    auto rollback = a_filesystem.rollback_staging_area(std::move(*staging.try_value()));
+    const DWORD replacementAttributes = GetFileAttributesW(stagingPath.c_str());
+    return has_io_error(publish, cue::IoError::OutsideRoot) && has_io_error(rollback, cue::IoError::OutsideRoot) &&
+           replacementAttributes != INVALID_FILE_ATTRIBUTES && (replacementAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+}
+
 /// @brief 全 Operation Failure Point が一度だけ Portable Error を返すことを検証する
 [[nodiscard]] bool test_failure_injection(const cue::AssertContext &a_assertContext)
 {
@@ -689,5 +713,9 @@ int main()
     {
         return 5;
     }
-    return test_staging_reparse_root(**filesystem.try_value(), directory, assertContext) ? 0 : 6;
+    if (!test_staging_reparse_root(**filesystem.try_value(), directory, assertContext))
+    {
+        return 6;
+    }
+    return test_staging_identity_replacement(**filesystem.try_value(), directory, assertContext) ? 0 : 7;
 }
