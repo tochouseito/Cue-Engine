@@ -181,6 +181,8 @@ Issue #135のAtomic Storage契約で置換する。失敗時は元Descriptorを�
 
 DescriptorのRootはProject Rootからの正規化相対Pathで表し、`/`を区切り文字とする。各SegmentはASCII英数字、`_`、`-`、`.`だけで
 構成し、先頭または末尾の`.`、空Segment、`.`、`..`を受理しない。絶対Path、Drive指定、UNC、Root外へ解決されるPathも受理しない。
+各Segmentの最初の`.`より前をASCII case-insensitiveで比較し、`CON`、`PRN`、`AUX`、`NUL`、`COM1`から`COM9`、
+`LPT1`から`LPT9`に一致するWindows予約Device名を拒否する。したがって`NUL.data`のような拡張子付きAliasも受理しない。
 Reparse Point／Symlinkを含む実Filesystem上の脱出防止はIssue #135で決定する。
 
 | Root Role | Role | Source of Truth | Runtime Access | Share Policy |
