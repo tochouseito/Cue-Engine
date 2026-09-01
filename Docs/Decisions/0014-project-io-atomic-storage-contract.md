@@ -293,4 +293,3 @@ M09の必要範囲に対して新規Dependency、License管理、ABI面積が増
 - Issue #137: Project Descriptorの読取り／保存を本契約へ接続する
 - Issue #138: Blank ProjectをStaging DirectoryからAtomic Publishする
 - Issue #139: User Workspace RegistryをAtomic File Replaceで保存する
-
