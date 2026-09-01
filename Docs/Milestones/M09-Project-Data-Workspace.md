@@ -63,9 +63,10 @@ Windows SDK、CMake、Compilerが提供するToolchain APIに限定する。
 6. Recent一覧から除外した後もProject Directoryと`CueProject.json`が残ること
 7. WorkspaceとProject共有Dataが相互のRootへ書き込まれず、想定外のTop-level Entryがないこと
 
-`Cue.Project.Generator`はCreate Directory、Descriptor Write、Descriptor Verify、Publishの各失敗を注入し、
-Publish前の失敗で完成DirectoryとStagingが残らないことを検証する。Rollback失敗はPrimary Errorを保持したまま
-Secondary診断へ記録し、Publish後のDurability不明は完成Directoryを破壊的にRollbackしない。
+`Cue.Project.Generator`はStaging作成、Directory作成、Descriptor Write、Descriptor Read、Descriptor Parse、Publishの
+各失敗を注入し、Publish前の失敗で完成DirectoryとStagingが残らないことと、期待するProject Errorへ分類されることを
+検証する。Rollback失敗はPrimary Errorを保持したままSecondary診断へ記録し、Publish後のDurability不明は完成Directoryを
+破壊的にRollbackしない。
 
 `Cue.IO.Storage`は`..`、Absolute Path、UNC、Drive指定、禁止文字、Windows予約名、Reparse Pointを拒否し、
 Project Root外への読み書きを許さない。公開APIの静的確認では、`Cue.Project`にProject Directory削除操作はなく、

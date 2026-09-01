@@ -42,6 +42,7 @@ enum class FailurePoint : std::uint8_t
     CreateStaging,
     CreateDirectory,
     WriteDescriptor,
+    ReadDescriptor,
     VerifyDescriptor,
     Publish,
     Durability,
@@ -96,6 +97,11 @@ class GeneratorFilesystem final : public cue::FilesystemRoot
         {
             return cue::Result<std::vector<std::byte>>::failure(
                 cue::make_io_error(*m_assertContext, cue::IoError::NotFound, "Staged descriptor was not found"));
+        }
+        if (m_failure == FailurePoint::ReadDescriptor)
+        {
+            return cue::Result<std::vector<std::byte>>::failure(cue::make_io_error(
+                *m_assertContext, cue::IoError::IoFailure, "Injected descriptor verification read failure"));
         }
         if (m_failure == FailurePoint::VerifyDescriptor)
         {
@@ -324,10 +330,11 @@ class GeneratorFilesystem final : public cue::FilesystemRoot
            !filesystem.is_published();
 }
 
-/// @brief Publish 前の各失敗で最終 Directory と Staging が残らないか検証する
+/// @brief Publish 前の各失敗を Project Error へ分類し、最終 Directory と Staging を残さないか検証する
 [[nodiscard]] bool test_failure_rollback(const cue::AssertContext &a_assertContext)
 {
-    constexpr std::array failures = {FailurePoint::CreateDirectory, FailurePoint::WriteDescriptor,
+    constexpr std::array failures = {FailurePoint::CreateStaging, FailurePoint::CreateDirectory,
+                                     FailurePoint::WriteDescriptor, FailurePoint::ReadDescriptor,
                                      FailurePoint::VerifyDescriptor, FailurePoint::Publish};
     for (const FailurePoint failure : failures)
     {
@@ -335,7 +342,10 @@ class GeneratorFilesystem final : public cue::FilesystemRoot
         auto projectId = make_project_id(a_assertContext);
         auto generated = cue::generate_blank_project(filesystem, "SampleProject", "Sample Project",
                                                      *projectId.try_value(), make_template(), a_assertContext);
-        if (generated || filesystem.is_published() || filesystem.has_staging())
+        const cue::ProjectError expected = failure == FailurePoint::VerifyDescriptor
+                                               ? cue::ProjectError::InvalidFormat
+                                               : cue::ProjectError::IoFailure;
+        if (!has_project_error(generated, expected) || filesystem.is_published() || filesystem.has_staging())
         {
             return false;
         }
