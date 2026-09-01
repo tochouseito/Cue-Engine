@@ -111,8 +111,12 @@ Project Descriptorの初期論理Schemaは次のFieldを持つ。
 }
 ```
 
-この例のProjectIdは形だけを示すための値であり、有効なProject生成に使用しない。具体的なCapability RequirementのField集合は
-Issue #140でADR-0012のVocabularyに基づいて確定する。
+この例のProjectIdは形だけを示すための値であり、有効なProject生成に使用しない。schema version 1では
+`requiredCapabilities`は必須の空Array、`defaultScene`は必須の`null`だけを受理する。未確定のWire Schemaを同じVersionへ
+後付けしないため、非空Capability Requirementと非null Default Sceneは保存しない。
+
+具体的なCapability RequirementのField集合はIssue #140でADR-0012のVocabularyに基づいて確定し、非空要素を永続化する場合は
+Project Descriptorの`schemaVersion`を増加させる。
 
 Descriptorには次を保存しない。
 
@@ -140,8 +144,10 @@ Project Pathは現在位置を示すLocatorでありIdentityではない。Recen
 Project内Assetの永続参照はStable `AssetId`を使用する。PathはAssetの現在位置、検索、診断、人向け表示に使用できるが、
 PathだけをScene、Default Scene、Component、Asset間参照の恒久Identityにしない。
 
-`defaultScene`は未設定を`null`、設定済みを`AssetId`で表す。Blank Project生成時は`null`を許可し、M09でDefault Sceneを
-自動生成しない。AssetIdの生成、Asset Database、Source AssetとRuntime AssetのMappingはAsset Pipelineの別Research Issueで決定する。
+schema version 1の`defaultScene`は未設定を示す`null`だけを受理する。Blank Project生成時も`null`とし、M09でDefault Sceneを
+自動生成しない。AssetIdのBit幅、永続表現、nil規則、一意性Scope、生成、Asset Database、Source AssetとRuntime AssetのMappingは
+Asset Pipelineの別Research Issueで決定する。非null Default Sceneを導入する場合は、その決定と同時にProject Descriptorの
+`schemaVersion`を増加させる。
 
 ### Version and Compatibility
 
@@ -156,7 +162,7 @@ Parserは次の順序で判定する。
 
 1. JSON構文とResource Limitを検証する
 2. `schemaVersion`を読み、対応可能なFormatか判定する
-3. 必須Field、型、ProjectId、相対Root、AssetIdを検証する
+3. 必須Field、型、ProjectId、相対Root、version 1で固定された空Capability Arrayとnull Default Sceneを検証する
 4. Project Descriptor Modelを構築する
 5. Engine／Capability互換性を別Serviceで判定する
 
@@ -173,8 +179,9 @@ Issue #135のAtomic Storage契約で置換する。失敗時は元Descriptorを�
 
 ### Root Roles
 
-DescriptorのRootはProject Rootからの正規化相対Pathで表し、`/`を区切り文字とする。絶対Path、Drive指定、UNC、`.`、`..`、
-空Segment、Root外へ解決されるPathを受理しない。Reparse Point／Symlinkを含む実Filesystem上の脱出防止はIssue #135で決定する。
+DescriptorのRootはProject Rootからの正規化相対Pathで表し、`/`を区切り文字とする。各SegmentはASCII英数字、`_`、`-`、`.`だけで
+構成し、先頭または末尾の`.`、空Segment、`.`、`..`を受理しない。絶対Path、Drive指定、UNC、Root外へ解決されるPathも受理しない。
+Reparse Point／Symlinkを含む実Filesystem上の脱出防止はIssue #135で決定する。
 
 | Root Role | Role | Source of Truth | Runtime Access | Share Policy |
 | --- | --- | --- | --- | --- |
@@ -187,8 +194,9 @@ DescriptorのRootはProject Rootからの正規化相対Pathで表し、`/`を�
 Source AssetsからRuntime Assetsへの変換は一方向とし、RuntimeがSource Assetsを直接読むFallbackを設けない。
 Runtime Assets、Generated、Cache、Savedが欠損しても、それらを共有Authoring Dataの代替正本として扱わない。
 
-Root Roleは重複または親子関係を持たせない。例えば`Generated`を`sourceAssets`の子に置く設定を拒否する。
-`CueProject.json`自身をRoot Role内へ含めない。
+Root Roleの重複・親子判定には、各ASCII文字をlowercaseへ変換したPortable Comparison Keyを使用する。これにより
+`Assets`と`assets/Generated`のようにWindows上でAliasとなる組合せをHostに関係なく拒否する。例えば`Generated`を
+`sourceAssets`の子に置く設定も拒否する。`CueProject.json`自身をRoot Role内へ含めない。
 
 ### User Workspace and Recent Registry
 
