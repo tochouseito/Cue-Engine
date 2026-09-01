@@ -509,8 +509,26 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
         return false;
     }
     *first.try_value() = std::move(*second.try_value());
-    return a_filesystem.rollback_staging_area(std::move(*first.try_value())) &&
-           a_filesystem.rollback_staging_area(std::move(*second.try_value()));
+    if (!a_filesystem.rollback_staging_area(std::move(*first.try_value())) ||
+        !a_filesystem.rollback_staging_area(std::move(*second.try_value())))
+    {
+        return false;
+    }
+
+    auto boundParent = cue::RelativePath::parse("Bound", a_assertContext);
+    auto otherParent = cue::RelativePath::parse("Other", a_assertContext);
+    auto boundDestination = cue::RelativePath::parse("Bound/Project", a_assertContext);
+    auto otherDestination = cue::RelativePath::parse("Other/Project", a_assertContext);
+    if (!a_filesystem.create_directories(*boundParent.try_value()) ||
+        !a_filesystem.create_directories(*otherParent.try_value()))
+    {
+        return false;
+    }
+    auto boundStaging = a_filesystem.create_staging_area(*boundDestination.try_value());
+    auto wrongPublish =
+        a_filesystem.publish_staging_area(std::move(*boundStaging.try_value()), *otherDestination.try_value());
+    return has_io_error(wrongPublish, cue::IoError::OutsideRoot) &&
+           a_filesystem.rollback_staging_area(std::move(*boundStaging.try_value()));
 }
 
 /// @brief 利用可能な Windows 環境で Reparse Point を Unsupported Entry として拒否することを検証する
@@ -547,7 +565,8 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
         return false;
     }
     const std::wstring stagingPath = a_directory.child_path(widen_ascii(staging.try_value()->path().text()));
-    if (RemoveDirectoryW(stagingPath.c_str()) == FALSE)
+    const std::wstring displacedPath = stagingPath + L"-Original";
+    if (MoveFileExW(stagingPath.c_str(), displacedPath.c_str(), 0) == FALSE)
     {
         return false;
     }
@@ -561,9 +580,11 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     auto publish = a_filesystem.publish_staging_area(std::move(*staging.try_value()), *destination.try_value());
     auto rollback = a_filesystem.rollback_staging_area(std::move(*staging.try_value()));
     const DWORD outsideAttributes = GetFileAttributesW(a_directory.outside_path().c_str());
+    const DWORD originalAttributes = GetFileAttributesW(displacedPath.c_str());
     return has_io_error(publish, cue::IoError::UnsupportedEntry) &&
            has_io_error(rollback, cue::IoError::UnsupportedEntry) && outsideAttributes != INVALID_FILE_ATTRIBUTES &&
-           (outsideAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+           (outsideAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 && originalAttributes != INVALID_FILE_ATTRIBUTES &&
+           (originalAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
 
 /// @brief Staging Path を同名 Directory へ差し替えても Operation 所有物として扱わないことを検証する

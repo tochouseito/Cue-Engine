@@ -582,6 +582,7 @@ class WindowsFilesystemRoot final : public cue::FilesystemRoot
     struct StagingRecord final
     {
         std::string path;
+        std::string destinationKey;
         UniqueHandle handle;
         DWORD volumeSerial;
         DWORD fileIndexHigh;
@@ -1109,9 +1110,10 @@ cue::Result<cue::StagingArea> WindowsFilesystemRoot::create_staging_area(
             }
             try
             {
-                m_stagingPaths.emplace(token, StagingRecord{relativeText, std::move(stagingHandle),
-                                                            information.dwVolumeSerialNumber,
-                                                            information.nFileIndexHigh, information.nFileIndexLow});
+                m_stagingPaths.emplace(token,
+                                       StagingRecord{relativeText, a_destination.comparison_key(*m_assertContext),
+                                                     std::move(stagingHandle), information.dwVolumeSerialNumber,
+                                                     information.nFileIndexHigh, information.nFileIndexLow});
             }
             catch (...)
             {
@@ -1190,6 +1192,12 @@ cue::Result<void> WindowsFilesystemRoot::publish_staging_area(cue::StagingArea &
     {
         return cue::Result<void>::failure(
             cue::make_io_error(*m_assertContext, cue::IoError::OutsideRoot, "Staging ownership token is invalid"));
+    }
+    const auto record = m_stagingPaths.find(staging_token(a_staging));
+    if (record->second.destinationKey != a_destination.comparison_key(*m_assertContext))
+    {
+        return cue::Result<void>::failure(cue::make_io_error(
+            *m_assertContext, cue::IoError::OutsideRoot, "Staging token does not belong to the publish destination"));
     }
     cue::Result<void> identity = validate_staging_identity(staging_token(a_staging), a_staging.path());
     if (!identity)
