@@ -197,7 +197,18 @@ class ProjectCompatibilityReport final
     bool m_canOpen;
 };
 
-/// @brief Project Format・Engine Version・Capability要件を現在環境と比較して診断可能な結果を返す
+/// @brief Project Format・Engine Version・Capability要件を現在環境と比較して所有Reportを返す
+/// @param a_projectFormatVersion 読み込み対象Project DescriptorのFormat Version
+/// @param a_supportedProjectFormatVersion 現在Buildが直接解釈できるFormat Version
+/// @param a_engineCompatibility Projectが許容するEngine Version範囲で呼び出し完了まで有効な非所有参照
+/// @param a_currentEngineVersion 現在BuildのEngine Versionで呼び出し完了まで有効な非所有参照
+/// @param a_profile Project要件の所有元で呼び出し完了まで有効な非所有参照
+/// @param a_snapshot 現在Sessionの観測値所有元で呼び出し完了まで有効な非所有参照
+/// @param a_assertContext Error生成と回復不能失敗に使用し呼び出し完了まで有効な非所有診断Context
+/// @return 入力Versionが0またはEngine範囲が不正ならInvalidCompatibilityInput、それ以外は入力と独立した所有Report
+/// @details 共有可変状態を使用しないため独立した入力による並行呼び出しを許可する。ただし共有AssertContextの参照先は
+/// 既存のLoggerとFatalHandlerのThread Safety契約を満たす必要がある。入力値またはProject Dataを変更せず、Allocation失敗を含む
+/// 予期しない例外ではa_assertContextのFatalHandlerを呼び出して終了し、この関数からは戻らない
 [[nodiscard]] Result<ProjectCompatibilityReport> evaluate_project_compatibility(
     std::uint32_t a_projectFormatVersion, std::uint32_t a_supportedProjectFormatVersion,
     const EngineCompatibility &a_engineCompatibility, const EngineVersion &a_currentEngineVersion,

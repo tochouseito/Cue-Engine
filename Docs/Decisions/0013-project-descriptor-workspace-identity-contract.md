@@ -301,6 +301,12 @@ Project Dataを開いて診断または編集すること自体を妨げず、�
 `Unknown`、RequiredのHardware未対応・Engine未実装・Version不足は`Unsupported`、Preferredの未達とRuntime無効は`Degraded`
 とする。これにより、Project Open可否をRuntime Feature Enablementへ暗黙連結しない。
 
+Evaluatorは入力Profile、Snapshot、Versionへの参照を呼び出し中だけ借用し、返却Reportは理由とRuntime判定を所有する。
+共有可変状態を持たず、独立した入力による並行呼び出しを許可する。共有`AssertContext`を渡す場合は、そのLoggerとFatalHandlerの
+既存Thread Safety契約を呼び出し側が満たす。Format Version 0、対応Format Version 0、空または逆転したEngine範囲は
+`InvalidCompatibilityInput`として回復可能に返す。Allocation失敗を含む予期しない例外は既存Project APIと同様にFatalHandlerへ
+渡して終了し、部分Reportまたは変更済みProject Dataを返さない。
+
 ### Module, Ownership, and Threading Boundary
 
 M09で`Cue.Project`をFirst-party Static Libraryとして追加する。
