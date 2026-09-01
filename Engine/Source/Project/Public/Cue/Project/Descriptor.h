@@ -139,6 +139,9 @@ class ProjectDescriptor final
 
   private:
     friend Result<ProjectDescriptor> parse_project_descriptor(std::string_view, const AssertContext &) noexcept;
+    friend Result<ProjectDescriptor> create_blank_project_descriptor(const ProjectId &, std::string_view,
+                                                                      EngineCompatibility,
+                                                                      const AssertContext &) noexcept;
 
     /// @brief Parser が検証した Descriptor v1 の所有値を束ねる
     ProjectDescriptor(ProjectId &&a_projectId, std::string &&a_displayName, EngineCompatibility a_engineCompatibility,
@@ -154,6 +157,11 @@ class ProjectDescriptor final
 /// @brief UTF-8 JSON を一度だけ解析し、検証済み Descriptor v1 を構築する
 [[nodiscard]] Result<ProjectDescriptor> parse_project_descriptor(std::string_view a_json,
                                                                  const AssertContext &a_assertContext) noexcept;
+
+/// @brief Blank Project 用の固定 Root と未設定 Scene を持つ検証済み Descriptor を構築する
+[[nodiscard]] Result<ProjectDescriptor> create_blank_project_descriptor(
+    const ProjectId &a_projectId, std::string_view a_displayName, EngineCompatibility a_engineCompatibility,
+    const AssertContext &a_assertContext) noexcept;
 
 /// @brief 所有 Model が Descriptor v1 の全不変条件を満たすか再検証する
 [[nodiscard]] Result<void> validate_project_descriptor(const ProjectDescriptor &a_descriptor,

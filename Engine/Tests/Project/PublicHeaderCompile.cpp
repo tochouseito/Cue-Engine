@@ -1,5 +1,6 @@
 #include <Cue/Project/Descriptor.h>
 #include <Cue/Project/Error.h>
+#include <Cue/Project/Generator.h>
 
 #include <type_traits>
 #include <utility>
