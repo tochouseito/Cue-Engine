@@ -1,3 +1,4 @@
+#include <Cue/Project/Compatibility.h>
 #include <Cue/Project/Descriptor.h>
 #include <Cue/Project/Error.h>
 #include <Cue/Project/Generator.h>
@@ -16,6 +17,12 @@ static_assert(!std::is_copy_constructible_v<cue::RecentProject>);
 static_assert(!std::is_copy_constructible_v<cue::RecentProjectRegistry>);
 static_assert(std::is_nothrow_move_constructible_v<cue::RecentProject>);
 static_assert(std::is_nothrow_move_constructible_v<cue::RecentProjectRegistry>);
+static_assert(!std::is_copy_constructible_v<cue::ProjectCapabilityProfile>);
+static_assert(!std::is_copy_constructible_v<cue::ProjectCapabilitySnapshot>);
+static_assert(!std::is_copy_constructible_v<cue::ProjectCompatibilityReport>);
+static_assert(std::is_nothrow_move_constructible_v<cue::ProjectCapabilityProfile>);
+static_assert(std::is_nothrow_move_constructible_v<cue::ProjectCapabilitySnapshot>);
+static_assert(std::is_nothrow_move_constructible_v<cue::ProjectCompatibilityReport>);
 static_assert(std::is_same_v<decltype(std::declval<const cue::ProjectRoots &>().source_assets()),
                              const cue::RelativePath &>);
 static_assert(std::is_same_v<decltype(std::declval<const cue::ProjectRoots &>().runtime_assets()),
