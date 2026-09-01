@@ -65,7 +65,13 @@ class ProjectCapabilityProfile final
     /// @brief 所有要件Storageを解放する
     ~ProjectCapabilityProfile() = default;
 
-    /// @brief 重複のない要件集合を検証して所有Profileを返す
+    /// @brief 重複のない要件集合を検証して入力と独立した所有Profileを返す
+    /// @param a_requirements 呼び出し中だけ借用し、成功時は全要素を返却Profileへ複製する要件列
+    /// @param a_assertContext Error生成と回復不能失敗に使用し呼び出し完了まで有効な非所有診断Context
+    /// @return 不正enumまたは重複CapabilityならInvalidCompatibilityInput、それ以外は要件を所有するProfile
+    /// @details 共有可変状態を使用しないため独立した入力による並行呼び出しを許可する。ただし共有AssertContextの参照先は
+    /// 既存のLoggerとFatalHandlerのThread Safety契約を満たす必要がある。Allocation失敗を含む予期しない例外では
+    /// a_assertContextのFatalHandlerを呼び出して終了し、この関数からは戻らない
     [[nodiscard]] static Result<ProjectCapabilityProfile> create(
         std::span<const ProjectCapabilityRequirement> a_requirements,
         const AssertContext &a_assertContext) noexcept;
@@ -99,7 +105,13 @@ class ProjectCapabilitySnapshot final
     /// @brief 所有観測Storageを解放する
     ~ProjectCapabilitySnapshot() = default;
 
-    /// @brief 重複のない現在環境の観測集合を検証して所有Snapshotを返す
+    /// @brief 重複のない現在環境の観測集合を検証して入力と独立した所有Snapshotを返す
+    /// @param a_observations 呼び出し中だけ借用し、成功時は全要素を返却Snapshotへ複製する観測列
+    /// @param a_assertContext Error生成と回復不能失敗に使用し呼び出し完了まで有効な非所有診断Context
+    /// @return 不正enumまたは重複CapabilityならInvalidCompatibilityInput、それ以外は観測値を所有するSnapshot
+    /// @details 共有可変状態を使用しないため独立した入力による並行呼び出しを許可する。ただし共有AssertContextの参照先は
+    /// 既存のLoggerとFatalHandlerのThread Safety契約を満たす必要がある。Allocation失敗を含む予期しない例外では
+    /// a_assertContextのFatalHandlerを呼び出して終了し、この関数からは戻らない
     [[nodiscard]] static Result<ProjectCapabilitySnapshot> create(
         std::span<const ProjectCapabilityObservation> a_observations,
         const AssertContext &a_assertContext) noexcept;
