@@ -164,6 +164,29 @@ template <typename Value>
     return result;
 }
 
+/// @brief 単一 String 上限を守りながら文書上限直下になる compact Descriptor を構築する
+[[nodiscard]] std::string make_limit_descriptor()
+{
+    constexpr std::size_t maximumDescriptorBytes = 1024U * 1024U;
+    constexpr std::size_t maximumStringBytes = 256U * 1024U;
+    std::string result = "{\"schemaVersion\":1,\"projectId\":\"12345678-1234-4abc-8def-1234567890ab\","
+                         "\"displayName\":\"Limit\",\"engineCompatibility\":{\"minimum\":\"0.1.0\","
+                         "\"maximumExclusive\":null},\"roots\":{\"sourceAssets\":\"Assets/Source\","
+                         "\"runtimeAssets\":\"Assets/Runtime\",\"generated\":\"Generated\",\"saved\":\"Saved\"},"
+                         "\"defaultScene\":null,\"requiredCapabilities\":[],\"extensions\":{\"a\":\"";
+    result.append(maximumStringBytes, 'a');
+    result.append("\",\"b\":\"");
+    result.append(maximumStringBytes, 'b');
+    result.append("\",\"c\":\"");
+    result.append(maximumStringBytes, 'c');
+    result.append("\",\"d\":\"");
+    constexpr std::string_view suffix = "\"}}";
+    const std::size_t finalStringBytes = maximumDescriptorBytes - result.size() - suffix.size();
+    result.append(finalStringBytes, 'd');
+    result.append(suffix);
+    return result;
+}
+
 /// @brief 正常 Descriptor の Model 値、Extension 保持、Serialize Round-trip を検証する
 [[nodiscard]] bool test_valid_descriptor(const cue::AssertContext &a_assertContext)
 {
@@ -198,6 +221,8 @@ template <typename Value>
     const std::string nestedUnknown =
         replace_once(k_validDescriptor, "\"minimum\": \"0.1.0\",", "\"minimum\": \"0.1.0\",\"futureRequired\":true,");
     const std::string future = replace_once(k_validDescriptor, "\"schemaVersion\": 1", "\"schemaVersion\": 2");
+    const std::string futureWithField =
+        replace_once(future, "\"projectId\":", "\"futureRequired\":true,\"projectId\":");
     const std::string badId =
         replace_once(k_validDescriptor, "12345678-1234-4abc-8def-1234567890ab", "12345678-1234-3abc-8def-1234567890ab");
     const std::string badRange =
@@ -221,6 +246,8 @@ template <typename Value>
            has_project_error(cue::parse_project_descriptor(nestedUnknown, a_assertContext),
                              cue::ProjectError::InvalidEngineCompatibility) &&
            has_project_error(cue::parse_project_descriptor(future, a_assertContext),
+                             cue::ProjectError::UnsupportedSchemaVersion) &&
+           has_project_error(cue::parse_project_descriptor(futureWithField, a_assertContext),
                              cue::ProjectError::UnsupportedSchemaVersion) &&
            has_project_error(cue::parse_project_descriptor(badId, a_assertContext),
                              cue::ProjectError::InvalidProjectId) &&
@@ -247,12 +274,20 @@ template <typename Value>
     const std::string control = replace_once(k_validDescriptor, "Cue テスト", "Cue\\u0001Test");
     const std::string invalidUtf8 = replace_once(k_validDescriptor, "Cue テスト", std::string("Cue\xC0\xAF"));
     const std::string tooLarge(1024U * 1024U + 1U, ' ');
+    const std::string atLimit = make_limit_descriptor();
     std::string deep = "{}";
     for (std::size_t index = 0U; index < 32U; ++index)
     {
         deep = "{\"x\":" + deep + "}";
     }
-    return has_project_error(cue::parse_project_descriptor(bom, a_assertContext), cue::ProjectError::InvalidFormat) &&
+    auto parsedAtLimit = cue::parse_project_descriptor(atLimit, a_assertContext);
+    auto serializedAtLimit =
+        parsedAtLimit ? cue::serialize_project_descriptor(*parsedAtLimit.try_value(), a_assertContext)
+                      : cue::Result<std::string>::failure(cue::make_project_error(
+                            a_assertContext, cue::ProjectError::InvalidFormat, "Boundary descriptor did not parse"));
+    return atLimit.size() == 1024U * 1024U && parsedAtLimit && serializedAtLimit &&
+           serializedAtLimit.try_value()->size() <= 1024U * 1024U &&
+           has_project_error(cue::parse_project_descriptor(bom, a_assertContext), cue::ProjectError::InvalidFormat) &&
            has_project_error(cue::parse_project_descriptor(control, a_assertContext),
                              cue::ProjectError::InvalidDisplayName) &&
            has_project_error(cue::parse_project_descriptor(invalidUtf8, a_assertContext),

@@ -860,6 +860,28 @@ Result<ProjectDescriptor> parse_project_descriptor(std::string_view a_json,
         return Result<ProjectDescriptor>::failure(
             make_project_error(a_assertContext, ProjectError::InvalidFormat, parser.error()));
     }
+    if (root.type != JsonType::Object)
+    {
+        return Result<ProjectDescriptor>::failure(make_project_error(a_assertContext, ProjectError::InvalidFormat,
+                                                                     "Project descriptor root must be a JSON object"));
+    }
+
+    const JsonValue *schemaVersionMember = find_member(root, "schemaVersion");
+    std::uint32_t parsedSchemaVersion = 0U;
+    if (schemaVersionMember == nullptr || schemaVersionMember->type != JsonType::Number ||
+        !parse_canonical_u32(schemaVersionMember->text, false, parsedSchemaVersion))
+    {
+        return Result<ProjectDescriptor>::failure(
+            make_project_error(a_assertContext, ProjectError::InvalidFormat,
+                               "schemaVersion is missing or is not a canonical positive uint32"));
+    }
+    if (parsedSchemaVersion != k_supportedSchemaVersion)
+    {
+        return Result<ProjectDescriptor>::failure(
+            make_project_error(a_assertContext, ProjectError::UnsupportedSchemaVersion,
+                               "Project descriptor schemaVersion is unsupported"));
+    }
+
     constexpr std::array topLevelNames = {
         std::string_view("schemaVersion"),        std::string_view("projectId"), std::string_view("displayName"),
         std::string_view("engineCompatibility"),  std::string_view("roots"),     std::string_view("defaultScene"),
@@ -869,20 +891,6 @@ Result<ProjectDescriptor> parse_project_descriptor(std::string_view a_json,
         return Result<ProjectDescriptor>::failure(
             make_project_error(a_assertContext, ProjectError::InvalidFormat,
                                "Project descriptor has missing or unknown top-level members"));
-    }
-
-    const JsonValue &schemaVersion = *find_member(root, "schemaVersion");
-    std::uint32_t parsedSchemaVersion = 0U;
-    if (schemaVersion.type != JsonType::Number || !parse_canonical_u32(schemaVersion.text, false, parsedSchemaVersion))
-    {
-        return Result<ProjectDescriptor>::failure(make_project_error(
-            a_assertContext, ProjectError::InvalidFormat, "schemaVersion is not a canonical positive uint32"));
-    }
-    if (parsedSchemaVersion != k_supportedSchemaVersion)
-    {
-        return Result<ProjectDescriptor>::failure(
-            make_project_error(a_assertContext, ProjectError::UnsupportedSchemaVersion,
-                               "Project descriptor schemaVersion is unsupported"));
     }
 
     const JsonValue &projectIdValue = *find_member(root, "projectId");
@@ -1037,13 +1045,13 @@ Result<std::string> serialize_project_descriptor(const ProjectDescriptor &a_desc
     }
 
     std::string output;
-    output.append("{\n    \"schemaVersion\": 1,\n    \"projectId\": ");
+    output.append("{\"schemaVersion\":1,\"projectId\":");
     append_json_string(output, a_descriptor.project_id().text());
-    output.append(",\n    \"displayName\": ");
+    output.append(",\"displayName\":");
     append_json_string(output, a_descriptor.display_name());
-    output.append(",\n    \"engineCompatibility\": {\n        \"minimum\": \"");
+    output.append(",\"engineCompatibility\":{\"minimum\":\"");
     append_engine_version(output, a_descriptor.engine_compatibility().minimum);
-    output.append("\",\n        \"maximumExclusive\": ");
+    output.append("\",\"maximumExclusive\":");
     if (a_descriptor.engine_compatibility().maximumExclusive.has_value())
     {
         output.push_back('"');
@@ -1054,17 +1062,17 @@ Result<std::string> serialize_project_descriptor(const ProjectDescriptor &a_desc
     {
         output.append("null");
     }
-    output.append("\n    },\n    \"roots\": {\n        \"sourceAssets\": ");
+    output.append("},\"roots\":{\"sourceAssets\":");
     append_json_string(output, a_descriptor.roots().sourceAssets.text());
-    output.append(",\n        \"runtimeAssets\": ");
+    output.append(",\"runtimeAssets\":");
     append_json_string(output, a_descriptor.roots().runtimeAssets.text());
-    output.append(",\n        \"generated\": ");
+    output.append(",\"generated\":");
     append_json_string(output, a_descriptor.roots().generated.text());
-    output.append(",\n        \"saved\": ");
+    output.append(",\"saved\":");
     append_json_string(output, a_descriptor.roots().saved.text());
-    output.append("\n    },\n    \"defaultScene\": null,\n    \"requiredCapabilities\": [],\n    \"extensions\": ");
+    output.append("},\"defaultScene\":null,\"requiredCapabilities\":[],\"extensions\":");
     output.append(a_descriptor.extensions_json());
-    output.append("\n}\n");
+    output.push_back('}');
     if (output.size() > k_maximumDescriptorBytes)
     {
         return Result<std::string>::failure(make_project_error(a_assertContext, ProjectError::InvalidFormat,
