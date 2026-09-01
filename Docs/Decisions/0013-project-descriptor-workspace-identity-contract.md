@@ -156,7 +156,7 @@ Fieldの意味、必須性、既定値、正規化規則を変更する場合に
 
 `engineCompatibility`はProjectが要求するCueEngine Version範囲であり、`major.minor.patch`の非負整数3要素を使用する。
 `minimum`はInclusive、`maximumExclusive`はExclusiveまたは`null`とする。現在Engine Versionの提供元と比較結果の分類はIssue #140で
-実装する。
+実装する。`maximumExclusive`が非nullの場合は`minimum`より厳密に大きい値だけを受理し、空または逆転した範囲を拒否する。
 
 Parserは次の順序で判定する。
 
@@ -198,7 +198,8 @@ Runtime Assets、Generated、Cache、Savedが欠損しても、それらを共�
 
 Root Roleの重複・親子判定には、各ASCII文字をlowercaseへ変換したPortable Comparison Keyを使用する。これにより
 `Assets`と`assets/Generated`のようにWindows上でAliasとなる組合せをHostに関係なく拒否する。例えば`Generated`を
-`sourceAssets`の子に置く設定も拒否する。`CueProject.json`自身をRoot Role内へ含めない。
+`sourceAssets`の子に置く設定も拒否する。各Rootの先頭SegmentのPortable Comparison Keyが`cueproject.json`に一致する場合も、
+Descriptor FileとDirectoryがWindows上で衝突するため拒否する。`CueProject.json`自身をRoot Role内へ含めない。
 
 ### User Workspace and Recent Registry
 
