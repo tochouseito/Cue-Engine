@@ -1,0 +1,399 @@
+#include <Cue/Foundation/Assert.h>
+#include <Cue/Foundation/Fatal.h>
+#include <Cue/Foundation/Log.h>
+#include <Cue/IO/Error.h>
+#include <Cue/IO/Filesystem.h>
+#include <Cue/Project/Error.h>
+#include <Cue/Project/Generator.h>
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace
+{
+class TestFatalHandler final : public cue::FatalHandler
+{
+  public:
+    /// @brief Test 中の回復不能失敗を即座に終了 Code へ変換する
+    [[noreturn]] void terminate() noexcept override
+    {
+        std::_Exit(90);
+    }
+
+    /// @brief Message 付き回復不能失敗を即座に終了 Code へ変換する
+    [[noreturn]] void terminate(std::string_view) noexcept override
+    {
+        std::_Exit(91);
+    }
+};
+
+enum class FailurePoint : std::uint8_t
+{
+    None,
+    CreateStaging,
+    CreateDirectory,
+    WriteDescriptor,
+    VerifyDescriptor,
+    Publish,
+    Durability,
+    Rollback,
+    WriteDescriptorAndRollback
+};
+
+class GeneratorFilesystem final : public cue::FilesystemRoot
+{
+  public:
+    /// @brief Atomic Generator の状態遷移を Memory 上で観測できる Root を構築する
+    GeneratorFilesystem(FailurePoint a_failure, bool a_hasExistingDestination,
+                        const cue::AssertContext &a_assertContext) noexcept
+        : m_assertContext(&a_assertContext), m_failure(a_failure), m_hasExistingDestination(a_hasExistingDestination)
+    {
+    }
+
+    /// @brief Test 状態の複製を禁止する
+    GeneratorFilesystem(const GeneratorFilesystem &) = delete;
+    /// @brief Test 状態の複製代入を禁止する
+    GeneratorFilesystem &operator=(const GeneratorFilesystem &) = delete;
+    /// @brief Test 状態の移動を禁止する
+    GeneratorFilesystem(GeneratorFilesystem &&) = delete;
+    /// @brief Test 状態の移動代入を禁止する
+    GeneratorFilesystem &operator=(GeneratorFilesystem &&) = delete;
+    /// @brief Memory 上の Test 状態を解放する
+    ~GeneratorFilesystem() override = default;
+
+    /// @brief Destination と Operation 所有 Staging の可視状態を返す
+    [[nodiscard]] cue::Result<cue::EntryType> query_entry(const cue::RelativePath &a_path) noexcept override
+    {
+        if (a_path.text() == "SampleProject" && (m_hasExistingDestination || m_isPublished))
+        {
+            return cue::Result<cue::EntryType>::success(cue::EntryType::Directory);
+        }
+        if (a_path.text() == "cue-staging-test" && m_hasStaging)
+        {
+            return cue::Result<cue::EntryType>::success(cue::EntryType::Directory);
+        }
+        if (a_path.text() == "cue-staging-test/CueProject.json" && !m_descriptor.empty())
+        {
+            return cue::Result<cue::EntryType>::success(cue::EntryType::RegularFile);
+        }
+        return cue::Result<cue::EntryType>::success(cue::EntryType::Missing);
+    }
+
+    /// @brief Staged Descriptor を上限内で返し、検証失敗時だけ破損 JSON を注入する
+    [[nodiscard]] cue::Result<std::vector<std::byte>> read_file(const cue::RelativePath &a_path,
+                                                                std::size_t a_maxBytes) noexcept override
+    {
+        if (a_path.text() != "cue-staging-test/CueProject.json" || m_descriptor.empty())
+        {
+            return cue::Result<std::vector<std::byte>>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::NotFound, "Staged descriptor was not found"));
+        }
+        if (m_failure == FailurePoint::VerifyDescriptor)
+        {
+            const std::array invalid = {std::byte{'{'}};
+            return cue::Result<std::vector<std::byte>>::success(
+                std::vector<std::byte>(invalid.begin(), invalid.end()));
+        }
+        if (m_descriptor.size() > a_maxBytes)
+        {
+            return cue::Result<std::vector<std::byte>>::failure(cue::make_io_error(
+                *m_assertContext, cue::IoError::CapacityExceeded, "Staged descriptor exceeds read limit"));
+        }
+        return cue::Result<std::vector<std::byte>>::success(std::vector<std::byte>(m_descriptor));
+    }
+
+    /// @brief Generator が要求した標準 Directory を記録し、指定 Stage の失敗を注入する
+    [[nodiscard]] cue::Result<void> create_directories(const cue::RelativePath &a_path) noexcept override
+    {
+        if (!m_hasStaging || !a_path.text().starts_with("cue-staging-test/"))
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::OutsideRoot, "Directory is outside staging"));
+        }
+        if (m_failure == FailurePoint::CreateDirectory)
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Injected directory failure"));
+        }
+        m_directories.emplace_back(a_path.text().substr(std::string_view("cue-staging-test/").size()));
+        return cue::Result<void>::success();
+    }
+
+    /// @brief Staged Descriptor を一つの File として保持し、指定 Stage の失敗を注入する
+    [[nodiscard]] cue::Result<void> write_file_atomic(const cue::RelativePath &a_path,
+                                                      std::span<const std::byte> a_bytes) noexcept override
+    {
+        if (m_failure == FailurePoint::WriteDescriptor || m_failure == FailurePoint::WriteDescriptorAndRollback)
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Injected descriptor write failure"));
+        }
+        if (!m_hasStaging || a_path.text() != "cue-staging-test/CueProject.json")
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::OutsideRoot, "Descriptor is outside staging"));
+        }
+        m_descriptor.assign(a_bytes.begin(), a_bytes.end());
+        return cue::Result<void>::success();
+    }
+
+    /// @brief Destination を上書きせず Operation 所有 Staging Token を発行する
+    [[nodiscard]] cue::Result<cue::StagingArea> create_staging_area(
+        const cue::RelativePath &a_destination) noexcept override
+    {
+        if (m_failure == FailurePoint::CreateStaging)
+        {
+            return cue::Result<cue::StagingArea>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Injected staging creation failure"));
+        }
+        if (m_hasExistingDestination || m_isPublished || a_destination.text() != "SampleProject")
+        {
+            return cue::Result<cue::StagingArea>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::AlreadyExists, "Destination already exists"));
+        }
+        auto path = cue::RelativePath::parse("cue-staging-test", *m_assertContext);
+        m_hasStaging = true;
+        return cue::Result<cue::StagingArea>::success(make_staging_area(std::move(*path.try_value()), 77U));
+    }
+
+    /// @brief Staging を Destination へ一度だけ公開し、Publish 前後の失敗を区別して注入する
+    [[nodiscard]] cue::Result<void> publish_staging_area(cue::StagingArea &&a_staging,
+                                                         const cue::RelativePath &a_destination) noexcept override
+    {
+        if (!m_hasStaging || staging_token(a_staging) != 77U || a_destination.text() != "SampleProject")
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Staging ownership is invalid"));
+        }
+        if (m_failure == FailurePoint::Publish)
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Injected publish failure"));
+        }
+        m_hasStaging = false;
+        m_isPublished = true;
+        invalidate_staging(a_staging);
+        if (m_failure == FailurePoint::Durability)
+        {
+            return cue::Result<void>::failure(cue::make_io_error(
+                *m_assertContext, cue::IoError::DurabilityUnknown, "Injected post-publish durability failure"));
+        }
+        return cue::Result<void>::success();
+    }
+
+    /// @brief Operation 所有 Staging だけを消去し、Rollback 失敗時は状態を保持する
+    [[nodiscard]] cue::Result<void> rollback_staging_area(cue::StagingArea &&a_staging) noexcept override
+    {
+        if (!m_hasStaging || staging_token(a_staging) != 77U)
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Rollback ownership is invalid"));
+        }
+        if (m_failure == FailurePoint::Rollback || m_failure == FailurePoint::WriteDescriptorAndRollback)
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Injected rollback failure"));
+        }
+        m_hasStaging = false;
+        m_directories.clear();
+        m_descriptor.clear();
+        invalidate_staging(a_staging);
+        return cue::Result<void>::success();
+    }
+
+    /// @brief 最終 Project Directory が公開されたか返す
+    [[nodiscard]] bool is_published() const noexcept
+    {
+        return m_isPublished;
+    }
+
+    /// @brief 未公開 Staging が残っているか返す
+    [[nodiscard]] bool has_staging() const noexcept
+    {
+        return m_hasStaging;
+    }
+
+    /// @brief Generator が作成した Directory 一覧を返す
+    [[nodiscard]] std::span<const std::string> directories() const noexcept
+    {
+        return m_directories;
+    }
+
+    /// @brief Descriptor File が作成されたか返す
+    [[nodiscard]] bool has_descriptor() const noexcept
+    {
+        return !m_descriptor.empty();
+    }
+
+  private:
+    const cue::AssertContext *m_assertContext;
+    FailurePoint m_failure;
+    bool m_hasExistingDestination = false;
+    bool m_hasStaging = false;
+    bool m_isPublished = false;
+    std::vector<std::string> m_directories;
+    std::vector<std::byte> m_descriptor;
+};
+
+/// @brief 各 Test で独立した既知 UUID v4 を構築する
+[[nodiscard]] cue::Result<cue::ProjectId> make_project_id(const cue::AssertContext &a_assertContext) noexcept
+{
+    return cue::ProjectId::parse("12345678-1234-4abc-8def-1234567890ab", a_assertContext);
+}
+
+/// @brief Blank Project が要求する最小 Engine Version 範囲を返す
+[[nodiscard]] cue::BlankProjectTemplate make_template() noexcept
+{
+    return cue::BlankProjectTemplate{cue::EngineCompatibility{cue::EngineVersion{0U, 1U, 0U}, std::nullopt}};
+}
+
+/// @brief Project Error の最上位分類が期待値と一致するか判定する
+[[nodiscard]] bool has_project_error(const cue::Result<cue::ProjectDescriptor> &a_result,
+                                     cue::ProjectError a_error) noexcept
+{
+    return !a_result && a_result.try_error()->code().domain() == "Cue.Project" &&
+           a_result.try_error()->code().value() == static_cast<std::int64_t>(a_error);
+}
+
+/// @brief Blank Template が必要最小 Directory と Descriptor だけを Atomic 公開するか検証する
+[[nodiscard]] bool test_success(const cue::AssertContext &a_assertContext)
+{
+    GeneratorFilesystem filesystem(FailurePoint::None, false, a_assertContext);
+    auto projectId = make_project_id(a_assertContext);
+    auto generated = cue::generate_blank_project(filesystem, "SampleProject", "Sample Project",
+                                                 *projectId.try_value(), make_template(), a_assertContext);
+    constexpr std::array expected = {std::string_view("Assets/Source"), std::string_view("Assets/Runtime"),
+                                     std::string_view("Generated"), std::string_view("Saved")};
+    if (!generated || !filesystem.is_published() || filesystem.has_staging() || !filesystem.has_descriptor() ||
+        filesystem.directories().size() != expected.size())
+    {
+        return false;
+    }
+    for (std::size_t index = 0U; index < expected.size(); ++index)
+    {
+        if (filesystem.directories()[index] != expected[index])
+        {
+            return false;
+        }
+    }
+    auto serialized = cue::serialize_project_descriptor(*generated.try_value(), a_assertContext);
+    return serialized && serialized.try_value()->find("\"defaultScene\":null") != std::string::npos &&
+           serialized.try_value()->find("CMakeLists") == std::string::npos &&
+           serialized.try_value()->find("Renderer") == std::string::npos;
+}
+
+/// @brief Portable 単一 Segment でない Project 名を Filesystem 変更前に拒否するか検証する
+[[nodiscard]] bool test_invalid_names(const cue::AssertContext &a_assertContext)
+{
+    constexpr std::array names = {std::string_view(""),          std::string_view("Nested/Project"),
+                                  std::string_view("CON"),       std::string_view("nul.txt"),
+                                  std::string_view("Project."),  std::string_view("Project "),
+                                  std::string_view("Project Name")};
+    for (const std::string_view name : names)
+    {
+        GeneratorFilesystem filesystem(FailurePoint::None, false, a_assertContext);
+        auto projectId = make_project_id(a_assertContext);
+        auto generated = cue::generate_blank_project(filesystem, name, "Sample Project", *projectId.try_value(),
+                                                     make_template(), a_assertContext);
+        if (!has_project_error(generated, cue::ProjectError::InvalidProjectName) || filesystem.has_staging() ||
+            filesystem.is_published())
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// @brief 既存 Destination を空・非空の区別なく上書きしないか検証する
+[[nodiscard]] bool test_existing_destination(const cue::AssertContext &a_assertContext)
+{
+    GeneratorFilesystem filesystem(FailurePoint::None, true, a_assertContext);
+    auto projectId = make_project_id(a_assertContext);
+    auto generated = cue::generate_blank_project(filesystem, "SampleProject", "Sample Project",
+                                                 *projectId.try_value(), make_template(), a_assertContext);
+    return has_project_error(generated, cue::ProjectError::IoFailure) && !filesystem.has_staging() &&
+           !filesystem.is_published();
+}
+
+/// @brief Publish 前の各失敗で最終 Directory と Staging が残らないか検証する
+[[nodiscard]] bool test_failure_rollback(const cue::AssertContext &a_assertContext)
+{
+    constexpr std::array failures = {FailurePoint::CreateDirectory, FailurePoint::WriteDescriptor,
+                                     FailurePoint::VerifyDescriptor, FailurePoint::Publish};
+    for (const FailurePoint failure : failures)
+    {
+        GeneratorFilesystem filesystem(failure, false, a_assertContext);
+        auto projectId = make_project_id(a_assertContext);
+        auto generated = cue::generate_blank_project(filesystem, "SampleProject", "Sample Project",
+                                                     *projectId.try_value(), make_template(), a_assertContext);
+        if (generated || filesystem.is_published() || filesystem.has_staging())
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// @brief Rollback 失敗を Primary 原因へ Secondary 診断として保持するか検証する
+[[nodiscard]] bool test_rollback_diagnostics(const cue::AssertContext &a_assertContext)
+{
+    GeneratorFilesystem filesystem(FailurePoint::WriteDescriptorAndRollback, false, a_assertContext);
+    auto projectId = make_project_id(a_assertContext);
+    auto generated = cue::generate_blank_project(filesystem, "SampleProject", "Sample Project",
+                                                 *projectId.try_value(), make_template(), a_assertContext);
+    return has_project_error(generated, cue::ProjectError::IoFailure) && filesystem.has_staging() &&
+           !filesystem.is_published() && !generated.try_error()->contexts().empty();
+}
+
+/// @brief Publish 後 Durability 失敗では完成 Directory を Rollback しないか検証する
+[[nodiscard]] bool test_durability_unknown(const cue::AssertContext &a_assertContext)
+{
+    GeneratorFilesystem filesystem(FailurePoint::Durability, false, a_assertContext);
+    auto projectId = make_project_id(a_assertContext);
+    auto generated = cue::generate_blank_project(filesystem, "SampleProject", "Sample Project",
+                                                 *projectId.try_value(), make_template(), a_assertContext);
+    return has_project_error(generated, cue::ProjectError::IoFailure) && filesystem.is_published() &&
+           !filesystem.has_staging() && generated.try_error()->root_code().domain() == "Cue.IO" &&
+           generated.try_error()->root_code().value() == static_cast<std::int64_t>(cue::IoError::DurabilityUnknown);
+}
+} // namespace
+
+/// @brief Atomic Blank Project Generator の成功・拒否・Rollback 契約を Process 終了 Code で検証する
+int main()
+{
+    TestFatalHandler fatalHandler;
+    std::vector<std::unique_ptr<cue::LogSink>> sinks;
+    cue::Logger logger(fatalHandler, std::move(sinks));
+    cue::AssertContext assertContext(logger, fatalHandler);
+
+    if (!test_success(assertContext))
+    {
+        return 1;
+    }
+    if (!test_invalid_names(assertContext))
+    {
+        return 2;
+    }
+    if (!test_existing_destination(assertContext))
+    {
+        return 3;
+    }
+    if (!test_failure_rollback(assertContext))
+    {
+        return 4;
+    }
+    if (!test_rollback_diagnostics(assertContext))
+    {
+        return 5;
+    }
+    return test_durability_unknown(assertContext) ? 0 : 6;
+}

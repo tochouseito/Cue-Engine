@@ -5,12 +5,14 @@ target_sources(
     PRIVATE
         Private/Descriptor.cpp
         Private/Error.cpp
+        Private/Generator.cpp
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS Public
         FILES
             Public/Cue/Project/Descriptor.h
             Public/Cue/Project/Error.h
+            Public/Cue/Project/Generator.h
 )
 
 target_link_libraries(Cue.Project PUBLIC Cue.Foundation Cue.IO)

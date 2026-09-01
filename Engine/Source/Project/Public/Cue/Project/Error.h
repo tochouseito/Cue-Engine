@@ -18,7 +18,8 @@ enum class ProjectError : std::int64_t
     InvalidDisplayName = 4,
     InvalidEngineCompatibility = 5,
     InvalidRoots = 6,
-    IoFailure = 7
+    IoFailure = 7,
+    InvalidProjectName = 8
 };
 
 /// @brief Project Error を診断 Summary と共に生成する

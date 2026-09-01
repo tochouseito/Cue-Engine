@@ -882,6 +882,55 @@ bool ProjectDescriptor::equivalent_to(const ProjectDescriptor &a_other) const no
            m_roots.saved().text() == a_other.m_roots.saved().text() && m_extensionsJson == a_other.m_extensionsJson;
 }
 
+Result<ProjectDescriptor> create_blank_project_descriptor(const ProjectId &a_projectId,
+                                                           std::string_view a_displayName,
+                                                           EngineCompatibility a_engineCompatibility,
+                                                           const AssertContext &a_assertContext) noexcept
+{
+    try
+    {
+        if (!is_valid_display_name(a_displayName))
+        {
+            return Result<ProjectDescriptor>::failure(make_project_error(
+                a_assertContext, ProjectError::InvalidDisplayName, "Project displayName is invalid"));
+        }
+        if (a_engineCompatibility.maximumExclusive.has_value() &&
+            *a_engineCompatibility.maximumExclusive <= a_engineCompatibility.minimum)
+        {
+            return Result<ProjectDescriptor>::failure(
+                make_project_error(a_assertContext, ProjectError::InvalidEngineCompatibility,
+                                   "Project engineCompatibility range is invalid"));
+        }
+
+        auto projectId = ProjectId::parse(a_projectId.text(), a_assertContext);
+        if (!projectId)
+        {
+            return Result<ProjectDescriptor>::failure(std::move(*projectId.try_error()));
+        }
+
+        auto sourceAssets = RelativePath::parse("Assets/Source", a_assertContext);
+        auto runtimeAssets = RelativePath::parse("Assets/Runtime", a_assertContext);
+        auto generated = RelativePath::parse("Generated", a_assertContext);
+        auto saved = RelativePath::parse("Saved", a_assertContext);
+        if (!sourceAssets || !runtimeAssets || !generated || !saved)
+        {
+            return Result<ProjectDescriptor>::failure(
+                make_project_error(a_assertContext, ProjectError::InvalidRoots,
+                                   "Blank project template contains an invalid root"));
+        }
+
+        ProjectRoots roots(std::move(*sourceAssets.try_value()), std::move(*runtimeAssets.try_value()),
+                           std::move(*generated.try_value()), std::move(*saved.try_value()));
+        ProjectDescriptor descriptor(std::move(*projectId.try_value()), std::string(a_displayName),
+                                     a_engineCompatibility, std::move(roots), std::string("{}"));
+        return Result<ProjectDescriptor>::success(std::move(descriptor));
+    }
+    catch (...)
+    {
+        terminate_project_exception(a_assertContext);
+    }
+}
+
 Result<ProjectDescriptor> parse_project_descriptor(std::string_view a_json,
                                                    const AssertContext &a_assertContext) noexcept
 {
@@ -1062,6 +1111,11 @@ Result<void> validate_project_descriptor(const ProjectDescriptor &a_descriptor,
 {
     try
     {
+        auto projectId = ProjectId::parse(a_descriptor.project_id().text(), a_assertContext);
+        if (!projectId)
+        {
+            return Result<void>::failure(std::move(*projectId.try_error()));
+        }
         if (!is_valid_display_name(a_descriptor.display_name()))
         {
             return Result<void>::failure(make_project_error(a_assertContext, ProjectError::InvalidDisplayName,
