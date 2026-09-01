@@ -82,7 +82,7 @@ CueEngineは、単一のProject入口とProject相対RootのUsability、共有So
 
 ### Project Root and Descriptor
 
-Project Rootは`CueProject.json`を直接含むDirectoryとする。`CueProject.json`はUTF-8 JSONで保存し、BOMを要求しない。
+Project Rootは`CueProject.json`を直接含むDirectoryとする。`CueProject.json`はUTF-8 JSONで保存し、BOMを受理しない。
 File名はProject探索の入口であり、Projectの恒久Identityではない。
 
 Project DescriptorはVersion Controlで共有できるProjectの唯一の共通Modelとする。Editor、Runtime、Toolsは
@@ -129,7 +129,9 @@ Project Descriptorの`schemaVersion`を増加させる。
 `displayName`は有効なUTF-8で1 byte以上256 byte以下とし、Unicode Control Characterを拒否する。文字列は入力されたUnicode
 Scalar Sequenceを保持し、ParserまたはSerializerがUnicode Normalizationや大小文字変換を暗黙実行しない。`extensions`はJSON
 Objectを必須とする。Descriptor全体はUTF-8で1 MiB以下、JSON Nestingは32階層以下、単一Stringは256 KiB以下、単一Arrayまたは
-Objectは4096要素以下とし、超過をFormat Errorとして拒否する。
+Objectは4096要素以下とし、超過をFormat Errorとして拒否する。Descriptor全体の上限は入力File Byte数をParse前に
+測定し、String上限はJSON Escapeを展開してUnicode Scalar SequenceをUTF-8へEncodeした後のByte数で測定する。Nestingは
+Top-level ObjectをDepth 1とし、子ArrayまたはObjectへ入るたびに1を加える。Arrayは要素数、ObjectはMember数を数える。
 
 Descriptorには次を保存しない。
 
