@@ -578,7 +578,9 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
         return false;
     }
     const std::wstring stagingPath = a_directory.child_path(widen_ascii(staging.try_value()->path().text()));
-    if (RemoveDirectoryW(stagingPath.c_str()) == FALSE || CreateDirectoryW(stagingPath.c_str(), nullptr) == FALSE)
+    const std::wstring displacedPath = stagingPath + L"-Original";
+    if (MoveFileExW(stagingPath.c_str(), displacedPath.c_str(), 0) == FALSE ||
+        CreateDirectoryW(stagingPath.c_str(), nullptr) == FALSE)
     {
         return false;
     }
@@ -586,8 +588,11 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     auto publish = a_filesystem.publish_staging_area(std::move(*staging.try_value()), *destination.try_value());
     auto rollback = a_filesystem.rollback_staging_area(std::move(*staging.try_value()));
     const DWORD replacementAttributes = GetFileAttributesW(stagingPath.c_str());
+    const DWORD originalAttributes = GetFileAttributesW(displacedPath.c_str());
     return has_io_error(publish, cue::IoError::OutsideRoot) && has_io_error(rollback, cue::IoError::OutsideRoot) &&
-           replacementAttributes != INVALID_FILE_ATTRIBUTES && (replacementAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+           replacementAttributes != INVALID_FILE_ATTRIBUTES &&
+           (replacementAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 && originalAttributes != INVALID_FILE_ATTRIBUTES &&
+           (originalAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
 
 /// @brief 全 Operation Failure Point が一度だけ Portable Error を返すことを検証する
