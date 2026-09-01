@@ -1,0 +1,98 @@
+#pragma once
+
+#include <Cue/Foundation/Result.h>
+#include <Cue/IO/RelativePath.h>
+
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <vector>
+
+namespace cue
+{
+/// @brief Root 配下の Entry 種別を Platform 固有属性なしで表す
+enum class EntryType : std::uint8_t
+{
+    Missing,
+    RegularFile,
+    Directory,
+    UnsupportedEntry
+};
+
+/// @brief Publish 前の Operation 所有 Staging Directory を偽造不能な Token と共に保持する
+class StagingArea final
+{
+  public:
+    /// @brief 所有権のない Staging 値を作らせないため既定構築を禁止する
+    StagingArea() = delete;
+    /// @brief Operation 所有権を一意に保つため Copy 構築を禁止する
+    StagingArea(const StagingArea &) = delete;
+    /// @brief Operation 所有権を一意に保つため Copy 代入を禁止する
+    StagingArea &operator=(const StagingArea &) = delete;
+    /// @brief Staging 所有 Token を移動し、移動元を無効にする
+    StagingArea(StagingArea &&a_other) noexcept;
+    /// @brief 既存 Token を破棄せず Staging 所有権を移動代入する
+    StagingArea &operator=(StagingArea &&a_other) noexcept;
+    /// @brief 値だけを破棄し、Filesystem 変更を暗黙実行しない
+    ~StagingArea() = default;
+
+    /// @brief Staging Directory の Root 相対 Path を返す
+    [[nodiscard]] const RelativePath &path() const noexcept;
+
+  private:
+    friend class FilesystemRoot;
+
+    /// @brief Filesystem 実装が発行した Path と Token から Staging 所有値を構築する
+    StagingArea(RelativePath &&a_path, std::uint64_t a_token) noexcept;
+
+    RelativePath m_path;
+    std::uint64_t m_token;
+};
+
+/// @brief 検証済み Root 内だけを操作する Platform 非依存 Filesystem 契約
+///
+/// Instance は Thread-safe ではなく、同一 Instance の並行利用は呼び出し側が同期する
+class FilesystemRoot
+{
+  public:
+    /// @brief Root Object の一意所有を保つため Copy 構築を禁止する
+    FilesystemRoot(const FilesystemRoot &) = delete;
+    /// @brief Root Object の一意所有を保つため Copy 代入を禁止する
+    FilesystemRoot &operator=(const FilesystemRoot &) = delete;
+    /// @brief Polymorphic Root の Native Resource を実装側で解放する
+    virtual ~FilesystemRoot() = default;
+
+    /// @brief Entry を Follow せず Portable 種別として返す
+    [[nodiscard]] virtual Result<EntryType> query_entry(const RelativePath &a_path) noexcept = 0;
+    /// @brief 上限内の Regular File 全体を所有 Byte 列として返す
+    [[nodiscard]] virtual Result<std::vector<std::byte>> read_file(const RelativePath &a_path,
+                                                                   std::size_t a_maxBytes) noexcept = 0;
+    /// @brief Root 配下に不足する Directory を親から作成する
+    [[nodiscard]] virtual Result<void> create_directories(const RelativePath &a_path) noexcept = 0;
+    /// @brief 同一 Directory の Temporary File を用いて File Content を Atomic に公開する
+    [[nodiscard]] virtual Result<void> write_file_atomic(const RelativePath &a_path,
+                                                         std::span<const std::byte> a_bytes) noexcept = 0;
+    /// @brief 最終 Destination の Sibling に Operation 所有 Staging Directory を排他的に作成する
+    [[nodiscard]] virtual Result<StagingArea> create_staging_area(const RelativePath &a_destination) noexcept = 0;
+    /// @brief Operation 所有 Staging を既存 Destination へ上書きせず一度だけ公開する
+    [[nodiscard]] virtual Result<void> publish_staging_area(StagingArea &&a_staging,
+                                                            const RelativePath &a_destination) noexcept = 0;
+    /// @brief Operation 所有 Staging だけを再帰削除し、Token を無効化する
+    [[nodiscard]] virtual Result<void> rollback_staging_area(StagingArea &&a_staging) noexcept = 0;
+
+  protected:
+    /// @brief Derived 実装だけが Staging 所有値を発行できるよう Path と Token を束ねる
+    [[nodiscard]] static StagingArea make_staging_area(RelativePath &&a_path, std::uint64_t a_token) noexcept;
+    /// @brief Derived 実装が Staging 所有 Token を検証するため値を返す
+    [[nodiscard]] static std::uint64_t staging_token(const StagingArea &a_staging) noexcept;
+    /// @brief Derived 実装が Commit 済み Token を再利用不能にする
+    static void invalidate_staging(StagingArea &a_staging) noexcept;
+
+    /// @brief Abstract Root の初期化だけを Derived 実装へ許可する
+    FilesystemRoot() noexcept = default;
+    /// @brief Abstract Root を直接移動させず Derived 所有権で管理する
+    FilesystemRoot(FilesystemRoot &&) noexcept = default;
+    /// @brief Abstract Root を直接移動代入させず Derived 所有権で管理する
+    FilesystemRoot &operator=(FilesystemRoot &&) noexcept = default;
+};
+} // namespace cue

@@ -1,0 +1,449 @@
+#include <Cue/Foundation/Assert.h>
+#include <Cue/Foundation/Fatal.h>
+#include <Cue/Foundation/Log.h>
+#include <Cue/IO/Error.h>
+#include <Cue/IO/Filesystem.h>
+#include <Cue/IO/RelativePath.h>
+#include <Cue/IO/Windows/WindowsFilesystem.h>
+
+#include <Windows.h>
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <filesystem>
+#include <memory>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace
+{
+class TestFatalHandler final : public cue::FatalHandler
+{
+  public:
+    /// @brief Test 中の回復不能失敗を追加処理なしで終了 Code へ変換する
+    [[noreturn]] void terminate() noexcept override
+    {
+        std::_Exit(90);
+    }
+
+    /// @brief Message 付き回復不能失敗を追加処理なしで終了 Code へ変換する
+    [[noreturn]] void terminate(std::string_view) noexcept override
+    {
+        std::_Exit(91);
+    }
+};
+
+/// @brief Test 専用 Root Directory を一意 Path へ作成して終了時に限定 Cleanup する
+class TestDirectory final
+{
+  public:
+    /// @brief Process と時刻から生成した Test 専用 Directory を作成する
+    TestDirectory()
+    {
+        std::array<wchar_t, MAX_PATH> temporary{};
+        const DWORD length = GetTempPathW(static_cast<DWORD>(temporary.size()), temporary.data());
+        if (length == 0 || length >= temporary.size())
+        {
+            return;
+        }
+        m_path = temporary.data();
+        m_path += L"CueIoTests-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64());
+        m_isCreated = CreateDirectoryW(m_path.c_str(), nullptr) != FALSE;
+    }
+
+    /// @brief TestDirectory の一意 Cleanup 責務を保つため Copy 構築を禁止する
+    TestDirectory(const TestDirectory &) = delete;
+    /// @brief TestDirectory の一意 Cleanup 責務を保つため Copy 代入を禁止する
+    TestDirectory &operator=(const TestDirectory &) = delete;
+    /// @brief TestDirectory の所有権を移動する必要がないため Move 構築を禁止する
+    TestDirectory(TestDirectory &&) = delete;
+    /// @brief TestDirectory の所有権を移動する必要がないため Move 代入を禁止する
+    TestDirectory &operator=(TestDirectory &&) = delete;
+
+    /// @brief Test 専用 Directory だけを再帰 Cleanup する
+    ~TestDirectory()
+    {
+        if (m_isCreated)
+        {
+            std::error_code error;
+            std::filesystem::remove_all(m_path, error);
+        }
+    }
+
+    /// @brief Directory 作成に成功したか返す
+    [[nodiscard]] bool is_created() const noexcept
+    {
+        return m_isCreated;
+    }
+
+    /// @brief Windows Filesystem Factory へ渡す UTF-8 Path を返す
+    [[nodiscard]] std::string utf8_path() const
+    {
+        const int count = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, m_path.c_str(),
+                                              static_cast<int>(m_path.size()), nullptr, 0, nullptr, nullptr);
+        std::string result(static_cast<std::size_t>(count), '\0');
+        WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, m_path.c_str(), static_cast<int>(m_path.size()),
+                            result.data(), count, nullptr, nullptr);
+        return result;
+    }
+
+    /// @brief Root へ結合した Native Path を Reparse Test へ返す
+    [[nodiscard]] std::wstring child_path(std::wstring_view a_name) const
+    {
+        return m_path + L"\\" + std::wstring(a_name);
+    }
+
+  private:
+    std::wstring m_path;
+    bool m_isCreated = false;
+};
+
+enum class FailurePoint : std::uint8_t
+{
+    None,
+    Query,
+    Read,
+    CreateDirectories,
+    AtomicWrite,
+    CreateStaging,
+    PublishStaging,
+    RollbackStaging
+};
+
+/// @brief Platform 非依存呼出し側が各 Storage 失敗を再現できる Test Double
+class FailingFilesystemRoot final : public cue::FilesystemRoot
+{
+  public:
+    /// @brief 一度だけ失敗させる Operation を設定する
+    FailingFilesystemRoot(FailurePoint a_failurePoint, const cue::AssertContext &a_assertContext) noexcept
+        : m_failurePoint(a_failurePoint), m_assertContext(&a_assertContext)
+    {
+    }
+
+    /// @brief Test Double の一意状態を保つため Copy 構築を禁止する
+    FailingFilesystemRoot(const FailingFilesystemRoot &) = delete;
+    /// @brief Test Double の一意状態を保つため Copy 代入を禁止する
+    FailingFilesystemRoot &operator=(const FailingFilesystemRoot &) = delete;
+    /// @brief Test Double の状態を移動する必要がないため Move 構築を禁止する
+    FailingFilesystemRoot(FailingFilesystemRoot &&) = delete;
+    /// @brief Test Double の状態を移動する必要がないため Move 代入を禁止する
+    FailingFilesystemRoot &operator=(FailingFilesystemRoot &&) = delete;
+    /// @brief Native Resource を持たない Test Double を破棄する
+    ~FailingFilesystemRoot() override = default;
+
+    /// @brief Query Failure Point を一度だけ再現する
+    [[nodiscard]] cue::Result<cue::EntryType> query_entry(const cue::RelativePath &) noexcept override
+    {
+        if (consume(FailurePoint::Query))
+        {
+            return cue::Result<cue::EntryType>::failure(make_failure());
+        }
+        return cue::Result<cue::EntryType>::success(cue::EntryType::Missing);
+    }
+
+    /// @brief Read Failure Point を一度だけ再現する
+    [[nodiscard]] cue::Result<std::vector<std::byte>> read_file(const cue::RelativePath &,
+                                                                std::size_t) noexcept override
+    {
+        if (consume(FailurePoint::Read))
+        {
+            return cue::Result<std::vector<std::byte>>::failure(make_failure());
+        }
+        return cue::Result<std::vector<std::byte>>::success({});
+    }
+
+    /// @brief Directory 作成 Failure Point を一度だけ再現する
+    [[nodiscard]] cue::Result<void> create_directories(const cue::RelativePath &) noexcept override
+    {
+        return consume(FailurePoint::CreateDirectories) ? cue::Result<void>::failure(make_failure())
+                                                        : cue::Result<void>::success();
+    }
+
+    /// @brief Atomic Write Failure Point を一度だけ再現する
+    [[nodiscard]] cue::Result<void> write_file_atomic(const cue::RelativePath &,
+                                                      std::span<const std::byte>) noexcept override
+    {
+        return consume(FailurePoint::AtomicWrite) ? cue::Result<void>::failure(make_failure())
+                                                  : cue::Result<void>::success();
+    }
+
+    /// @brief Staging 作成 Failure Point または偽造不能 Token を返す
+    [[nodiscard]] cue::Result<cue::StagingArea> create_staging_area(const cue::RelativePath &) noexcept override
+    {
+        if (consume(FailurePoint::CreateStaging))
+        {
+            return cue::Result<cue::StagingArea>::failure(make_failure());
+        }
+        auto path = cue::RelativePath::parse("CueStaging-test", *m_assertContext);
+        return cue::Result<cue::StagingArea>::success(make_staging_area(std::move(*path.try_value()), 1));
+    }
+
+    /// @brief Staging Publish Failure Point を一度だけ再現する
+    [[nodiscard]] cue::Result<void> publish_staging_area(cue::StagingArea &&,
+                                                         const cue::RelativePath &) noexcept override
+    {
+        return consume(FailurePoint::PublishStaging) ? cue::Result<void>::failure(make_failure())
+                                                     : cue::Result<void>::success();
+    }
+
+    /// @brief Staging Rollback Failure Point を一度だけ再現する
+    [[nodiscard]] cue::Result<void> rollback_staging_area(cue::StagingArea &&) noexcept override
+    {
+        return consume(FailurePoint::RollbackStaging) ? cue::Result<void>::failure(make_failure())
+                                                      : cue::Result<void>::success();
+    }
+
+  private:
+    /// @brief 指定 Failure Point が未消費なら一度だけ true を返す
+    [[nodiscard]] bool consume(FailurePoint a_failurePoint) noexcept
+    {
+        if (m_failurePoint == a_failurePoint)
+        {
+            m_failurePoint = FailurePoint::None;
+            return true;
+        }
+        return false;
+    }
+
+    /// @brief Test Double 用の安定した Portable 分類 Error を生成する
+    [[nodiscard]] cue::Error make_failure() const noexcept
+    {
+        return cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Injected filesystem failure");
+    }
+
+    FailurePoint m_failurePoint;
+    const cue::AssertContext *m_assertContext;
+};
+
+/// @brief Result が指定 Portable IO 分類を保持するか判定する
+template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, cue::IoError a_code) noexcept
+{
+    const cue::Error *error = a_result.try_error();
+    return error != nullptr && error->code().domain() == "Cue.IO" &&
+           error->code().value() == static_cast<std::int64_t>(a_code);
+}
+
+/// @brief Portable Relative Path の境界値と Root 脱出拒否を検証する
+[[nodiscard]] bool test_relative_paths(const cue::AssertContext &a_assertContext)
+{
+    auto valid = cue::RelativePath::parse("Assets/Source", a_assertContext);
+    auto parent = cue::RelativePath::parse("../Outside", a_assertContext);
+    auto rooted = cue::RelativePath::parse("C:/Outside", a_assertContext);
+    auto backslash = cue::RelativePath::parse("Assets\\Source", a_assertContext);
+    auto reserved = cue::RelativePath::parse("NUL.data", a_assertContext);
+    auto hidden = cue::RelativePath::parse(".Hidden", a_assertContext);
+    const std::string longSegment(65, 'a');
+    auto tooLong = cue::RelativePath::parse(longSegment, a_assertContext);
+
+    return valid && valid.try_value()->comparison_key(a_assertContext) == "assets/source" &&
+           has_io_error(parent, cue::IoError::InvalidPath) && has_io_error(rooted, cue::IoError::InvalidPath) &&
+           has_io_error(backslash, cue::IoError::InvalidPath) && has_io_error(reserved, cue::IoError::InvalidPath) &&
+           has_io_error(hidden, cue::IoError::InvalidPath) && has_io_error(tooLong, cue::IoError::InvalidPath);
+}
+
+/// @brief Windows Root 内の Directory 作成と Atomic File 置換を実 Filesystem で検証する
+[[nodiscard]] bool test_windows_file_operations(cue::FilesystemRoot &a_filesystem, const TestDirectory &a_directory,
+                                                const cue::AssertContext &a_assertContext)
+{
+    auto directory = cue::RelativePath::parse("Data/Nested", a_assertContext);
+    auto file = cue::RelativePath::parse("Data/Nested/State.bin", a_assertContext);
+    const std::array first{std::byte{1}, std::byte{2}, std::byte{3}};
+    const std::array second{std::byte{9}, std::byte{8}};
+
+    if (!directory || !file || !a_filesystem.create_directories(*directory.try_value()) ||
+        !a_filesystem.write_file_atomic(*file.try_value(), first))
+    {
+        return false;
+    }
+    auto firstRead = a_filesystem.read_file(*file.try_value(), 16);
+    if (!firstRead || *firstRead.try_value() != std::vector<std::byte>(first.begin(), first.end()) ||
+        !a_filesystem.write_file_atomic(*file.try_value(), second))
+    {
+        return false;
+    }
+    auto secondRead = a_filesystem.read_file(*file.try_value(), 16);
+    auto limitedRead = a_filesystem.read_file(*file.try_value(), 1);
+    if (!secondRead || *secondRead.try_value() != std::vector<std::byte>(second.begin(), second.end()) ||
+        !has_io_error(limitedRead, cue::IoError::CapacityExceeded))
+    {
+        return false;
+    }
+
+    const std::wstring nativePath = a_directory.child_path(L"Data\\Nested\\State.bin");
+    HANDLE locked = CreateFileW(nativePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (locked == INVALID_HANDLE_VALUE)
+    {
+        return false;
+    }
+    cue::Result<void> failedReplace = a_filesystem.write_file_atomic(*file.try_value(), first);
+    CloseHandle(locked);
+
+    auto preserved = a_filesystem.read_file(*file.try_value(), 16);
+    return has_io_error(failedReplace, cue::IoError::PermissionDenied) && preserved &&
+           *preserved.try_value() == std::vector<std::byte>(second.begin(), second.end());
+}
+
+/// @brief Staging Directory の Publish、既存 Destination 拒否、Rollback を検証する
+[[nodiscard]] bool test_windows_staging(cue::FilesystemRoot &a_filesystem, const cue::AssertContext &a_assertContext)
+{
+    auto project = cue::RelativePath::parse("Project", a_assertContext);
+    auto existing = cue::RelativePath::parse("Existing", a_assertContext);
+    auto rollbackTarget = cue::RelativePath::parse("RollbackTarget", a_assertContext);
+    auto racedTarget = cue::RelativePath::parse("RacedTarget", a_assertContext);
+    if (!project || !existing || !rollbackTarget || !racedTarget ||
+        !a_filesystem.create_directories(*existing.try_value()))
+    {
+        return false;
+    }
+    auto rejected = a_filesystem.create_staging_area(*existing.try_value());
+    auto staging = a_filesystem.create_staging_area(*project.try_value());
+    if (!has_io_error(rejected, cue::IoError::AlreadyExists) || !staging)
+    {
+        return false;
+    }
+
+    const std::string childText = std::string(staging.try_value()->path().text()) + "/Assets";
+    auto child = cue::RelativePath::parse(childText, a_assertContext);
+    if (!child || !a_filesystem.create_directories(*child.try_value()) ||
+        !a_filesystem.publish_staging_area(std::move(*staging.try_value()), *project.try_value()))
+    {
+        return false;
+    }
+    auto projectType = a_filesystem.query_entry(*project.try_value());
+    auto rollback = a_filesystem.create_staging_area(*rollbackTarget.try_value());
+    if (!projectType || *projectType.try_value() != cue::EntryType::Directory || !rollback)
+    {
+        return false;
+    }
+    const std::string rollbackPathText(rollback.try_value()->path().text());
+    auto rollbackPath = cue::RelativePath::parse(rollbackPathText, a_assertContext);
+    if (!rollbackPath || !a_filesystem.rollback_staging_area(std::move(*rollback.try_value())))
+    {
+        return false;
+    }
+    auto rollbackType = a_filesystem.query_entry(*rollbackPath.try_value());
+    if (!rollbackType || *rollbackType.try_value() != cue::EntryType::Missing)
+    {
+        return false;
+    }
+
+    auto racedStaging = a_filesystem.create_staging_area(*racedTarget.try_value());
+    if (!racedStaging)
+    {
+        return false;
+    }
+    const std::string racedStagingText(racedStaging.try_value()->path().text());
+    auto racedStagingPath = cue::RelativePath::parse(racedStagingText, a_assertContext);
+    if (!racedStagingPath || !a_filesystem.create_directories(*racedTarget.try_value()))
+    {
+        return false;
+    }
+    auto racedPublish =
+        a_filesystem.publish_staging_area(std::move(*racedStaging.try_value()), *racedTarget.try_value());
+    if (!has_io_error(racedPublish, cue::IoError::AlreadyExists) ||
+        !a_filesystem.rollback_staging_area(std::move(*racedStaging.try_value())))
+    {
+        return false;
+    }
+    auto racedType = a_filesystem.query_entry(*racedTarget.try_value());
+    auto racedStagingType = a_filesystem.query_entry(*racedStagingPath.try_value());
+    return racedType && *racedType.try_value() == cue::EntryType::Directory && racedStagingType &&
+           *racedStagingType.try_value() == cue::EntryType::Missing;
+}
+
+/// @brief 利用可能な Windows 環境で Reparse Point を Unsupported Entry として拒否することを検証する
+[[nodiscard]] bool test_reparse_rejection(cue::FilesystemRoot &a_filesystem, const TestDirectory &a_directory,
+                                          const cue::AssertContext &a_assertContext)
+{
+    const std::wstring target = a_directory.child_path(L"ReparseTarget");
+    const std::wstring link = a_directory.child_path(L"ReparseLink");
+    if (CreateDirectoryW(target.c_str(), nullptr) == FALSE)
+    {
+        return false;
+    }
+    if (CreateSymbolicLinkW(link.c_str(), target.c_str(),
+                            SYMBOLIC_LINK_FLAG_DIRECTORY | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE) == FALSE)
+    {
+        const DWORD code = GetLastError();
+        return code == ERROR_PRIVILEGE_NOT_HELD || code == ERROR_INVALID_PARAMETER || code == ERROR_NOT_SUPPORTED;
+    }
+    auto path = cue::RelativePath::parse("ReparseLink", a_assertContext);
+    auto type = a_filesystem.query_entry(*path.try_value());
+    return type && *type.try_value() == cue::EntryType::UnsupportedEntry;
+}
+
+/// @brief 全 Operation Failure Point が一度だけ Portable Error を返すことを検証する
+[[nodiscard]] bool test_failure_injection(const cue::AssertContext &a_assertContext)
+{
+    auto path = cue::RelativePath::parse("Data", a_assertContext);
+    const std::array<std::byte, 1> bytes{std::byte{1}};
+    FailingFilesystemRoot query(FailurePoint::Query, a_assertContext);
+    FailingFilesystemRoot read(FailurePoint::Read, a_assertContext);
+    FailingFilesystemRoot directories(FailurePoint::CreateDirectories, a_assertContext);
+    FailingFilesystemRoot atomic(FailurePoint::AtomicWrite, a_assertContext);
+    FailingFilesystemRoot create(FailurePoint::CreateStaging, a_assertContext);
+    FailingFilesystemRoot publish(FailurePoint::PublishStaging, a_assertContext);
+    FailingFilesystemRoot rollback(FailurePoint::RollbackStaging, a_assertContext);
+    auto queryResult = query.query_entry(*path.try_value());
+    auto queryRetry = query.query_entry(*path.try_value());
+    auto readResult = read.read_file(*path.try_value(), 4);
+    auto directoryResult = directories.create_directories(*path.try_value());
+    auto atomicResult = atomic.write_file_atomic(*path.try_value(), bytes);
+    auto createResult = create.create_staging_area(*path.try_value());
+    auto publishStaging = publish.create_staging_area(*path.try_value());
+    auto rollbackStaging = rollback.create_staging_area(*path.try_value());
+    auto publishResult = publish.publish_staging_area(std::move(*publishStaging.try_value()), *path.try_value());
+    auto rollbackResult = rollback.rollback_staging_area(std::move(*rollbackStaging.try_value()));
+    return has_io_error(queryResult, cue::IoError::IoFailure) && queryRetry &&
+           has_io_error(readResult, cue::IoError::IoFailure) &&
+           has_io_error(directoryResult, cue::IoError::IoFailure) &&
+           has_io_error(atomicResult, cue::IoError::IoFailure) && has_io_error(createResult, cue::IoError::IoFailure) &&
+           has_io_error(publishResult, cue::IoError::IoFailure) &&
+           has_io_error(rollbackResult, cue::IoError::IoFailure);
+}
+
+/// @brief Windows Filesystem Root が相対 Path を現在 Directory 基準へ暗黙展開しないことを検証する
+[[nodiscard]] bool test_root_factory_validation(const cue::AssertContext &a_assertContext)
+{
+    auto relative = cue::create_windows_filesystem_root("RelativeRoot", a_assertContext);
+    auto driveRelative = cue::create_windows_filesystem_root("C:RelativeRoot", a_assertContext);
+    return has_io_error(relative, cue::IoError::InvalidPath) && has_io_error(driveRelative, cue::IoError::InvalidPath);
+}
+} // namespace
+
+/// @brief Portable Path、Windows Storage、Reparse 拒否、Failure Injection 契約を統合検証する
+int main()
+{
+    TestFatalHandler fatalHandler;
+    std::vector<std::unique_ptr<cue::LogSink>> sinks;
+    cue::Logger logger(fatalHandler, std::move(sinks));
+    cue::AssertContext assertContext(logger, fatalHandler);
+    TestDirectory directory;
+    if (!directory.is_created() || !test_relative_paths(assertContext) || !test_failure_injection(assertContext) ||
+        !test_root_factory_validation(assertContext))
+    {
+        return 1;
+    }
+
+    auto filesystem = cue::create_windows_filesystem_root(directory.utf8_path(), assertContext);
+    if (!filesystem)
+    {
+        return 2;
+    }
+
+    if (!test_windows_file_operations(**filesystem.try_value(), directory, assertContext))
+    {
+        return 3;
+    }
+    if (!test_windows_staging(**filesystem.try_value(), assertContext))
+    {
+        return 4;
+    }
+    return test_reparse_rejection(**filesystem.try_value(), directory, assertContext) ? 0 : 5;
+}
