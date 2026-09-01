@@ -211,6 +211,21 @@ class UniqueFindHandle final
     return std::move(a_primary);
 }
 
+/// @brief Staging 作成途中の Primary Error を維持しながら Directory Cleanup 失敗を追加する
+[[nodiscard]] cue::Error remove_staging_after_creation_failure(const cue::AssertContext &a_context,
+                                                               const std::wstring &a_stagingPath,
+                                                               cue::Error &&a_primary) noexcept
+{
+    if (RemoveDirectoryW(a_stagingPath.c_str()) == FALSE)
+    {
+        cue::Error cleanup =
+            make_windows_error(a_context, GetLastError(), "Incomplete staging directory cleanup failed");
+        a_primary.append_secondary_diagnostics(a_context, cleanup, "Staging creation rollback failed",
+                                               "Cue.IO cleanup");
+    }
+    return std::move(a_primary);
+}
+
 /// @brief Windows の Publish と耐久性試行を分離せず、失敗時に可視化済みかを保持する
 struct NativePublishOutcome final
 {
@@ -567,6 +582,7 @@ class WindowsFilesystemRoot final : public cue::FilesystemRoot
     struct StagingRecord final
     {
         std::string path;
+        UniqueHandle handle;
         DWORD volumeSerial;
         DWORD fileIndexHigh;
         DWORD fileIndexLow;
@@ -1071,18 +1087,20 @@ cue::Result<cue::StagingArea> WindowsFilesystemRoot::create_staging_area(
             if (!stagingHandle.is_valid())
             {
                 const DWORD code = GetLastError();
-                RemoveDirectoryW(full.try_value()->c_str());
+                cue::Error primary =
+                    make_windows_error(*m_assertContext, code, "Staging directory identity open failed");
                 return cue::Result<cue::StagingArea>::failure(
-                    make_windows_error(*m_assertContext, code, "Staging directory identity open failed"));
+                    remove_staging_after_creation_failure(*m_assertContext, *full.try_value(), std::move(primary)));
             }
             BY_HANDLE_FILE_INFORMATION information{};
             if (GetFileInformationByHandle(stagingHandle.get(), &information) == FALSE)
             {
                 const DWORD code = GetLastError();
                 stagingHandle.reset();
-                RemoveDirectoryW(full.try_value()->c_str());
+                cue::Error primary =
+                    make_windows_error(*m_assertContext, code, "Staging directory identity query failed");
                 return cue::Result<cue::StagingArea>::failure(
-                    make_windows_error(*m_assertContext, code, "Staging directory identity query failed"));
+                    remove_staging_after_creation_failure(*m_assertContext, *full.try_value(), std::move(primary)));
             }
             std::uint64_t token = m_nextToken++;
             if (token == 0)
@@ -1091,7 +1109,8 @@ cue::Result<cue::StagingArea> WindowsFilesystemRoot::create_staging_area(
             }
             try
             {
-                m_stagingPaths.emplace(token, StagingRecord{relativeText, information.dwVolumeSerialNumber,
+                m_stagingPaths.emplace(token, StagingRecord{relativeText, std::move(stagingHandle),
+                                                            information.dwVolumeSerialNumber,
                                                             information.nFileIndexHigh, information.nFileIndexLow});
             }
             catch (...)
@@ -1121,7 +1140,7 @@ cue::Result<void> WindowsFilesystemRoot::validate_staging_identity(std::uint64_t
                                                                    const cue::RelativePath &a_path) const noexcept
 {
     const auto found = m_stagingPaths.find(a_token);
-    if (found == m_stagingPaths.end() || found->second.path != a_path.text())
+    if (found == m_stagingPaths.end() || found->second.path != a_path.text() || !found->second.handle.is_valid())
     {
         return cue::Result<void>::failure(
             cue::make_io_error(*m_assertContext, cue::IoError::OutsideRoot, "Staging ownership token is invalid"));
