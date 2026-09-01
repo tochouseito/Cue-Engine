@@ -10,7 +10,11 @@ add_executable(CueProjectGeneratorTests GeneratorTests.cpp)
 target_link_libraries(CueProjectGeneratorTests PRIVATE Cue.Project)
 target_compile_features(CueProjectGeneratorTests PRIVATE cxx_std_20)
 
-set(cueProjectTestTargets CueProjectTests CueProjectPublicHeaderTest CueProjectGeneratorTests)
+add_executable(CueProjectRegistryTests RegistryTests.cpp)
+target_link_libraries(CueProjectRegistryTests PRIVATE Cue.Project)
+target_compile_features(CueProjectRegistryTests PRIVATE cxx_std_20)
+
+set(cueProjectTestTargets CueProjectTests CueProjectPublicHeaderTest CueProjectGeneratorTests CueProjectRegistryTests)
 if(WIN32)
     add_executable(CueProjectGeneratorWindowsTests GeneratorWindowsTests.cpp)
     target_link_libraries(CueProjectGeneratorWindowsTests PRIVATE Cue.Project Cue.IO.Windows)
@@ -50,6 +54,9 @@ set_tests_properties(Cue.Project.PublicHeaders PROPERTIES LABELS Project TIMEOUT
 
 add_test(NAME Cue.Project.Generator COMMAND CueProjectGeneratorTests)
 set_tests_properties(Cue.Project.Generator PROPERTIES LABELS Project TIMEOUT 20)
+
+add_test(NAME Cue.Project.Registry COMMAND CueProjectRegistryTests)
+set_tests_properties(Cue.Project.Registry PROPERTIES LABELS Project TIMEOUT 20)
 
 if(WIN32)
     add_test(NAME Cue.Project.Generator.Windows COMMAND CueProjectGeneratorWindowsTests)

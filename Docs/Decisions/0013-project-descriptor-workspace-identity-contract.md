@@ -236,6 +236,39 @@ WorkspaceはProjectIdをKeyにして、少なくとも次を保持できる。
 - Local Engine／Toolchain選択
 - Project用CacheのLocator
 
+Issue #139で、Recent Project RegistryのUser Workspace Fileを`CueWorkspace.json`、初期`schemaVersion`を1とする。
+このFileはPlatform Compositionが選んだUser領域の`FilesystemRoot`直下へ保存し、Project Rootまたは`CueProject.json`へ
+書き込まない。初期Schemaは次の固定Memberを持つ。
+
+```json
+{
+    "schemaVersion": 1,
+    "nextRegistrationOrder": 2,
+    "nextPinOrder": 1,
+    "entries": [
+        {
+            "projectId": "12345678-1234-4abc-8def-1234567890ab",
+            "locator": "C:/Projects/Sample",
+            "lastOpenedMillis": 0,
+            "isPinned": false,
+            "pinOrder": 0,
+            "registrationOrder": 1,
+            "locatorState": "available"
+        }
+    ]
+}
+```
+
+`locatorState`は`available`、`missing`、`moved`のいずれかとする。`lastOpenedMillis`は呼び出し側が供給する
+UTC Unix Millisecond、`registrationOrder`と`pinOrder`は1から始まる単調増加値とする。非Pin Entryの`pinOrder`は0、
+Pin Entryでは0以外を必須とする。File全体は1 MiB以下、単一Locatorは有効なUTF-8かつ非Control文字で1 byte以上
+32 KiB以下とし、JSON Parserの共通Nesting、String、Container上限も適用する。既知Versionでは未知Member、重複Member、
+重複ProjectId、重複Locator、重複Orderを拒否し、未来Versionを推測して読まない。
+
+通常登録で同一ProjectIdが異なるLocatorに存在する場合はDuplicateとして拒否する。Project移動は、呼び出し側が同一ProjectIdを
+確認した後の明示的な再関連付け操作だけがLocatorを更新する。RegistryのSerialize／Parseは安定順を保持し、Pin EntryはPin順、
+非Pin EntryはLast Opened降順、同時刻は登録順で並べる。`CueWorkspace.json`の保存はIssue #135のAtomic File Replaceを使用する。
+
 Recent Registryから除外してもProject Folderを削除しない。登録Pathが存在しない場合もEntryを暗黙削除せずMissingとして返す。
 別Pathから同じProjectIdを正常にOpenした場合はMoved候補として再関連付けできる。Pathが同じでもProjectIdが変わっている場合は、
 別Projectまたは置換として確認を要求する。
