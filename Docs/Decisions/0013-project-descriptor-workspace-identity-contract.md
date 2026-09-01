@@ -111,12 +111,25 @@ Project Descriptorの初期論理Schemaは次のFieldを持つ。
 }
 ```
 
+schema version 1では次のMemberを全て必須とし、省略時の暗黙Defaultを持たない。
+
+| Object | Required Members |
+| --- | --- |
+| Top-level | `schemaVersion`, `projectId`, `displayName`, `engineCompatibility`, `roots`, `defaultScene`, `requiredCapabilities`, `extensions` |
+| `engineCompatibility` | `minimum`, `maximumExclusive` |
+| `roots` | `sourceAssets`, `runtimeAssets`, `generated`, `saved` |
+
 この例のProjectIdは形だけを示すための値であり、有効なProject生成に使用しない。schema version 1では
 `requiredCapabilities`は必須の空Array、`defaultScene`は必須の`null`だけを受理する。未確定のWire Schemaを同じVersionへ
 後付けしないため、非空Capability Requirementと非null Default Sceneは保存しない。
 
 具体的なCapability RequirementのField集合はIssue #140でADR-0012のVocabularyに基づいて確定し、非空要素を永続化する場合は
 Project Descriptorの`schemaVersion`を増加させる。
+
+`displayName`は有効なUTF-8で1 byte以上256 byte以下とし、Unicode Control Characterを拒否する。文字列は入力されたUnicode
+Scalar Sequenceを保持し、ParserまたはSerializerがUnicode Normalizationや大小文字変換を暗黙実行しない。`extensions`はJSON
+Objectを必須とする。Descriptor全体はUTF-8で1 MiB以下、JSON Nestingは32階層以下、単一Stringは256 KiB以下、単一Arrayまたは
+Objectは4096要素以下とし、超過をFormat Errorとして拒否する。
 
 Descriptorには次を保存しない。
 
@@ -183,8 +196,10 @@ Issue #135のAtomic Storage契約で置換する。失敗時は元Descriptorを�
 
 ### Root Roles
 
-DescriptorのRootはProject Rootからの正規化相対Pathで表し、`/`を区切り文字とする。各SegmentはASCII英数字、`_`、`-`、`.`だけで
-構成し、先頭または末尾の`.`、空Segment、`.`、`..`を受理しない。絶対Path、Drive指定、UNC、Root外へ解決されるPathも受理しない。
+DescriptorのRootはProject Rootからの正規化相対Pathで表し、`/`を区切り文字とする。Root全体はASCIIで1文字以上255文字以下、
+Segment数は1以上16以下、各Segmentは1文字以上64文字以下とする。各SegmentはASCII英数字、`_`、`-`、`.`だけで構成し、先頭または
+末尾の`.`、空Segment、`.`、`..`を受理しない。絶対Path、Drive指定、UNC、Root外へ解決されるPathも受理しない。Project Rootの
+絶対Pathと結合した後のHost固有Path長検査はIssue #135のIO契約で行い、共通Validatorの相対Path検査だけで作成可能とは判定しない。
 各Segmentの最初の`.`より前をASCII case-insensitiveで比較し、`CON`、`PRN`、`AUX`、`NUL`、`COM1`から`COM9`、
 `LPT1`から`LPT9`に一致するWindows予約Device名を拒否する。したがって`NUL.data`のような拡張子付きAliasも受理しない。
 Reparse Point／Symlinkを含む実Filesystem上の脱出防止はIssue #135で決定する。
