@@ -43,7 +43,8 @@ constexpr std::string_view k_sceneJson = R"json({
             "componentInstanceId": "00000000-0000-4000-8000-000000000004",
             "typeId": "10000000-0000-4000-8000-000000000001",
             "schemaVersion": 2,
-            "payload": {"future":true}
+            "fields": [{"fieldId":1,"value":{"future":true}}],
+            "futureMetadata": {"preserved":true}
         }]
     },{
         "objectId": "00000000-0000-4000-8000-000000000001",
@@ -149,6 +150,13 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
         m_isMainDurabilityUnknown = a_unknown;
     }
 
+    /// @brief Main Scene本文の公開後だけ再読込を失敗させる
+    void fail_read_after_main_write(bool a_fail) noexcept
+    {
+        m_failReadAfterMainWrite = a_fail;
+        m_hasWrittenMain = false;
+    }
+
     /// @brief Memory内Entry種別を返す
     [[nodiscard]] cue::Result<cue::EntryType> query_entry(const cue::RelativePath &a_path) noexcept override
     {
@@ -160,6 +168,11 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
     [[nodiscard]] cue::Result<std::vector<std::byte>> read_file(const cue::RelativePath &a_path,
                                                                 std::size_t a_maxBytes) noexcept override
     {
+        if (m_failReadAfterMainWrite && m_hasWrittenMain && a_path.text() == "Scenes/Main.cuescene")
+        {
+            return cue::Result<std::vector<std::byte>>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Injected post-publish read failure"));
+        }
         const auto found = m_files.find(std::string(a_path.text()));
         if (found == m_files.end())
         {
@@ -190,6 +203,10 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
                 cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Injected scene publish failure"));
         }
         m_files[std::string(a_path.text())] = std::vector<std::byte>(a_bytes.begin(), a_bytes.end());
+        if (a_path.text() == "Scenes/Main.cuescene")
+        {
+            m_hasWrittenMain = true;
+        }
         if (m_isMainDurabilityUnknown && a_path.text() == "Scenes/Main.cuescene")
         {
             return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::DurabilityUnknown,
@@ -225,6 +242,8 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
     const cue::AssertContext *m_assertContext;
     bool m_failMainWrite = false;
     bool m_isMainDurabilityUnknown = false;
+    bool m_failReadAfterMainWrite = false;
+    bool m_hasWrittenMain = false;
 };
 
 /// @brief 条件が偽ならTest Processを失敗終了する
@@ -329,6 +348,14 @@ template <typename Value> Value take_value(cue::Result<Value> &&a_result) noexce
     return migrate_version(a_json, "\"formatVersion\":2", "\"formatVersion\":3", a_assertContext);
 }
 
+/// @brief Scene Migration Stepの出力上限超過を再現する
+[[nodiscard]] cue::Result<std::string> migrate_to_oversized_scene(std::string_view, const cue::AssertContext &) noexcept
+{
+    std::string oversized = "{\"formatVersion\":2,\"padding\":\"";
+    oversized.resize(16U * 1024U * 1024U + 1U, 'x');
+    return cue::Result<std::string>::success(std::move(oversized));
+}
+
 /// @brief Component Field Array内のTest整数値を一回だけ置換する
 [[nodiscard]] cue::Result<std::string> migrate_component_value(std::string_view a_json, std::string_view a_before,
                                                                std::string_view a_after,
@@ -396,6 +423,7 @@ void test_serialization() noexcept
     require(roundTrip.try_value()->find("\"objectId\":\"00000000-0000-4000-8000-000000000001\"") <
             roundTrip.try_value()->find("\"objectId\":\"00000000-0000-4000-8000-000000000002\""));
     require(roundTrip.try_value()->find("\"sample\"") != std::string::npos);
+    require(roundTrip.try_value()->find("\"futureMetadata\"") != std::string::npos);
 
     const std::string future = std::string("{\"formatVersion\":2,\"sceneAssetId\":") +
                                "\"00000000-0000-4000-8000-000000000001\",\"objects\":[],"
@@ -416,6 +444,9 @@ void test_serialization() noexcept
     cue::scene::SceneMigrationRegistry missing;
     require(missing.add_step(1U, &migrate_one_to_two, assertContext).has_value());
     require(!missing.migrate("{\"formatVersion\":1}", 1U, 3U, assertContext).has_value());
+    cue::scene::SceneMigrationRegistry oversizedMigration;
+    require(oversizedMigration.add_step(1U, &migrate_to_oversized_scene, assertContext).has_value());
+    require(!oversizedMigration.migrate("{\"formatVersion\":1}", 1U, 2U, assertContext).has_value());
 
     cue::schema::SchemaRegistryIdentitySource migratedIdentitySource;
     auto migratedRegistry = make_registry(migratedIdentitySource, 3U, assertContext);
@@ -466,6 +497,19 @@ void test_serialization() noexcept
     auto loaded = cue::scene::load_scene_document(filesystem, path, *registry, valueRegistry, migrations,
                                                   componentMigrations, assertContext);
     require(loaded.has_value());
+
+    MemoryFilesystemRoot verificationFilesystem(assertContext);
+    verificationFilesystem.set("Scenes/Main.cuescene", "verification-original");
+    verificationFilesystem.fail_read_after_main_write(true);
+    auto verificationFailed =
+        cue::scene::save_scene_document(verificationFilesystem, path, parsed.try_value()->document(), *registry,
+                                        valueRegistry, migrations, componentMigrations, assertContext);
+    require(verificationFailed.status() == cue::scene::SceneSaveStatus::PublishedButVerificationFailed);
+    require(verificationFailed.try_error() != nullptr);
+    require(verificationFailed.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::scene::SceneError::PublishedVerificationFailed));
+    require(verificationFilesystem.text("Scenes/Main.cuescene") != "verification-original");
+    require(verificationFilesystem.text("Scenes/Main.cuescene.backup") == "verification-original");
 }
 } // namespace
 

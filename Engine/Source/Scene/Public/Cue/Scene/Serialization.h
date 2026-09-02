@@ -139,7 +139,8 @@ enum class SceneSaveStatus : std::uint8_t
 {
     Committed,
     NotPublished,
-    PublishedButDurabilityUnknown
+    PublishedButDurabilityUnknown,
+    PublishedButVerificationFailed
 };
 
 /// @brief Save公開状態と失敗診断を同時に所有する結果
@@ -168,6 +169,8 @@ class SceneSaveOutcome final
     [[nodiscard]] static SceneSaveOutcome not_published(Error a_error) noexcept;
     /// @brief 本文公開済みだがDurability不明の結果を生成する
     [[nodiscard]] static SceneSaveOutcome durability_unknown(Error a_error) noexcept;
+    /// @brief 本文Commit後の再読込比較だけが失敗した結果を生成する
+    [[nodiscard]] static SceneSaveOutcome verification_failed(Error a_error) noexcept;
 
   private:
     /// @brief 公開状態と任意診断を束ねる
@@ -198,6 +201,7 @@ class SceneSaveOutcome final
                                                           const AssertContext &a_assertContext) noexcept;
 
 /// @brief CandidateをParse-backしBackup作成後に本文をAtomic置換する
+/// @pre 呼び出し側が処理完了まで本文Pathと`.backup` Pathへの排他的な書込み所有権を保証する
 [[nodiscard]] SceneSaveOutcome save_scene_document(FilesystemRoot &a_filesystem, const RelativePath &a_path,
                                                    const SceneDocument &a_document,
                                                    const schema::SchemaRegistry &a_schemaRegistry,

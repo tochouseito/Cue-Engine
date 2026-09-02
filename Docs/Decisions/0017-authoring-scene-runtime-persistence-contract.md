@@ -286,7 +286,9 @@ LoadはFileを上限内で読み、完全にParse、Migration、検証した新D
 部分適用しない。
 
 SaveはDocumentからMemory上にCandidate Byte列を生成し、同じParserでParse-backして同値性を確認してから
-ADR-0014のAtomic File Replaceで公開する。結果は`Committed`、`NotPublished`、`PublishedButDurabilityUnknown`を区別してそのまま返す。
+ADR-0014のAtomic File Replaceで公開する。結果は`Committed`、`NotPublished`、`PublishedButDurabilityUnknown`、
+`PublishedButVerificationFailed`を区別してそのまま返す。`PublishedButVerificationFailed`はAtomic Write自体はCommit済みだが、
+その後の再読込または同値比較だけが失敗した状態であり、Durability不明として扱わない。
 Publish前失敗の`NotPublished`では元Fileを維持してTemporary FileをCleanupする。Publish後の
 `PublishedButDurabilityUnknown`では新Fileが既に可視化されているため元Fileへ戻さず、呼び出し側へ再読込と診断を要求する。
 Cleanup失敗はPrimary Errorを置換せずSecondary診断へ追加する。
@@ -295,6 +297,11 @@ Cleanup失敗はPrimary Errorを置換せずSecondary診断へ追加する。
 Backup作成に失敗した場合は本文を公開せず`NotPublished`を返す。本文公開失敗時はBackupと元本文を維持し、自動復元は行わない。
 本文公開成功後もBackupをRecovery Sourceとして残し、削除時期はM12のEditor Recovery Policyで決定する。新規File、Directory、
 その他の非Regular Entryを暗黙にBackupまたは置換しない。
+
+`save_scene_document`の呼び出し側は、Entry確認、旧Byte列読込、Backup公開、本文公開、再読込比較が完了するまで、本文Pathと
+`.backup` Pathへの排他的な書込み所有権を保持する。同じ`FilesystemRoot`の別Threadだけでなく、同じ実Fileへ到達する別Rootや
+別ProcessのWriterもProject／Editor層の保存Coordinatorで直列化する。この前提なしに、Backupが実際に置換した直前Byte列と
+一致することは保証しない。
 
 ## Rejected Alternatives
 
@@ -349,7 +356,7 @@ Authoring上存在するGame LogicまたはDataの欠落を成功として実行
 - 未知Component、未知Field、ExtensionをLoad／SaveでLosslessに保持する
 - 同じDocumentからByte単位で安定した出力を生成する
 - Migrationの連続適用、欠落Step、未来Version、失敗時元File維持を検証する
-- Parse-back失敗と`NotPublished`で元Fileと既存Documentを維持し、`PublishedButDurabilityUnknown`では新Fileの再読込を要求する
+- Parse-back失敗と`NotPublished`で元Fileと既存Documentを維持し、Publish後失敗をDurability不明と再読込検証失敗へ分離する
 - Snapshot作成後のDocument変更がSnapshotへ影響しないことを検証する
 - Runtime実体化成功時のObjectId／EntityHandle Mappingと、途中失敗時にOperation由来の生存Entityを残さないことを検証する
 - SceneInstance終了で先に破棄されたEntityを飛ばし、他の生存Entityを処理し、破棄失敗後の所有集合を維持する

@@ -207,10 +207,15 @@ void append_transform(std::string &a_output, const cue::math::Transform &a_trans
 /// @brief Scene Componentを固定Wire Schemaへ追加する
 void append_component(std::string &a_output, const cue::scene::SceneComponent &a_component)
 {
-    a_output.append("{\"componentInstanceId\":");
-    append_uuid(a_output, a_component.instance_id().bytes());
     const auto *known = a_component.try_known();
     const auto *opaque = a_component.try_opaque();
+    if (opaque != nullptr && opaque->is_complete_entry())
+    {
+        a_output.append(opaque->raw_json());
+        return;
+    }
+    a_output.append("{\"componentInstanceId\":");
+    append_uuid(a_output, a_component.instance_id().bytes());
     const auto typeId = known != nullptr ? known->type_id() : opaque->type_id();
     const auto version = known != nullptr ? known->schema_version() : opaque->schema_version();
     a_output.append(",\"typeId\":");
@@ -397,6 +402,18 @@ class SceneDocumentSerializationAccess final
     {
         a_document.m_extensionsJson = std::move(a_json);
     }
+
+    /// @brief Parse済みの完全な未知Component EntryをLossless Dataへ変換する
+    [[nodiscard]] static Result<OpaqueComponentData> create_opaque_entry(ComponentInstanceId a_instanceId,
+                                                                         schema::TypeId a_typeId,
+                                                                         schema::SchemaVersion a_schemaVersion,
+                                                                         std::string_view a_rawJson,
+                                                                         const schema::SchemaRegistry &a_schemaRegistry,
+                                                                         const AssertContext &a_assertContext) noexcept
+    {
+        return OpaqueComponentData::create_complete_entry(std::move(a_instanceId), a_typeId, a_schemaVersion, a_rawJson,
+                                                          a_schemaRegistry, a_assertContext);
+    }
 };
 
 Result<void> SceneMigrationRegistry::add_step(std::uint32_t a_fromVersion, SceneMigrationFunction a_function,
@@ -467,7 +484,8 @@ Result<std::string> SceneMigrationRegistry::migrate(std::string_view a_source, s
             JsonValue root;
             std::string_view parseError;
             std::uint32_t outputVersion = 0U;
-            if (!cue::scene_private::parse_json_document(*migrated.try_value(), root, parseError) ||
+            if (migrated.try_value()->size() > k_maximumSceneBytes ||
+                !cue::scene_private::parse_json_document(*migrated.try_value(), root, parseError) ||
                 !read_format_version(root, outputVersion) || outputVersion != version + 1U)
             {
                 return Result<std::string>::failure(
@@ -631,6 +649,11 @@ SceneSaveOutcome SceneSaveOutcome::durability_unknown(Error a_error) noexcept
     return SceneSaveOutcome(SceneSaveStatus::PublishedButDurabilityUnknown, std::optional<Error>(std::move(a_error)));
 }
 
+SceneSaveOutcome SceneSaveOutcome::verification_failed(Error a_error) noexcept
+{
+    return SceneSaveOutcome(SceneSaveStatus::PublishedButVerificationFailed, std::optional<Error>(std::move(a_error)));
+}
+
 Result<std::string> serialize_scene_document(const SceneDocument &a_document,
                                              const AssertContext &a_assertContext) noexcept
 {
@@ -761,18 +784,14 @@ namespace
     const bool isFutureVersion = descriptor && *schemaVersion.try_value() > (*descriptor.try_value())->version();
     if (isUnknownType || isFutureVersion)
     {
-        constexpr std::array opaqueNames = {std::string_view("componentInstanceId"), std::string_view("typeId"),
-                                            std::string_view("schemaVersion"), std::string_view("payload")};
-        const auto *payload = cue::scene_private::find_json_member(a_value, "payload");
-        if (!has_exact_members(a_value, opaqueNames) || payload == nullptr || payload->type != JsonType::Object ||
-            payload->end <= payload->begin)
+        if (a_value.end <= a_value.begin)
         {
             return cue::Result<cue::scene::SceneComponent>::failure(format_error(
-                a_assertContext, cue::scene::SceneError::InvalidFormat, "Opaque scene component payload is invalid"));
+                a_assertContext, cue::scene::SceneError::InvalidFormat, "Opaque scene component entry is invalid"));
         }
-        auto opaque = cue::scene::OpaqueComponentData::create(
+        auto opaque = cue::scene::SceneDocumentSerializationAccess::create_opaque_entry(
             std::move(*instanceId.try_value()), *typeId.try_value(), *schemaVersion.try_value(),
-            a_json.substr(payload->begin, payload->end - payload->begin), a_schemaRegistry, a_assertContext);
+            a_json.substr(a_value.begin, a_value.end - a_value.begin), a_schemaRegistry, a_assertContext);
         if (!opaque)
         {
             return cue::Result<cue::scene::SceneComponent>::failure(std::move(*opaque.try_error()));
@@ -1188,13 +1207,22 @@ SceneSaveOutcome save_scene_document(FilesystemRoot &a_filesystem, const Relativ
                                             a_migrationRegistry, a_componentMigrations, a_assertContext);
         if (!verified)
         {
-            return SceneSaveOutcome::durability_unknown(std::move(*verified.try_error()));
+            return SceneSaveOutcome::verification_failed(storage_error(
+                a_assertContext, SceneError::PublishedVerificationFailed,
+                "Committed scene could not be read back for verification", std::move(*verified.try_error())));
         }
         auto verifiedText = serialize_scene_document(verified.try_value()->document(), a_assertContext);
-        if (!verifiedText || *verifiedText.try_value() != *serialized.try_value())
+        if (!verifiedText)
         {
-            return SceneSaveOutcome::durability_unknown(format_error(a_assertContext, SceneError::ParseBackMismatch,
-                                                                     "Published scene failed read-back equivalence"));
+            return SceneSaveOutcome::verification_failed(storage_error(
+                a_assertContext, SceneError::PublishedVerificationFailed,
+                "Committed scene could not be serialized for verification", std::move(*verifiedText.try_error())));
+        }
+        if (*verifiedText.try_value() != *serialized.try_value())
+        {
+            return SceneSaveOutcome::verification_failed(
+                format_error(a_assertContext, SceneError::PublishedVerificationFailed,
+                             "Committed scene differs during post-publish read-back verification"));
         }
         return SceneSaveOutcome::committed();
     }

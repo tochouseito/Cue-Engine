@@ -37,7 +37,8 @@ enum class SceneError : std::int64_t
     MigrationFailed = 20,
     StorageNotPublished = 21,
     StorageDurabilityUnknown = 22,
-    ParseBackMismatch = 23
+    ParseBackMismatch = 23,
+    PublishedVerificationFailed = 24
 };
 
 /// @brief Scene Errorを診断Summaryと共に生成する

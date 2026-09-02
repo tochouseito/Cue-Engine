@@ -931,9 +931,11 @@ std::span<const OpaqueFieldData> KnownComponentData::unknown_fields() const noex
 
 OpaqueComponentData::OpaqueComponentData(
     ComponentInstanceId a_instanceId, schema::TypeId a_typeId,
-    schema::SchemaVersion a_schemaVersion, std::string a_rawJson) noexcept
+    schema::SchemaVersion a_schemaVersion, std::string a_rawJson,
+    bool a_isCompleteEntry) noexcept
     : m_instanceId(std::move(a_instanceId)), m_typeId(a_typeId),
-      m_schemaVersion(a_schemaVersion), m_rawJson(std::move(a_rawJson))
+      m_schemaVersion(a_schemaVersion), m_rawJson(std::move(a_rawJson)),
+      m_isCompleteEntry(a_isCompleteEntry)
 {
 }
 
@@ -942,6 +944,7 @@ OpaqueComponentData::OpaqueComponentData(
     : m_instanceId(std::move(a_other.m_instanceId)),
       m_typeId(a_other.m_typeId), m_schemaVersion(a_other.m_schemaVersion),
       m_rawJson(std::move(a_other.m_rawJson)),
+      m_isCompleteEntry(std::exchange(a_other.m_isCompleteEntry, false)),
       m_isValid(std::exchange(a_other.m_isValid, false))
 {
 }
@@ -955,6 +958,7 @@ OpaqueComponentData &OpaqueComponentData::operator=(
         m_typeId = a_other.m_typeId;
         m_schemaVersion = a_other.m_schemaVersion;
         m_rawJson = std::move(a_other.m_rawJson);
+        m_isCompleteEntry = std::exchange(a_other.m_isCompleteEntry, false);
         m_isValid = std::exchange(a_other.m_isValid, false);
     }
     return *this;
@@ -988,7 +992,40 @@ Result<OpaqueComponentData> OpaqueComponentData::create(
     {
         return Result<OpaqueComponentData>::success(OpaqueComponentData(
             std::move(a_instanceId), a_typeId, a_schemaVersion,
-            std::string(a_rawJson)));
+            std::string(a_rawJson), false));
+    }
+    catch (...)
+    {
+        terminate_scene_allocation(a_assertContext);
+    }
+}
+
+Result<OpaqueComponentData> OpaqueComponentData::create_complete_entry(
+    ComponentInstanceId a_instanceId, schema::TypeId a_typeId,
+    schema::SchemaVersion a_schemaVersion, std::string_view a_rawJson,
+    const schema::SchemaRegistry &a_schemaRegistry,
+    const AssertContext &a_assertContext) noexcept
+{
+    if (a_rawJson.empty() ||
+        !validate_opaque_json(a_rawJson, true, false, a_assertContext))
+    {
+        return Result<OpaqueComponentData>::failure(make_scene_error(
+            a_assertContext, SceneError::InvalidOpaqueData,
+            "Complete opaque component entry must be a valid JSON object"));
+    }
+    auto descriptorResult = a_schemaRegistry.find(a_typeId, a_assertContext);
+    if (descriptorResult &&
+        a_schemaVersion <= (*descriptorResult.try_value())->version())
+    {
+        return Result<OpaqueComponentData>::failure(make_scene_error(
+            a_assertContext, SceneError::InvalidOpaqueData,
+            "Registered component type is opaque only for a future schema version"));
+    }
+    try
+    {
+        return Result<OpaqueComponentData>::success(OpaqueComponentData(
+            std::move(a_instanceId), a_typeId, a_schemaVersion,
+            std::string(a_rawJson), true));
     }
     catch (...)
     {
@@ -1014,6 +1051,11 @@ schema::SchemaVersion OpaqueComponentData::schema_version() const noexcept
 std::string_view OpaqueComponentData::raw_json() const noexcept
 {
     return m_rawJson;
+}
+
+bool OpaqueComponentData::is_complete_entry() const noexcept
+{
+    return m_isCompleteEntry;
 }
 
 SceneComponent::SceneComponent(Storage a_storage) noexcept
