@@ -54,6 +54,7 @@ class RuntimeWorld final
     };
 
     /// @brief 呼び出し Thread を Owner とする初期化前の Headless Runtime World 所有者を生成する
+    /// @details 全引数は非所有参照として保持するため RuntimeWorld の破棄完了まで呼び出し側で生存させる
     [[nodiscard]] static std::unique_ptr<RuntimeWorld> create(
         WorldIdentitySource &a_identitySource,
         const schema::SchemaRegistry &a_schemaRegistry,
@@ -91,12 +92,16 @@ class RuntimeWorld final
     /// @brief 現在の Runtime World 寿命状態を返す
     [[nodiscard]] RuntimeWorldState state() const noexcept;
     /// @brief Running または Stopping 中の ECS World を非所有 Pointer で返す
+    /// @details 返却 Pointer は shutdown または Stopping 中の次の tick で失効する
     [[nodiscard]] World *try_world() noexcept;
     /// @brief Running または Stopping 中の ECS World を Const 非所有 Pointer で返す
+    /// @details 返却 Pointer は shutdown または Stopping 中の次の tick で失効する
     [[nodiscard]] const World *try_world() const noexcept;
     /// @brief Running または Stopping 中の Command Buffer を非所有 Pointer で返す
+    /// @details 返却 Pointer は shutdown または Stopping 中の次の tick で失効する
     [[nodiscard]] StructuralCommandBuffer *try_command_buffer() noexcept;
     /// @brief 初期化済み Core Transform Component Token を非所有 Pointer で返す
+    /// @details 返却 Pointer は shutdown または Stopping 中の次の tick で失効する
     [[nodiscard]] const ComponentType<math::Transform> *try_transform_type() const noexcept;
 
   private:
