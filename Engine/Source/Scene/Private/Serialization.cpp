@@ -204,15 +204,28 @@ void append_transform(std::string &a_output, const cue::math::Transform &a_trans
     a_output.append("]}");
 }
 
-/// @brief Scene Componentを固定Wire Schemaへ追加する
-void append_component(std::string &a_output, const cue::scene::SceneComponent &a_component)
+/// @brief Scene上限を超えず指定Byte数を追加できるか返す
+[[nodiscard]] bool can_append_scene_bytes(const std::string &a_output,
+                                          std::size_t a_byteCount) noexcept
+{
+    return a_output.size() <= k_maximumSceneBytes &&
+           a_byteCount <= k_maximumSceneBytes - a_output.size();
+}
+
+/// @brief Scene Componentを上限内で固定Wire Schemaへ追加する
+[[nodiscard]] bool append_component(
+    std::string &a_output, const cue::scene::SceneComponent &a_component)
 {
     const auto *known = a_component.try_known();
     const auto *opaque = a_component.try_opaque();
     if (opaque != nullptr && opaque->is_complete_entry())
     {
+        if (!can_append_scene_bytes(a_output, opaque->raw_json().size()))
+        {
+            return false;
+        }
         a_output.append(opaque->raw_json());
-        return;
+        return true;
     }
     a_output.append("{\"componentInstanceId\":");
     append_uuid(a_output, a_component.instance_id().bytes());
@@ -244,6 +257,10 @@ void append_component(std::string &a_output, const cue::scene::SceneComponent &a
             append_number(a_output,
                           useKnown ? knownFields[knownIndex].id().value() : unknownFields[unknownIndex].id().value());
             a_output.append(",\"value\":");
+            if (a_output.size() > k_maximumSceneBytes)
+            {
+                return false;
+            }
             if (useKnown)
             {
                 append_field_value(a_output, knownFields[knownIndex].value());
@@ -251,8 +268,17 @@ void append_component(std::string &a_output, const cue::scene::SceneComponent &a
             }
             else
             {
+                if (!can_append_scene_bytes(
+                        a_output, unknownFields[unknownIndex].raw_json().size()))
+                {
+                    return false;
+                }
                 a_output.append(unknownFields[unknownIndex].raw_json());
                 ++unknownIndex;
+            }
+            if (a_output.size() > k_maximumSceneBytes)
+            {
+                return false;
             }
             a_output.push_back('}');
         }
@@ -261,9 +287,14 @@ void append_component(std::string &a_output, const cue::scene::SceneComponent &a
     else
     {
         a_output.append(",\"payload\":");
+        if (!can_append_scene_bytes(a_output, opaque->raw_json().size()))
+        {
+            return false;
+        }
         a_output.append(opaque->raw_json());
     }
     a_output.push_back('}');
+    return a_output.size() <= k_maximumSceneBytes;
 }
 
 /// @brief JSON Number Arrayを固定個数のfloatへ解析する
@@ -705,6 +736,12 @@ Result<std::string> serialize_scene_document(const SceneDocument &a_document,
             output.append(",\"name\":");
             cue::scene_private::append_json_string(output, object.name());
             output.append(",\"active\":");
+            if (output.size() > k_maximumSceneBytes)
+            {
+                return Result<std::string>::failure(
+                    format_error(a_assertContext, SceneError::InvalidFormat,
+                                 "Serialized scene exceeds 16 MiB"));
+            }
             output.append(object.is_active() ? "true" : "false");
             output.append(",\"parentObjectId\":");
             if (object.try_parent_id() == nullptr)
@@ -725,11 +762,23 @@ Result<std::string> serialize_scene_document(const SceneDocument &a_document,
                 {
                     output.push_back(',');
                 }
-                append_component(output, components[componentIndex]);
+                if (!append_component(output, components[componentIndex]))
+                {
+                    return Result<std::string>::failure(
+                        format_error(a_assertContext, SceneError::InvalidFormat,
+                                     "Serialized scene exceeds 16 MiB"));
+                }
             }
             output.append("]}");
         }
         output.append("],\"extensions\":");
+        if (!can_append_scene_bytes(output,
+                                    a_document.extensions_json().size()))
+        {
+            return Result<std::string>::failure(
+                format_error(a_assertContext, SceneError::InvalidFormat,
+                             "Serialized scene exceeds 16 MiB"));
+        }
         output.append(a_document.extensions_json());
         output.push_back('}');
         if (output.size() > k_maximumSceneBytes)
@@ -1006,7 +1055,13 @@ namespace
                     return cue::Result<cue::scene::SceneDocument>::failure(std::move(*parsedComponent.try_error()));
                 }
                 std::string retainedComponent;
-                append_component(retainedComponent, *parsedComponent.try_value());
+                if (!append_component(retainedComponent,
+                                      *parsedComponent.try_value()))
+                {
+                    return cue::Result<cue::scene::SceneDocument>::failure(
+                        format_error(a_assertContext, cue::scene::SceneError::MigrationFailed,
+                                     "Migrated component exceeds the scene size limit"));
+                }
                 if (retainedComponent.size() > k_maximumSceneBytes - retainedComponentBytes)
                 {
                     return cue::Result<cue::scene::SceneDocument>::failure(

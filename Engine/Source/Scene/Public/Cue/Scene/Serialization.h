@@ -193,6 +193,7 @@ class SceneSaveOutcome final
                                                            const AssertContext &a_assertContext) noexcept;
 
 /// @brief JSONをMigration後に現在Schemaと照合して新しいSceneDocumentへParseする
+/// @param a_assertContext 返却SceneDocumentより長く生存する非所有診断Context
 [[nodiscard]] Result<SceneLoadResult> parse_scene_document(std::string_view a_json,
                                                            const schema::SchemaRegistry &a_schemaRegistry,
                                                            const ComponentValueSchemaRegistry &a_valueSchemaRegistry,
@@ -201,6 +202,7 @@ class SceneSaveOutcome final
                                                            const AssertContext &a_assertContext) noexcept;
 
 /// @brief Root相対Locatorから上限付きでSceneを読込み完全Parseする
+/// @param a_assertContext 返却SceneDocumentより長く生存する非所有診断Context
 [[nodiscard]] Result<SceneLoadResult> load_scene_document(FilesystemRoot &a_filesystem, const RelativePath &a_path,
                                                           const schema::SchemaRegistry &a_schemaRegistry,
                                                           const ComponentValueSchemaRegistry &a_valueSchemaRegistry,
