@@ -59,12 +59,14 @@ class SchemaRegistry final
 
     /// @brief 登録済みType数を返す
     [[nodiscard]] std::size_t size() const noexcept;
-    /// @brief Stable TypeIdに対応するDescriptorへの非所有Pointerを返す
-    [[nodiscard]] const TypeDescriptor *find(TypeId a_id) const noexcept;
+    /// @brief Stable TypeIdに対応するDescriptorへの非所有PointerまたはNotFoundを返す
+    [[nodiscard]] Result<const TypeDescriptor *> find(
+        TypeId a_id, const AssertContext &a_assertContext) const noexcept;
     /// @brief Runtime Dense Indexに対応するDescriptorへの非所有Pointerを返す
     [[nodiscard]] const TypeDescriptor *find(DenseTypeIndex a_index) const noexcept;
-    /// @brief Stable TypeIdに対応するRegistry-local Indexを返す
-    [[nodiscard]] std::optional<DenseTypeIndex> dense_index(TypeId a_id) const noexcept;
+    /// @brief Stable TypeIdに対応するRegistry-local IndexまたはNotFoundを返す
+    [[nodiscard]] Result<DenseTypeIndex> dense_index(
+        TypeId a_id, const AssertContext &a_assertContext) const noexcept;
     /// @brief TypeIdが削除済みTombstoneとして予約されているか返す
     [[nodiscard]] bool is_tombstoned(TypeId a_id) const noexcept;
 

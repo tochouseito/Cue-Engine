@@ -186,7 +186,8 @@ std::size_t SchemaRegistry::size() const noexcept
     return m_descriptors.size();
 }
 
-const TypeDescriptor *SchemaRegistry::find(TypeId a_id) const noexcept
+Result<const TypeDescriptor *> SchemaRegistry::find(
+    TypeId a_id, const AssertContext &a_assertContext) const noexcept
 {
     const auto iterator = std::lower_bound(
         m_descriptors.begin(), m_descriptors.end(), a_id,
@@ -195,9 +196,14 @@ const TypeDescriptor *SchemaRegistry::find(TypeId a_id) const noexcept
         {
             return a_descriptor.id() < a_value;
         });
-    return iterator != m_descriptors.end() && iterator->id() == a_id
-               ? &*iterator
-               : nullptr;
+    if (iterator != m_descriptors.end() && iterator->id() == a_id)
+    {
+        return Result<const TypeDescriptor *>::success(&*iterator);
+    }
+
+    return Result<const TypeDescriptor *>::failure(make_schema_error(
+        a_assertContext, SchemaError::NotFound,
+        "Schema TypeId is not registered in this registry"));
 }
 
 const TypeDescriptor *SchemaRegistry::find(DenseTypeIndex a_index) const noexcept
@@ -214,7 +220,8 @@ const TypeDescriptor *SchemaRegistry::find(DenseTypeIndex a_index) const noexcep
     return &m_descriptors[value - 1U];
 }
 
-std::optional<DenseTypeIndex> SchemaRegistry::dense_index(TypeId a_id) const noexcept
+Result<DenseTypeIndex> SchemaRegistry::dense_index(
+    TypeId a_id, const AssertContext &a_assertContext) const noexcept
 {
     const auto iterator = std::lower_bound(
         m_descriptors.begin(), m_descriptors.end(), a_id,
@@ -226,12 +233,15 @@ std::optional<DenseTypeIndex> SchemaRegistry::dense_index(TypeId a_id) const noe
 
     if (iterator == m_descriptors.end() || iterator->id() != a_id)
     {
-        return std::nullopt;
+        return Result<DenseTypeIndex>::failure(make_schema_error(
+            a_assertContext, SchemaError::NotFound,
+            "Schema TypeId is not registered in this registry"));
     }
 
     const auto offset = static_cast<std::size_t>(iterator - m_descriptors.begin());
-    return DenseTypeIndex(static_cast<std::uint32_t>(offset + 1U),
-                          *m_identitySource, m_generation);
+    return Result<DenseTypeIndex>::success(
+        DenseTypeIndex(static_cast<std::uint32_t>(offset + 1U),
+                       *m_identitySource, m_generation));
 }
 
 bool SchemaRegistry::is_tombstoned(TypeId a_id) const noexcept

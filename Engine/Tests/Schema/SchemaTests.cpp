@@ -246,19 +246,49 @@ template <typename T>
 
     const auto firstTypeId = make_type_id(firstId, a_assertContext);
     const auto secondTypeId = make_type_id(secondId, a_assertContext);
-    const auto firstIndex = firstRegistry->dense_index(firstTypeId);
-    const auto mirroredFirstIndex = secondRegistry->dense_index(firstTypeId);
-    const auto secondIndex = firstRegistry->dense_index(secondTypeId);
-    const auto mirroredSecondIndex = secondRegistry->dense_index(secondTypeId);
+    auto firstIndexResult = firstRegistry->dense_index(firstTypeId, a_assertContext);
+    auto mirroredFirstIndexResult =
+        secondRegistry->dense_index(firstTypeId, a_assertContext);
+    auto secondIndexResult = firstRegistry->dense_index(secondTypeId, a_assertContext);
+    auto mirroredSecondIndexResult =
+        secondRegistry->dense_index(secondTypeId, a_assertContext);
+    const auto *firstIndex = firstIndexResult.try_value();
+    const auto *mirroredFirstIndex = mirroredFirstIndexResult.try_value();
+    const auto *secondIndex = secondIndexResult.try_value();
+    const auto *mirroredSecondIndex = mirroredSecondIndexResult.try_value();
 
-    return firstIndex.has_value() && mirroredFirstIndex.has_value() &&
-           secondIndex.has_value() && mirroredSecondIndex.has_value() &&
+    return firstIndex != nullptr && mirroredFirstIndex != nullptr &&
+           secondIndex != nullptr && mirroredSecondIndex != nullptr &&
            firstIndex->value() == mirroredFirstIndex->value() &&
            secondIndex->value() == mirroredSecondIndex->value() &&
            firstIndex->value() == 1U && secondIndex->value() == 2U &&
            firstRegistry->find(*firstIndex)->id() == firstTypeId &&
            secondRegistry->find(*firstIndex) == nullptr &&
            otherRegistry->find(*firstIndex) == nullptr;
+}
+
+/// @brief 未登録Stable Identityの検索を分類済みNotFoundとして拒否することを検証する
+[[nodiscard]] bool test_registry_not_found(const cue::AssertContext &a_assertContext)
+{
+    cue::schema::SchemaRegistryIdentitySource identitySource;
+    cue::schema::SchemaRegistryBuilder builder(identitySource, a_assertContext);
+    auto addType = builder.add_type(make_type(
+        "10000000-0000-4000-8000-000000000001", "Cue.Test.Active",
+        a_assertContext));
+    auto registryResult = builder.seal();
+    const auto *registryOwner = registryResult.try_value();
+
+    if (!addType || registryOwner == nullptr)
+    {
+        return false;
+    }
+
+    const auto unknownId = make_type_id(
+        "20000000-0000-4000-8000-000000000002", a_assertContext);
+    auto descriptorResult = (*registryOwner)->find(unknownId, a_assertContext);
+    auto indexResult = (*registryOwner)->dense_index(unknownId, a_assertContext);
+    return has_schema_error(descriptorResult, cue::schema::SchemaError::NotFound) &&
+           has_schema_error(indexResult, cue::schema::SchemaError::NotFound);
 }
 
 /// @brief RegistryがType・名前・Tombstoneの衝突を診断付きで拒否することを検証する
@@ -386,13 +416,16 @@ template <typename T>
     {
         readers.emplace_back(
             /// @brief Immutable Registryの検索結果が全Readerで一致するか繰り返し検証する
-            [registry, activeId, tombstoneId, &readsSucceeded]() noexcept
+            [registry, activeId, tombstoneId, &a_assertContext,
+             &readsSucceeded]() noexcept
         {
             for (std::size_t iteration = 0U; iteration < 1000U; ++iteration)
             {
-                const auto denseIndex = registry->dense_index(activeId);
+                auto descriptorResult = registry->find(activeId, a_assertContext);
+                auto denseIndexResult = registry->dense_index(activeId, a_assertContext);
+                const auto *denseIndex = denseIndexResult.try_value();
 
-                if (registry->find(activeId) == nullptr || !denseIndex.has_value() ||
+                if (!descriptorResult || denseIndex == nullptr ||
                     registry->find(*denseIndex) == nullptr ||
                     !registry->is_tombstoned(tombstoneId))
                 {
@@ -417,8 +450,9 @@ static_assert(!std::is_copy_constructible_v<cue::schema::TypeDescriptor>);
 static_assert(!std::is_move_constructible_v<cue::schema::SchemaRegistryIdentitySource>);
 static_assert(std::is_same_v<
               decltype(std::declval<const cue::schema::SchemaRegistry &>().find(
-                  std::declval<cue::schema::TypeId>())),
-              const cue::schema::TypeDescriptor *>);
+                  std::declval<cue::schema::TypeId>(),
+                  std::declval<const cue::AssertContext &>())),
+              cue::Result<const cue::schema::TypeDescriptor *>>);
 
 /// @brief Cue.SchemaのStable IdentityとImmutable Registry契約を実行時に検証する
 int main()
@@ -443,19 +477,24 @@ int main()
         return 3;
     }
 
-    if (!test_registry_collision_validation(assertContext))
+    if (!test_registry_not_found(assertContext))
     {
         return 4;
     }
 
-    if (!test_immutable_concurrent_read(assertContext))
+    if (!test_registry_collision_validation(assertContext))
     {
         return 5;
     }
 
-    if (!test_sealed_builder_rejection(assertContext))
+    if (!test_immutable_concurrent_read(assertContext))
     {
         return 6;
+    }
+
+    if (!test_sealed_builder_rejection(assertContext))
+    {
+        return 7;
     }
 
     return 0;
