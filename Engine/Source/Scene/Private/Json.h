@@ -34,6 +34,8 @@ struct JsonValue final
 
 /// @brief UTF-8 JSON文書全体を重複Memberなしの所有Treeへ解析する
 [[nodiscard]] bool parse_json_document(std::string_view a_input, JsonValue &a_value, std::string_view &a_error);
+/// @brief 復号済みTextがJSON Parserと同じUTF-8／String容量制約を満たすか返す
+[[nodiscard]] bool is_valid_json_string_text(std::string_view a_text) noexcept;
 /// @brief JSON Objectから名前一致Memberを検索する
 [[nodiscard]] const JsonValue *find_json_member(const JsonValue &a_object, std::string_view a_name) noexcept;
 /// @brief UTF-8 TextをJSON Stringとして末尾へ追加する

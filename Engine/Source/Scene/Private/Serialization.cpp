@@ -673,6 +673,12 @@ Result<std::string> serialize_scene_document(const SceneDocument &a_document,
         orderedObjects.reserve(objects.size());
         for (const auto &object : objects)
         {
+            if (!cue::scene_private::is_valid_json_string_text(object.name()))
+            {
+                return Result<std::string>::failure(
+                    format_error(a_assertContext, SceneError::InvalidFormat,
+                                 "Scene object name must be valid UTF-8 within 256 KiB"));
+            }
             orderedObjects.push_back(&object);
         }
         std::sort(orderedObjects.begin(), orderedObjects.end(),

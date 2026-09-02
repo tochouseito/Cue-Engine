@@ -276,6 +276,10 @@ Component Migrationは`TypeId`と変換元`SchemaVersion`をKeyにし、`fields`
 `ComponentValueSchemaRegistry`でFieldを解釈する。Identity Metadata、`TypeId`、`ComponentInstanceId`はMigration関数へ渡さず、
 Schema変換によるIdentity変更を許可しない。Step欠落、変換失敗、現在Schemaとの不一致はScene全体のLoad失敗とする。
 
+Scene／Component Migration Registryの`add_step`を行う構築期間は単一Threadまたは呼び出し側の外部同期で直列化する。
+登録完了後は`add_step`を呼ばないImmutable状態として共有し、その間だけ複数ThreadからMigration、Parse、Saveに利用できる。
+登録した関数の参照先はRegistryを利用する全処理の完了まで有効に保つ。
+
 Sceneを開いただけでSource Fileを暗黙更新しない。Migration済みDocumentは呼び出し側へ`MigrationRequired`状態と元Versionを返し、
 明示Save時だけ現行Versionとして保存する。元FileのBackup／Recovery PolicyはIssue #152でADR-0014に従って実装する。
 

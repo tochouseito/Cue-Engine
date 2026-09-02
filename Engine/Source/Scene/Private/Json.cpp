@@ -504,6 +504,27 @@ bool parse_json_document(std::string_view a_input, JsonValue &a_value, std::stri
     return result;
 }
 
+bool is_valid_json_string_text(std::string_view a_text) noexcept
+{
+    if (a_text.size() > k_maximumStringBytes)
+    {
+        return false;
+    }
+
+    std::size_t offset = 0U;
+    while (offset < a_text.size())
+    {
+        std::uint32_t scalar = 0U;
+        std::size_t length = 0U;
+        if (!decode_utf8(a_text, offset, scalar, length))
+        {
+            return false;
+        }
+        offset += length;
+    }
+    return true;
+}
+
 const JsonValue *find_json_member(const JsonValue &a_object, std::string_view a_name) noexcept
 {
     const auto found = std::ranges::find_if(a_object.members, [a_name](const auto &a_member) noexcept

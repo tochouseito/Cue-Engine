@@ -425,6 +425,28 @@ void test_serialization() noexcept
     require(roundTrip.try_value()->find("\"sample\"") != std::string::npos);
     require(roundTrip.try_value()->find("\"futureMetadata\"") != std::string::npos);
 
+    auto invalidNameDocument = cue::scene::SceneDocument::create(
+        take_value(cue::scene::SceneAssetId::parse(
+            "00000000-0000-4000-8000-000000000021", assertContext)),
+        assertContext);
+    auto invalidNameId = take_value(cue::scene::ObjectId::parse(
+        "00000000-0000-4000-8000-000000000022", assertContext));
+    const std::string invalidUtf8(1U, static_cast<char>(0xC3U));
+    require(invalidNameDocument
+                .add_object(invalidNameId, invalidUtf8, true, std::nullopt,
+                            cue::math::Transform{})
+                .has_value());
+    require(!cue::scene::serialize_scene_document(invalidNameDocument,
+                                                  assertContext)
+                 .has_value());
+    std::string oversizedName(256U * 1024U + 1U, 'n');
+    require(invalidNameDocument
+                .rename_object(invalidNameId, oversizedName)
+                .has_value());
+    require(!cue::scene::serialize_scene_document(invalidNameDocument,
+                                                  assertContext)
+                 .has_value());
+
     const std::string future = std::string("{\"formatVersion\":2,\"sceneAssetId\":") +
                                "\"00000000-0000-4000-8000-000000000001\",\"objects\":[],"
                                "\"extensions\":{}}";

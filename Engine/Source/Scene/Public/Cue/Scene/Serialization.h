@@ -23,6 +23,9 @@ using SceneMigrationFunction = Result<std::string> (*)(std::string_view, const A
 using ComponentMigrationFunction = Result<std::string> (*)(std::string_view, const AssertContext &) noexcept;
 
 /// @brief NからN+1への連続Scene File Migrationだけを所有するRegistry
+/// @details add_stepを呼ぶ構築期間は単一Threadまたは外部同期で直列化する。
+/// 登録完了後はadd_stepを呼ばないImmutable状態として、複数Threadからmigrate、Parse、Saveへ共有できる。
+/// 登録関数の参照先はRegistryを利用する全処理の完了まで有効でなければならない。
 class SceneMigrationRegistry final
 {
   public:
@@ -59,6 +62,9 @@ class SceneMigrationRegistry final
 };
 
 /// @brief TypeごとのNからN+1への連続Component Field Migrationだけを所有するRegistry
+/// @details add_stepを呼ぶ構築期間は単一Threadまたは外部同期で直列化する。
+/// 登録完了後はadd_stepを呼ばないImmutable状態として、複数Threadからmigrate、Parse、Saveへ共有できる。
+/// 登録関数の参照先はRegistryを利用する全処理の完了まで有効でなければならない。
 class ComponentMigrationRegistry final
 {
   public:
