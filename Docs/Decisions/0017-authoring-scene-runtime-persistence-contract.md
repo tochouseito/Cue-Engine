@@ -191,6 +191,7 @@ Slot Generation、Free List、`StructuralEpoch`を含むWorld内部状態が呼�
 - 実体化先Runtime `WorldId`
 - `ObjectId`からRuntime `EntityHandle`へのMapping
 - そのInstanceが生成したEntityの順序付き集合
+- `SceneInstance`より長く生存する非所有`EmergencyHandler`
 
 `SceneInstance`は`SceneDocument`または`SceneSnapshot`への生Pointerを保持しない。Runtime WorldもDocument、Snapshot、
 EditorDocumentへの参照を保持しない。Instance終了は呼び出し側が同じRuntime Worldを明示的に渡し、Owner ThreadのSafe Pointで
@@ -202,10 +203,11 @@ EditorDocumentへの参照を保持しない。Instance終了は呼び出し側�
 Runtime Worldより先にSceneInstanceを正常終了する所有順を
 Composition Rootが保証する。
 
-`SceneInstance`はCopyを禁止するmove-only所有Handleとする。Moveは元`SceneAssetId`、所有集合、Mapping、`WorldId`を移動先へ移し、
+`SceneInstance`はCopyを禁止するmove-only所有Handleとする。Moveは元`SceneAssetId`、所有集合、Mapping、`WorldId`、非所有Handlerを移動先へ移し、
 移動元のIdentityを空にして終了済み状態へ移す。終了成功後もIdentityと所有Dataを持たない終了済み状態となり、再終了は成功する
 冪等操作とする。生存Entityを所有したままのDestructor実行またはliveな移動先へのMove代入は、World参照なしで安全に解放できないため、
-状態をReleaseでも評価して`cue::fatal`経路で必ず停止するProgrammer Errorとする。Debug Assertだけへ依存せず、DestructorからWorld操作を
+状態をReleaseでも評価し、保持する`EmergencyHandler::terminate`へ静的診断Messageを渡して必ず停止するProgrammer Errorとする。
+HandlerのOwnerは移動元、移動先、終了済み状態を含む全`SceneInstance`より長く生存させる。Debug Assertだけへ依存せず、DestructorからWorld操作を
 推測実行しない。Composition RootはSceneInstanceを明示終了してから破棄し、Runtime World終了後までlive Handleを残さない。
 
 Runtime Type Builderが存在しない未知Componentまたは、解釈できない既知Component Fieldを含むSnapshotは実体化を失敗させる。
