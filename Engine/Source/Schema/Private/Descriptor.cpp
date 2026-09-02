@@ -102,6 +102,20 @@ namespace
     return true;
 }
 
+/// @brief TypeId の Byte 列が non-nil RFC 4122 UUID Version 4 か判定する
+[[nodiscard]] bool is_valid_type_id(cue::schema::TypeId a_id) noexcept
+{
+    const auto bytes = a_id.bytes();
+    const bool isNil = std::all_of(bytes.begin(), bytes.end(),
+                                   /// @brief UUID の全 Byte が 0 か判定する
+                                   [](std::uint8_t a_value) noexcept
+                                   {
+                                       return a_value == 0U;
+                                   });
+    return !isNil && (bytes[6] & 0xF0U) == 0x40U &&
+           (bytes[8] & 0xC0U) == 0x80U;
+}
+
 /// @brief Schema 所有値の Allocation 失敗を Emergency 終了へ変換する
 [[noreturn]] void terminate_schema_allocation(
     const cue::AssertContext &a_assertContext) noexcept
@@ -288,6 +302,20 @@ Result<void> validate_type_descriptor(
     const TypeDescriptor &a_descriptor,
     const AssertContext &a_assertContext) noexcept
 {
+    if (!is_valid_type_id(a_descriptor.id()))
+    {
+        return Result<void>::failure(make_schema_error(
+            a_assertContext, SchemaError::InvalidTypeId,
+            "TypeId must be a non-nil RFC 4122 UUID Version 4"));
+    }
+
+    if (a_descriptor.version().value() == 0U)
+    {
+        return Result<void>::failure(make_schema_error(
+            a_assertContext, SchemaError::InvalidSchemaVersion,
+            "SchemaVersion zero is reserved as invalid"));
+    }
+
     if (!is_valid_diagnostic_name(a_descriptor.name(), 255U))
     {
         return Result<void>::failure(make_schema_error(
@@ -297,11 +325,28 @@ Result<void> validate_type_descriptor(
 
     for (const auto &field : a_descriptor.fields())
     {
+        if (field.id().value() == 0U)
+        {
+            return Result<void>::failure(make_schema_error(
+                a_assertContext, SchemaError::InvalidFieldId,
+                "FieldId zero is reserved as invalid"));
+        }
+
         if (!is_valid_diagnostic_name(field.name(), 128U))
         {
             return Result<void>::failure(make_schema_error(
                 a_assertContext, SchemaError::InvalidName,
                 "Field name must be valid UTF-8 without control characters and at most 128 bytes"));
+        }
+    }
+
+    for (const auto reservedId : a_descriptor.reserved_field_ids())
+    {
+        if (reservedId.value() == 0U)
+        {
+            return Result<void>::failure(make_schema_error(
+                a_assertContext, SchemaError::InvalidFieldId,
+                "Reserved FieldId zero is invalid"));
         }
     }
 
@@ -338,6 +383,20 @@ Result<TypeDescriptor> create_type_descriptor(
     std::vector<FieldDescriptor> &&a_fields, std::vector<FieldId> &&a_reservedFieldIds,
     const AssertContext &a_assertContext) noexcept
 {
+    if (!is_valid_type_id(a_id))
+    {
+        return Result<TypeDescriptor>::failure(make_schema_error(
+            a_assertContext, SchemaError::InvalidTypeId,
+            "TypeId must be a non-nil RFC 4122 UUID Version 4"));
+    }
+
+    if (a_version.value() == 0U)
+    {
+        return Result<TypeDescriptor>::failure(make_schema_error(
+            a_assertContext, SchemaError::InvalidSchemaVersion,
+            "SchemaVersion zero is reserved as invalid"));
+    }
+
     if (!is_valid_diagnostic_name(a_name, 255U))
     {
         return Result<TypeDescriptor>::failure(make_schema_error(
@@ -362,11 +421,28 @@ Result<TypeDescriptor> create_type_descriptor(
 
     for (const auto &field : a_fields)
     {
+        if (field.id().value() == 0U)
+        {
+            return Result<TypeDescriptor>::failure(make_schema_error(
+                a_assertContext, SchemaError::InvalidFieldId,
+                "FieldId zero is reserved as invalid"));
+        }
+
         if (!is_valid_diagnostic_name(field.name(), 128U))
         {
             return Result<TypeDescriptor>::failure(make_schema_error(
                 a_assertContext, SchemaError::InvalidName,
                 "Field name must be valid UTF-8 without control characters and at most 128 bytes"));
+        }
+    }
+
+    for (const auto reservedId : a_reservedFieldIds)
+    {
+        if (reservedId.value() == 0U)
+        {
+            return Result<TypeDescriptor>::failure(make_schema_error(
+                a_assertContext, SchemaError::InvalidFieldId,
+                "Reserved FieldId zero is invalid"));
         }
     }
 

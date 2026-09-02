@@ -6,6 +6,7 @@
 #include <Cue/Schema/Registry.h>
 #include <Cue/Schema/Types.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdlib>
 #include <memory>
@@ -124,6 +125,76 @@ template <typename T>
     }
 
     return std::move(*result.try_value());
+}
+
+/// @brief Test 用に TypeId の Object 表現を nil UUID へ変更する
+void invalidate_for_test(cue::schema::TypeId &a_id) noexcept
+{
+    const auto bytes = a_id.bytes();
+    std::fill_n(const_cast<std::uint8_t *>(bytes.data()), bytes.size(),
+                static_cast<std::uint8_t>(0U));
+}
+
+/// @brief Test 用に FieldId の先頭 Value を Invalid 値へ変更する
+void invalidate_for_test(cue::schema::FieldId &a_id) noexcept
+{
+    *reinterpret_cast<std::uint32_t *>(&a_id) = 0U;
+}
+
+/// @brief Test 用に SchemaVersion の先頭 Value を Invalid 値へ変更する
+void invalidate_for_test(cue::schema::SchemaVersion &a_version) noexcept
+{
+    *reinterpret_cast<std::uint32_t *>(&a_version) = 0U;
+}
+
+/// @brief Descriptor と Registry 境界が改変された Stable 値を再検証することを確認する
+[[nodiscard]] bool test_forged_identity_rejection(
+    const cue::AssertContext &a_assertContext)
+{
+    auto forgedTypeId = make_type_id(
+        "70000000-0000-4000-8000-000000000007", a_assertContext);
+    invalidate_for_test(forgedTypeId);
+    std::vector<cue::schema::FieldDescriptor> noFields;
+    std::vector<cue::schema::FieldId> noReservedIds;
+    auto invalidTypeId = cue::schema::create_type_descriptor(
+        forgedTypeId, "Cue.Test.ForgedType", make_version(a_assertContext),
+        std::move(noFields), std::move(noReservedIds), a_assertContext);
+
+    auto forgedVersion = make_version(a_assertContext);
+    invalidate_for_test(forgedVersion);
+    std::vector<cue::schema::FieldDescriptor> versionFields;
+    std::vector<cue::schema::FieldId> versionReservedIds;
+    auto invalidVersion = cue::schema::create_type_descriptor(
+        make_type_id("80000000-0000-4000-8000-000000000008", a_assertContext),
+        "Cue.Test.ForgedVersion", forgedVersion, std::move(versionFields),
+        std::move(versionReservedIds), a_assertContext);
+
+    auto forgedField = make_field(8U, "forged", a_assertContext);
+    auto *forgedFieldId = reinterpret_cast<cue::schema::FieldId *>(&forgedField);
+    invalidate_for_test(*forgedFieldId);
+    std::vector<cue::schema::FieldDescriptor> fieldValues;
+    fieldValues.push_back(std::move(forgedField));
+    std::vector<cue::schema::FieldId> fieldReservedIds;
+    auto invalidField = cue::schema::create_type_descriptor(
+        make_type_id("90000000-0000-4000-8000-000000000009", a_assertContext),
+        "Cue.Test.ForgedField", make_version(a_assertContext),
+        std::move(fieldValues), std::move(fieldReservedIds), a_assertContext);
+
+    auto forgedDescriptor = make_type(
+        "a0000000-0000-4000-8000-00000000000a", "Cue.Test.ForgedRegistry",
+        a_assertContext);
+    auto *registryTypeId = reinterpret_cast<cue::schema::TypeId *>(&forgedDescriptor);
+    invalidate_for_test(*registryTypeId);
+    cue::schema::SchemaRegistryIdentitySource identitySource;
+    cue::schema::SchemaRegistryBuilder builder(identitySource, a_assertContext);
+    auto invalidRegistration = builder.add_type(std::move(forgedDescriptor));
+
+    return has_schema_error(invalidTypeId, cue::schema::SchemaError::InvalidTypeId) &&
+           has_schema_error(invalidVersion,
+                            cue::schema::SchemaError::InvalidSchemaVersion) &&
+           has_schema_error(invalidField, cue::schema::SchemaError::InvalidFieldId) &&
+           has_schema_error(invalidRegistration,
+                            cue::schema::SchemaError::InvalidTypeId);
 }
 
 /// @brief Stable Identity Value が不正入力を拒否することを検証する
@@ -537,34 +608,39 @@ int main()
         return 1;
     }
 
-    if (!test_descriptor_validation(assertContext))
+    if (!test_forged_identity_rejection(assertContext))
     {
         return 2;
     }
 
-    if (!test_registration_order_independence(assertContext))
+    if (!test_descriptor_validation(assertContext))
     {
         return 3;
     }
 
-    if (!test_registry_not_found(assertContext))
+    if (!test_registration_order_independence(assertContext))
     {
         return 4;
     }
 
-    if (!test_registry_collision_validation(assertContext))
+    if (!test_registry_not_found(assertContext))
     {
         return 5;
     }
 
-    if (!test_immutable_concurrent_read(assertContext))
+    if (!test_registry_collision_validation(assertContext))
     {
         return 6;
     }
 
-    if (!test_sealed_builder_rejection(assertContext))
+    if (!test_immutable_concurrent_read(assertContext))
     {
         return 7;
+    }
+
+    if (!test_sealed_builder_rejection(assertContext))
+    {
+        return 8;
     }
 
     return 0;
