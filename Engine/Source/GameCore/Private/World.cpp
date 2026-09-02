@@ -103,6 +103,8 @@ World::World(ConstructionKey, std::uint64_t a_worldId,
 
 World::~World() noexcept
 {
+    assert_owner_thread();
+
     for (auto iterator = m_storageCreationOrder.rbegin();
          iterator != m_storageCreationOrder.rend(); ++iterator)
     {

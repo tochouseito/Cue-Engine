@@ -325,6 +325,9 @@ template <typename T>
     auto hasSecondPosition = world->has_component(*positionType, *second);
     const auto *movedPositionPointer = movedPosition.try_value();
     const auto *hasSecond = hasSecondPosition.try_value();
+    const bool movedPositionMatches =
+        movedPositionPointer != nullptr && (*movedPositionPointer)->x == 3 &&
+        (*movedPositionPointer)->y == 4;
 
     LifetimeState lifetimeState;
     auto firstLifetime = world->add_component(
@@ -343,8 +346,7 @@ template <typename T>
            has_game_core_error(
                duplicatePosition,
                cue::game_core::GameCoreError::ComponentAlreadyExists) &&
-           removeFirstPosition.has_value() && movedPositionPointer != nullptr &&
-           (*movedPositionPointer)->x == 3 && (*movedPositionPointer)->y == 4 &&
+           removeFirstPosition.has_value() && movedPositionMatches &&
            has_game_core_error(
                missingPosition,
                cue::game_core::GameCoreError::ComponentNotFound) &&
