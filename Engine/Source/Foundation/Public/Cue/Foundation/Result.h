@@ -19,6 +19,7 @@ template <typename T> class Result final
     static_assert(std::is_object_v<T>);
     static_assert(!std::is_same_v<std::remove_cv_t<T>, Error>);
     static_assert(std::is_nothrow_move_constructible_v<T>);
+    static_assert(!std::is_move_assignable_v<T> || std::is_nothrow_move_assignable_v<T>);
     static_assert(std::is_nothrow_destructible_v<T>);
 
   public:
