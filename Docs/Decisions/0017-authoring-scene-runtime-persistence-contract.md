@@ -11,7 +11,8 @@ Authoring ObjectとRuntime Entityを同じIdentityまたは同じ所有Objectと
 Editor Undo、Scene再読込のいずれかが別の寿命へ漏れ、保存Dataと実行状態の境界が崩れる。
 
 ADR-0013はAuthoring SceneをSource Assetとし、PathだけをAsset Identityへ使用しない方針を決定した。ADR-0014は
-Atomic File Replaceと失敗時の元File維持を決定した。ADR-0015は永続`TypeId`／`FieldId`と未知Data保持方針を、
+Atomic File Replace、Publish前失敗時の元File維持、Publish後のDurability不明状態を決定した。ADR-0015は
+永続`TypeId`／`FieldId`と未知Data保持方針を、
 ADR-0016はRuntime `EntityHandle`がSession-localで永続化できないことを決定した。本ADRはこれらを接続し、
 `SceneDocument`、将来の`EditorDocument`、不変Snapshot、`SceneInstance`、Runtime World、Scene Fileの責務を決定する。
 
@@ -183,11 +184,13 @@ Slot Generation、Free List、`StructuralEpoch`を含むWorld内部状態が呼�
 
 - 元`SceneAssetId`
 - Instance-local Identity
+- 実体化先Runtime `WorldId`
 - `ObjectId`からRuntime `EntityHandle`へのMapping
 - そのInstanceが生成したEntityの順序付き集合
 
 `SceneInstance`は`SceneDocument`または`SceneSnapshot`への生Pointerを保持しない。Runtime WorldもDocument、Snapshot、
 EditorDocumentへの参照を保持しない。Instance終了は呼び出し側が同じRuntime Worldを明示的に渡し、Owner ThreadのSafe Pointで
+実行する。処理開始前に保存した`WorldId`と引数WorldのIdentityを照合し、不一致なら所有集合を変更せず拒否する。一致した場合だけ
 所属Entityを逆順で処理する。各Handleを`World::is_alive`で確認し、Gameplayにより既に破棄されたEntityは解放済みとして飛ばす。
 生存Entityの破棄が失敗しても後続を処理し、全失敗を順序付き結果として返す。失敗後も生存するEntityは`SceneInstance`の所有集合へ残し、
 呼び出し側が再試行またはRuntime World終了を選べるようにする。Runtime Worldより先にSceneInstanceを正常終了する所有順を
