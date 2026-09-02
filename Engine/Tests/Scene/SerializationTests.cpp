@@ -319,7 +319,10 @@ template <typename Value> Value take_value(cue::Result<Value> &&a_result) noexce
 }
 
 /// @brief 各Container上限内の小さい値を多数持つJSON Array Fixtureを生成する
-[[nodiscard]] std::string make_dense_json_array(std::size_t a_outerCount)
+[[nodiscard]] std::string make_dense_json_array(
+    std::size_t a_outerCount,
+    std::size_t a_lastInnerCount =
+        cue::scene::k_maximumSceneContainerElements)
 {
     std::string result("[");
     for (std::size_t outer = 0U; outer < a_outerCount; ++outer)
@@ -329,8 +332,11 @@ template <typename Value> Value take_value(cue::Result<Value> &&a_result) noexce
             result.push_back(',');
         }
         result.push_back('[');
-        for (std::size_t inner = 0U;
-             inner < cue::scene::k_maximumSceneContainerElements; ++inner)
+        const std::size_t innerCount =
+            outer + 1U == a_outerCount
+                ? a_lastInnerCount
+                : cue::scene::k_maximumSceneContainerElements;
+        for (std::size_t inner = 0U; inner < innerCount; ++inner)
         {
             if (inner > 0U)
             {
@@ -453,6 +459,12 @@ void test_serialization() noexcept
                  .has_value());
     require(!cue::scene::OpaqueFieldData::create(
                  make_field_id(99U, assertContext), excessiveNodeJson,
+                 assertContext)
+                 .has_value());
+    const std::string exactNodeBudgetJson =
+        make_dense_json_array(64U, 4031U);
+    require(!cue::scene::OpaqueFieldData::create(
+                 make_field_id(99U, assertContext), exactNodeBudgetJson,
                  assertContext)
                  .has_value());
 

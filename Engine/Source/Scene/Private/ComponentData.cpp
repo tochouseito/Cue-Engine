@@ -9,6 +9,13 @@
 
 namespace
 {
+/// @brief Opaque Field一つを最小Sceneへ埋め込む際にPayload外で必ず必要なJSON Node数
+inline constexpr std::size_t k_opaqueFieldEmbeddingNodeReserve = 51U;
+/// @brief Opaque Component Payload一つを最小Sceneへ埋め込む際にPayload外で必ず必要なJSON Node数
+inline constexpr std::size_t k_opaqueComponentPayloadEmbeddingNodeReserve = 46U;
+/// @brief 完全Opaque Component Entry一つを最小Sceneへ埋め込む際にEntry外で必ず必要なJSON Node数
+inline constexpr std::size_t k_completeOpaqueComponentEmbeddingNodeReserve = 38U;
+
 /// @brief FieldValueKindが公開契約で定義した列挙値か判定する
 [[nodiscard]] bool is_defined_field_value_kind(
     cue::scene::FieldValueKind a_kind) noexcept
@@ -100,8 +107,9 @@ class JsonSyntaxValidator final
 {
   public:
     /// @brief 検証対象UTF-8 JSON Textを非所有で保持する
-    explicit JsonSyntaxValidator(std::string_view a_input) noexcept
-        : m_input(a_input)
+    explicit JsonSyntaxValidator(std::string_view a_input,
+                                 std::size_t a_reservedNodeCount) noexcept
+        : m_input(a_input), m_nodeCount(a_reservedNodeCount)
     {
     }
 
@@ -545,6 +553,7 @@ class JsonSyntaxValidator final
 [[nodiscard]] bool validate_opaque_json(
     std::string_view a_json, bool a_requireObject,
     bool a_rejectIdentityMembers, std::size_t a_embeddingDepth,
+    std::size_t a_embeddingNodeReserve,
     const cue::AssertContext &a_assertContext) noexcept
 {
     if (a_json.size() > cue::scene::k_maximumSceneBytes ||
@@ -554,7 +563,7 @@ class JsonSyntaxValidator final
     }
     try
     {
-        JsonSyntaxValidator validator(a_json);
+        JsonSyntaxValidator validator(a_json, a_embeddingNodeReserve);
         return validator.validate(a_requireObject, a_rejectIdentityMembers,
                                   a_embeddingDepth);
     }
@@ -780,7 +789,9 @@ Result<OpaqueFieldData> OpaqueFieldData::create(
     const AssertContext &a_assertContext) noexcept
 {
     if (a_rawJson.empty() ||
-        !validate_opaque_json(a_rawJson, false, false, 7U, a_assertContext))
+        !validate_opaque_json(a_rawJson, false, false, 7U,
+                              k_opaqueFieldEmbeddingNodeReserve,
+                              a_assertContext))
     {
         return Result<OpaqueFieldData>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidOpaqueData,
@@ -1028,7 +1039,9 @@ Result<OpaqueComponentData> OpaqueComponentData::create(
     const AssertContext &a_assertContext) noexcept
 {
     if (a_rawJson.empty() ||
-        !validate_opaque_json(a_rawJson, true, true, 5U, a_assertContext))
+        !validate_opaque_json(
+            a_rawJson, true, true, 5U,
+            k_opaqueComponentPayloadEmbeddingNodeReserve, a_assertContext))
     {
         return Result<OpaqueComponentData>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidOpaqueData,
@@ -1064,7 +1077,9 @@ Result<OpaqueComponentData> OpaqueComponentData::create_complete_entry(
     const AssertContext &a_assertContext) noexcept
 {
     if (a_rawJson.empty() ||
-        !validate_opaque_json(a_rawJson, true, false, 4U, a_assertContext))
+        !validate_opaque_json(
+            a_rawJson, true, false, 4U,
+            k_completeOpaqueComponentEmbeddingNodeReserve, a_assertContext))
     {
         return Result<OpaqueComponentData>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidOpaqueData,
@@ -1306,8 +1321,9 @@ Result<KnownComponentData> create_known_component(
     {
         const auto id = a_unknownFields[index].id();
         if (a_unknownFields[index].raw_json().empty() ||
-            !validate_opaque_json(a_unknownFields[index].raw_json(), false,
-                                  false, 7U, a_assertContext))
+            !validate_opaque_json(
+                a_unknownFields[index].raw_json(), false, false, 7U,
+                k_opaqueFieldEmbeddingNodeReserve, a_assertContext))
         {
             return Result<KnownComponentData>::failure(make_scene_error(
                 a_assertContext, SceneError::InvalidOpaqueData,
