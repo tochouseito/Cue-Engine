@@ -223,6 +223,11 @@ void invalidate_for_test(cue::schema::SchemaVersion &a_version) noexcept
                                                     a_assertContext);
     auto invalidFieldCollection =
         fieldBuilder.add_type(std::move(*forgedFieldsDescriptor));
+    const cue::Error *invalidFieldCollectionError =
+        invalidFieldCollection.try_error();
+    const bool fieldRuleDiagnostic = invalidFieldCollectionError != nullptr &&
+        invalidFieldCollectionError->summary().find("DuplicateFieldId") !=
+            std::string_view::npos;
 
     std::vector<cue::schema::FieldDescriptor> noReservedFields;
     std::vector<cue::schema::FieldId> forgedReservedIdsForRegistration;
@@ -272,6 +277,7 @@ void invalidate_for_test(cue::schema::SchemaVersion &a_version) noexcept
                             cue::schema::SchemaError::InvalidTypeId) &&
            has_schema_error(invalidFieldCollection,
                             cue::schema::SchemaError::DuplicateFieldId) &&
+           fieldRuleDiagnostic &&
            has_schema_error(invalidReservedCollection,
                             cue::schema::SchemaError::ReservedFieldId) &&
            reservedDiagnostic;

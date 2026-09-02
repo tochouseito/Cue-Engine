@@ -344,11 +344,14 @@ Result<void> validate_type_descriptor(
     {
         if (fields[index - 1U].id() >= fields[index].id())
         {
-            const auto code = fields[index - 1U].id() == fields[index].id()
-                                  ? SchemaError::DuplicateFieldId
-                                  : SchemaError::InvalidFieldId;
+            const bool isDuplicate =
+                fields[index - 1U].id() == fields[index].id();
+            const auto code = isDuplicate ? SchemaError::DuplicateFieldId
+                                          : SchemaError::InvalidFieldId;
+            const auto rule = isDuplicate ? "DuplicateFieldId"
+                                          : "InvalidFieldOrder";
             return Result<void>::failure(make_field_collision_error(
-                a_assertContext, code, "InvalidFieldOrder", a_descriptor.id(),
+                a_assertContext, code, rule, a_descriptor.id(),
                 a_descriptor.name(), fields[index - 1U].id().value(),
                 fields[index - 1U].name(), fields[index].id().value(),
                 fields[index].name()));
