@@ -1,0 +1,31 @@
+#pragma once
+
+#include <Cue/Foundation/Error.h>
+
+#include <cstdint>
+#include <string_view>
+
+namespace cue
+{
+class AssertContext;
+}
+
+namespace cue::scene
+{
+/// @brief Scene Authoring Modelの回復可能な失敗を分類するCode
+enum class SceneError : std::int64_t
+{
+    InvalidIdentity = 1,
+    DuplicateObjectId = 2,
+    ObjectNotFound = 3,
+    DanglingParent = 4,
+    HierarchyCycle = 5,
+    ChildObjectsExist = 6,
+    InvalidName = 7
+};
+
+/// @brief Scene Errorを診断Summaryと共に生成する
+[[nodiscard]] Error make_scene_error(const AssertContext &a_assertContext,
+                                     SceneError a_code,
+                                     std::string_view a_summary) noexcept;
+} // namespace cue::scene
