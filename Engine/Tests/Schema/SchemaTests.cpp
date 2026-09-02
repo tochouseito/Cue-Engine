@@ -1,0 +1,780 @@
+#include <Cue/Foundation/Assert.h>
+#include <Cue/Foundation/Fatal.h>
+#include <Cue/Foundation/Log.h>
+#include <Cue/Schema/Descriptor.h>
+#include <Cue/Schema/Error.h>
+#include <Cue/Schema/Registry.h>
+#include <Cue/Schema/Types.h>
+
+#include <algorithm>
+#include <atomic>
+#include <cstdlib>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+namespace
+{
+static_assert(!std::is_move_constructible_v<cue::schema::SchemaRegistry>);
+static_assert(!std::is_move_assignable_v<cue::schema::SchemaRegistry>);
+
+class TestFatalHandler final : public cue::FatalHandler
+{
+  public:
+    /// @brief Test 中の通常 Fatal を Process 失敗へ変換する
+    [[noreturn]] void terminate() noexcept override
+    {
+        std::abort();
+    }
+
+    /// @brief Test 中の Emergency Fatal を Process 失敗へ変換する
+    [[noreturn]] void terminate(std::string_view) noexcept override
+    {
+        std::abort();
+    }
+};
+
+/// @brief Result が指定した Cue.Schema Error を保持するか判定する
+template <typename T>
+[[nodiscard]] bool has_schema_error(const cue::Result<T> &a_result,
+                                    cue::schema::SchemaError a_expected) noexcept
+{
+    const cue::Error *error = a_result.try_error();
+    return error != nullptr && error->code().domain() == "Cue.Schema" &&
+           error->code().value() == static_cast<std::int64_t>(a_expected);
+}
+
+/// @brief Test Fixture 用の検証済み TypeId を生成する
+[[nodiscard]] cue::schema::TypeId make_type_id(
+    std::string_view a_text, const cue::AssertContext &a_assertContext)
+{
+    auto result = cue::schema::TypeId::parse(a_text, a_assertContext);
+
+    if (!result)
+    {
+        std::abort();
+    }
+
+    return std::move(*result.try_value());
+}
+
+/// @brief Test Fixture 用の検証済み FieldId を生成する
+[[nodiscard]] cue::schema::FieldId make_field_id(
+    std::uint32_t a_value, const cue::AssertContext &a_assertContext)
+{
+    auto result = cue::schema::FieldId::create(a_value, a_assertContext);
+
+    if (!result)
+    {
+        std::abort();
+    }
+
+    return std::move(*result.try_value());
+}
+
+/// @brief Test Fixture 用の検証済み SchemaVersion を生成する
+[[nodiscard]] cue::schema::SchemaVersion make_version(
+    const cue::AssertContext &a_assertContext)
+{
+    auto result = cue::schema::SchemaVersion::create(1U, a_assertContext);
+
+    if (!result)
+    {
+        std::abort();
+    }
+
+    return std::move(*result.try_value());
+}
+
+/// @brief Test Fixture 用の Field Descriptor を生成する
+[[nodiscard]] cue::schema::FieldDescriptor make_field(
+    std::uint32_t a_id, std::string_view a_name,
+    const cue::AssertContext &a_assertContext)
+{
+    auto result = cue::schema::create_field_descriptor(
+        make_field_id(a_id, a_assertContext), a_name, a_assertContext);
+
+    if (!result)
+    {
+        std::abort();
+    }
+
+    return std::move(*result.try_value());
+}
+
+/// @brief Test Fixture 用の単一 Field Type Descriptor を生成する
+[[nodiscard]] cue::schema::TypeDescriptor make_type(
+    std::string_view a_typeId, std::string_view a_name,
+    const cue::AssertContext &a_assertContext)
+{
+    std::vector<cue::schema::FieldDescriptor> fields;
+    fields.push_back(make_field(1U, "value", a_assertContext));
+    std::vector<cue::schema::FieldId> reservedFieldIds;
+    auto result = cue::schema::create_type_descriptor(
+        make_type_id(a_typeId, a_assertContext), a_name,
+        make_version(a_assertContext), std::move(fields),
+        std::move(reservedFieldIds), a_assertContext);
+
+    if (!result)
+    {
+        std::abort();
+    }
+
+    return std::move(*result.try_value());
+}
+
+/// @brief Test 用に TypeId の Object 表現を nil UUID へ変更する
+void invalidate_for_test(cue::schema::TypeId &a_id) noexcept
+{
+    const auto bytes = a_id.bytes();
+    std::fill_n(const_cast<std::uint8_t *>(bytes.data()), bytes.size(),
+                static_cast<std::uint8_t>(0U));
+}
+
+/// @brief Test 用に FieldId の先頭 Value を Invalid 値へ変更する
+void invalidate_for_test(cue::schema::FieldId &a_id) noexcept
+{
+    *reinterpret_cast<std::uint32_t *>(&a_id) = 0U;
+}
+
+/// @brief Test 用に SchemaVersion の先頭 Value を Invalid 値へ変更する
+void invalidate_for_test(cue::schema::SchemaVersion &a_version) noexcept
+{
+    *reinterpret_cast<std::uint32_t *>(&a_version) = 0U;
+}
+
+/// @brief Descriptor と Registry 境界が改変された Stable 値を再検証することを確認する
+[[nodiscard]] bool test_forged_identity_rejection(
+    const cue::AssertContext &a_assertContext)
+{
+    auto forgedTypeId = make_type_id(
+        "70000000-0000-4000-8000-000000000007", a_assertContext);
+    invalidate_for_test(forgedTypeId);
+    std::vector<cue::schema::FieldDescriptor> noFields;
+    std::vector<cue::schema::FieldId> noReservedIds;
+    auto invalidTypeId = cue::schema::create_type_descriptor(
+        forgedTypeId, "Cue.Test.ForgedType", make_version(a_assertContext),
+        std::move(noFields), std::move(noReservedIds), a_assertContext);
+
+    auto forgedVersion = make_version(a_assertContext);
+    invalidate_for_test(forgedVersion);
+    std::vector<cue::schema::FieldDescriptor> versionFields;
+    std::vector<cue::schema::FieldId> versionReservedIds;
+    auto invalidVersion = cue::schema::create_type_descriptor(
+        make_type_id("80000000-0000-4000-8000-000000000008", a_assertContext),
+        "Cue.Test.ForgedVersion", forgedVersion, std::move(versionFields),
+        std::move(versionReservedIds), a_assertContext);
+
+    auto forgedField = make_field(8U, "forged", a_assertContext);
+    auto *forgedFieldId = reinterpret_cast<cue::schema::FieldId *>(&forgedField);
+    invalidate_for_test(*forgedFieldId);
+    auto invalidFieldDescriptor = cue::schema::create_field_descriptor(
+        *forgedFieldId, "direct", a_assertContext);
+    std::vector<cue::schema::FieldDescriptor> fieldValues;
+    fieldValues.push_back(std::move(forgedField));
+    std::vector<cue::schema::FieldId> fieldReservedIds;
+    auto invalidField = cue::schema::create_type_descriptor(
+        make_type_id("90000000-0000-4000-8000-000000000009", a_assertContext),
+        "Cue.Test.ForgedField", make_version(a_assertContext),
+        std::move(fieldValues), std::move(fieldReservedIds), a_assertContext);
+
+    auto forgedDescriptor = make_type(
+        "a0000000-0000-4000-8000-00000000000a", "Cue.Test.ForgedRegistry",
+        a_assertContext);
+    auto *registryTypeId = reinterpret_cast<cue::schema::TypeId *>(&forgedDescriptor);
+    invalidate_for_test(*registryTypeId);
+    cue::schema::SchemaRegistryIdentitySource identitySource;
+    cue::schema::SchemaRegistryBuilder builder(identitySource, a_assertContext);
+    auto invalidRegistration = builder.add_type(std::move(forgedDescriptor));
+
+    auto forgedTombstoneId = make_type_id(
+        "b0000000-0000-4000-8000-00000000000b", a_assertContext);
+    invalidate_for_test(forgedTombstoneId);
+    cue::schema::SchemaRegistryBuilder tombstoneBuilder(identitySource,
+                                                        a_assertContext);
+    auto invalidTombstone = tombstoneBuilder.add_tombstone(
+        forgedTombstoneId, "Cue.Test.ForgedTombstone");
+
+    std::vector<cue::schema::FieldDescriptor> forgedFields;
+    forgedFields.push_back(make_field(10U, "first", a_assertContext));
+    forgedFields.push_back(make_field(11U, "second", a_assertContext));
+    forgedFields.push_back(make_field(12U, "third", a_assertContext));
+    std::vector<cue::schema::FieldId> forgedReservedIds;
+    auto forgedFieldsResult = cue::schema::create_type_descriptor(
+        make_type_id("c0000000-0000-4000-8000-00000000000c", a_assertContext),
+        "Cue.Test.ForgedFields", make_version(a_assertContext),
+        std::move(forgedFields), std::move(forgedReservedIds), a_assertContext);
+    auto *forgedFieldsDescriptor = forgedFieldsResult.try_value();
+
+    if (forgedFieldsDescriptor == nullptr)
+    {
+        return false;
+    }
+
+    auto descriptorFields = forgedFieldsDescriptor->fields();
+    auto *thirdField = const_cast<cue::schema::FieldDescriptor *>(
+        &descriptorFields[2U]);
+    auto *thirdFieldId = reinterpret_cast<cue::schema::FieldId *>(thirdField);
+    *thirdFieldId = make_field_id(10U, a_assertContext);
+    cue::schema::SchemaRegistryBuilder fieldBuilder(identitySource,
+                                                    a_assertContext);
+    auto invalidFieldCollection =
+        fieldBuilder.add_type(std::move(*forgedFieldsDescriptor));
+    const cue::Error *invalidFieldCollectionError =
+        invalidFieldCollection.try_error();
+    const bool fieldRuleDiagnostic = invalidFieldCollectionError != nullptr &&
+        invalidFieldCollectionError->summary().find("DuplicateFieldId") !=
+            std::string_view::npos;
+
+    std::vector<cue::schema::FieldDescriptor> noReservedFields;
+    std::vector<cue::schema::FieldId> forgedReservedIdsForRegistration;
+    forgedReservedIdsForRegistration.push_back(
+        make_field_id(12U, a_assertContext));
+    forgedReservedIdsForRegistration.push_back(
+        make_field_id(13U, a_assertContext));
+    forgedReservedIdsForRegistration.push_back(
+        make_field_id(14U, a_assertContext));
+    auto forgedReservedResult = cue::schema::create_type_descriptor(
+        make_type_id("d0000000-0000-4000-8000-00000000000d", a_assertContext),
+        "Cue.Test.ForgedReserved", make_version(a_assertContext),
+        std::move(noReservedFields),
+        std::move(forgedReservedIdsForRegistration), a_assertContext);
+    auto *forgedReservedDescriptor = forgedReservedResult.try_value();
+
+    if (forgedReservedDescriptor == nullptr)
+    {
+        return false;
+    }
+
+    const auto descriptorReservedIds =
+        forgedReservedDescriptor->reserved_field_ids();
+    auto *mutableReservedIds =
+        const_cast<cue::schema::FieldId *>(descriptorReservedIds.data());
+    mutableReservedIds[2U] = make_field_id(12U, a_assertContext);
+    cue::schema::SchemaRegistryBuilder reservedBuilder(identitySource,
+                                                       a_assertContext);
+    auto invalidReservedCollection =
+        reservedBuilder.add_type(std::move(*forgedReservedDescriptor));
+    const cue::Error *invalidReservedError =
+        invalidReservedCollection.try_error();
+    const bool reservedDiagnostic = invalidReservedError != nullptr &&
+        invalidReservedError->summary().find(
+            "d0000000-0000-4000-8000-00000000000d") != std::string_view::npos &&
+        invalidReservedError->summary().find("Cue.Test.ForgedReserved") !=
+            std::string_view::npos &&
+        invalidReservedError->summary().find("12") != std::string_view::npos;
+
+    std::vector<cue::schema::FieldDescriptor> activeReservedFields;
+    activeReservedFields.push_back(make_field(20U, "active", a_assertContext));
+    std::vector<cue::schema::FieldId> activeReservedIds;
+    activeReservedIds.push_back(make_field_id(21U, a_assertContext));
+    activeReservedIds.push_back(make_field_id(22U, a_assertContext));
+    auto activeReservedResult = cue::schema::create_type_descriptor(
+        make_type_id("e0000000-0000-4000-8000-00000000000e", a_assertContext),
+        "Cue.Test.ActiveReserved", make_version(a_assertContext),
+        std::move(activeReservedFields), std::move(activeReservedIds),
+        a_assertContext);
+    auto *activeReservedDescriptor = activeReservedResult.try_value();
+
+    if (activeReservedDescriptor == nullptr)
+    {
+        return false;
+    }
+
+    const auto activeReservedValues =
+        activeReservedDescriptor->reserved_field_ids();
+    auto *mutableActiveReservedIds =
+        const_cast<cue::schema::FieldId *>(activeReservedValues.data());
+    mutableActiveReservedIds[1U] = make_field_id(20U, a_assertContext);
+    cue::schema::SchemaRegistryBuilder activeReservedBuilder(identitySource,
+                                                             a_assertContext);
+    auto activeReservedCollision =
+        activeReservedBuilder.add_type(std::move(*activeReservedDescriptor));
+    const cue::Error *activeReservedError = activeReservedCollision.try_error();
+    const bool activeReservedDiagnostic = activeReservedError != nullptr &&
+        activeReservedError->summary().find(
+            "ActiveFieldIdReusesReservedFieldId") != std::string_view::npos &&
+        activeReservedError->summary().find("active") != std::string_view::npos;
+
+    return has_schema_error(invalidTypeId, cue::schema::SchemaError::InvalidTypeId) &&
+           has_schema_error(invalidVersion,
+                            cue::schema::SchemaError::InvalidSchemaVersion) &&
+           has_schema_error(invalidFieldDescriptor,
+                            cue::schema::SchemaError::InvalidFieldId) &&
+           has_schema_error(invalidField, cue::schema::SchemaError::InvalidFieldId) &&
+           has_schema_error(invalidRegistration,
+                            cue::schema::SchemaError::InvalidTypeId) &&
+           has_schema_error(invalidTombstone,
+                            cue::schema::SchemaError::InvalidTypeId) &&
+           has_schema_error(invalidFieldCollection,
+                            cue::schema::SchemaError::DuplicateFieldId) &&
+           fieldRuleDiagnostic &&
+           has_schema_error(invalidReservedCollection,
+                            cue::schema::SchemaError::ReservedFieldId) &&
+           reservedDiagnostic &&
+           has_schema_error(activeReservedCollision,
+                            cue::schema::SchemaError::ReservedFieldId) &&
+           activeReservedDiagnostic;
+}
+
+/// @brief Stable Identity Value が不正入力を拒否することを検証する
+[[nodiscard]] bool test_stable_identity_validation(
+    const cue::AssertContext &a_assertContext)
+{
+    auto valid = cue::schema::TypeId::parse(
+        "10000000-0000-4000-8000-000000000001", a_assertContext);
+    auto uppercase = cue::schema::TypeId::parse(
+        "A0000000-0000-4000-8000-000000000001", a_assertContext);
+    auto wrongVersion = cue::schema::TypeId::parse(
+        "10000000-0000-3000-8000-000000000001", a_assertContext);
+    auto wrongVariant = cue::schema::TypeId::parse(
+        "10000000-0000-4000-4000-000000000001", a_assertContext);
+    auto zeroField = cue::schema::FieldId::create(0U, a_assertContext);
+    auto zeroVersion = cue::schema::SchemaVersion::create(0U, a_assertContext);
+
+    return valid.has_value() &&
+           has_schema_error(uppercase, cue::schema::SchemaError::InvalidTypeId) &&
+           has_schema_error(wrongVersion, cue::schema::SchemaError::InvalidTypeId) &&
+           has_schema_error(wrongVariant, cue::schema::SchemaError::InvalidTypeId) &&
+           has_schema_error(zeroField, cue::schema::SchemaError::InvalidFieldId) &&
+           has_schema_error(zeroVersion,
+                            cue::schema::SchemaError::InvalidSchemaVersion);
+}
+
+/// @brief Descriptor が Field 順序と Stable ID 不変条件を検証することを確認する
+[[nodiscard]] bool test_descriptor_validation(
+    const cue::AssertContext &a_assertContext)
+{
+    auto invalidName = cue::schema::create_field_descriptor(
+        make_field_id(1U, a_assertContext), "invalid\nname", a_assertContext);
+
+    std::vector<cue::schema::FieldDescriptor> orderedFields;
+    orderedFields.push_back(make_field(2U, "second", a_assertContext));
+    orderedFields.push_back(make_field(1U, "first", a_assertContext));
+    std::vector<cue::schema::FieldId> reservedIds;
+    reservedIds.push_back(make_field_id(3U, a_assertContext));
+    auto orderedType = cue::schema::create_type_descriptor(
+        make_type_id("10000000-0000-4000-8000-000000000001", a_assertContext),
+        "Cue.Test.Ordered", make_version(a_assertContext),
+        std::move(orderedFields), std::move(reservedIds), a_assertContext);
+
+    std::vector<cue::schema::FieldDescriptor> aliasedNameFields;
+    aliasedNameFields.push_back(make_field(2U, "AliasedType", a_assertContext));
+    aliasedNameFields.push_back(make_field(1U, "first", a_assertContext));
+    const std::string_view aliasedTypeName = aliasedNameFields[0].name();
+    std::vector<cue::schema::FieldId> aliasedReservedIds;
+    auto aliasedNameType = cue::schema::create_type_descriptor(
+        make_type_id("60000000-0000-4000-8000-000000000006", a_assertContext),
+        aliasedTypeName, make_version(a_assertContext),
+        std::move(aliasedNameFields), std::move(aliasedReservedIds),
+        a_assertContext);
+
+    std::vector<cue::schema::FieldDescriptor> duplicateFields;
+    duplicateFields.push_back(make_field(1U, "first", a_assertContext));
+    duplicateFields.push_back(make_field(1U, "second", a_assertContext));
+    std::vector<cue::schema::FieldId> noReservedIds;
+    auto duplicateField = cue::schema::create_type_descriptor(
+        make_type_id("20000000-0000-4000-8000-000000000002", a_assertContext),
+        "Cue.Test.Duplicate", make_version(a_assertContext),
+        std::move(duplicateFields), std::move(noReservedIds), a_assertContext);
+
+    std::vector<cue::schema::FieldDescriptor> reusedFields;
+    reusedFields.push_back(make_field(4U, "active", a_assertContext));
+    std::vector<cue::schema::FieldId> reusedReservedIds;
+    reusedReservedIds.push_back(make_field_id(4U, a_assertContext));
+    auto reusedField = cue::schema::create_type_descriptor(
+        make_type_id("30000000-0000-4000-8000-000000000003", a_assertContext),
+        "Cue.Test.Reused", make_version(a_assertContext),
+        std::move(reusedFields), std::move(reusedReservedIds), a_assertContext);
+
+    auto movedFieldSource = make_field(5U, "moved", a_assertContext);
+    [[maybe_unused]] auto movedFieldDestination = std::move(movedFieldSource);
+    std::vector<cue::schema::FieldDescriptor> movedFields;
+    movedFields.push_back(std::move(movedFieldSource));
+    std::vector<cue::schema::FieldId> movedReservedIds;
+    auto movedFieldType = cue::schema::create_type_descriptor(
+        make_type_id("40000000-0000-4000-8000-000000000004", a_assertContext),
+        "Cue.Test.MovedField", make_version(a_assertContext),
+        std::move(movedFields), std::move(movedReservedIds), a_assertContext);
+
+    auto firstMovedFieldSource = make_field(6U, "firstMoved", a_assertContext);
+    auto secondMovedFieldSource = make_field(7U, "secondMoved", a_assertContext);
+    [[maybe_unused]] auto firstMovedFieldDestination =
+        std::move(firstMovedFieldSource);
+    [[maybe_unused]] auto secondMovedFieldDestination =
+        std::move(secondMovedFieldSource);
+    std::vector<cue::schema::FieldDescriptor> multipleMovedFields;
+    multipleMovedFields.push_back(std::move(firstMovedFieldSource));
+    multipleMovedFields.push_back(std::move(secondMovedFieldSource));
+    std::vector<cue::schema::FieldId> multipleMovedReservedIds;
+    auto multipleMovedFieldType = cue::schema::create_type_descriptor(
+        make_type_id("50000000-0000-4000-8000-000000000005", a_assertContext),
+        "Cue.Test.MultipleMovedFields", make_version(a_assertContext),
+        std::move(multipleMovedFields), std::move(multipleMovedReservedIds),
+        a_assertContext);
+
+    const auto *ordered = orderedType.try_value();
+
+    if (ordered == nullptr)
+    {
+        return false;
+    }
+
+    auto knownField = ordered->find_field(make_field_id(1U, a_assertContext),
+                                          a_assertContext);
+    auto unknownField = ordered->find_field(make_field_id(9U, a_assertContext),
+                                            a_assertContext);
+    const auto *aliasedNameDescriptor = aliasedNameType.try_value();
+    return has_schema_error(invalidName, cue::schema::SchemaError::InvalidName) &&
+           knownField.has_value() && ordered->fields().size() == 2U &&
+           aliasedNameDescriptor != nullptr &&
+           aliasedNameDescriptor->name() == "AliasedType" &&
+           ordered->fields()[0].id().value() == 1U &&
+           ordered->fields()[1].id().value() == 2U &&
+           ordered->reserved_field_ids().size() == 1U &&
+           has_schema_error(duplicateField,
+                            cue::schema::SchemaError::DuplicateFieldId) &&
+           has_schema_error(unknownField, cue::schema::SchemaError::NotFound) &&
+           has_schema_error(movedFieldType, cue::schema::SchemaError::InvalidName) &&
+           has_schema_error(multipleMovedFieldType,
+                            cue::schema::SchemaError::InvalidName) &&
+           has_schema_error(reusedField, cue::schema::SchemaError::ReservedFieldId);
+}
+
+/// @brief 登録順に依存せず同じ TypeId へ同じ Dense Index を割り当てることを検証する
+[[nodiscard]] bool test_registration_order_independence(
+    const cue::AssertContext &a_assertContext)
+{
+    constexpr std::string_view firstId =
+        "10000000-0000-4000-8000-000000000001";
+    constexpr std::string_view secondId =
+        "20000000-0000-4000-8000-000000000002";
+    cue::schema::SchemaRegistryIdentitySource identitySource;
+
+    cue::schema::SchemaRegistryBuilder firstBuilder(identitySource, a_assertContext);
+    auto firstAddSecond = firstBuilder.add_type(
+        make_type(secondId, "Cue.Test.Second", a_assertContext));
+    auto firstAddFirst = firstBuilder.add_type(
+        make_type(firstId, "Cue.Test.First", a_assertContext));
+    auto firstRegistryResult = firstBuilder.seal();
+
+    cue::schema::SchemaRegistryBuilder secondBuilder(identitySource, a_assertContext);
+    auto secondAddFirst = secondBuilder.add_type(
+        make_type(firstId, "Cue.Test.First", a_assertContext));
+    auto secondAddSecond = secondBuilder.add_type(
+        make_type(secondId, "Cue.Test.Second", a_assertContext));
+    auto secondRegistryResult = secondBuilder.seal();
+
+    cue::schema::SchemaRegistryIdentitySource otherIdentitySource;
+    cue::schema::SchemaRegistryBuilder otherBuilder(otherIdentitySource,
+                                                    a_assertContext);
+    auto otherAddFirst = otherBuilder.add_type(
+        make_type(firstId, "Cue.Test.First", a_assertContext));
+    auto otherRegistryResult = otherBuilder.seal();
+
+    const auto *firstRegistryOwner = firstRegistryResult.try_value();
+    const auto *secondRegistryOwner = secondRegistryResult.try_value();
+    const auto *otherRegistryOwner = otherRegistryResult.try_value();
+    const auto *firstRegistry =
+        firstRegistryOwner == nullptr ? nullptr : firstRegistryOwner->get();
+    const auto *secondRegistry =
+        secondRegistryOwner == nullptr ? nullptr : secondRegistryOwner->get();
+    const auto *otherRegistry =
+        otherRegistryOwner == nullptr ? nullptr : otherRegistryOwner->get();
+
+    if (!firstAddSecond || !firstAddFirst || !secondAddFirst || !secondAddSecond ||
+        !otherAddFirst || firstRegistry == nullptr || secondRegistry == nullptr ||
+        otherRegistry == nullptr)
+    {
+        return false;
+    }
+
+    const auto firstTypeId = make_type_id(firstId, a_assertContext);
+    const auto secondTypeId = make_type_id(secondId, a_assertContext);
+    auto firstIndexResult = firstRegistry->dense_index(firstTypeId, a_assertContext);
+    auto mirroredFirstIndexResult =
+        secondRegistry->dense_index(firstTypeId, a_assertContext);
+    auto secondIndexResult = firstRegistry->dense_index(secondTypeId, a_assertContext);
+    auto mirroredSecondIndexResult =
+        secondRegistry->dense_index(secondTypeId, a_assertContext);
+    const auto *firstIndex = firstIndexResult.try_value();
+    const auto *mirroredFirstIndex = mirroredFirstIndexResult.try_value();
+    const auto *secondIndex = secondIndexResult.try_value();
+    const auto *mirroredSecondIndex = mirroredSecondIndexResult.try_value();
+
+    if (firstIndex == nullptr)
+    {
+        return false;
+    }
+
+    auto tamperedIndex = *firstIndex;
+    *reinterpret_cast<std::uint32_t *>(&tamperedIndex) = 2U;
+
+    return mirroredFirstIndex != nullptr &&
+           secondIndex != nullptr && mirroredSecondIndex != nullptr &&
+           firstIndex->value() == mirroredFirstIndex->value() &&
+           secondIndex->value() == mirroredSecondIndex->value() &&
+           firstIndex->value() == 1U && secondIndex->value() == 2U &&
+           firstRegistry->find(*firstIndex)->id() == firstTypeId &&
+           firstRegistry->find(tamperedIndex) == nullptr &&
+           secondRegistry->find(*firstIndex) == nullptr &&
+           otherRegistry->find(*firstIndex) == nullptr;
+}
+
+/// @brief 未登録 Stable Identity の検索を分類済み NotFound として拒否することを検証する
+[[nodiscard]] bool test_registry_not_found(const cue::AssertContext &a_assertContext)
+{
+    cue::schema::SchemaRegistryIdentitySource identitySource;
+    cue::schema::SchemaRegistryBuilder builder(identitySource, a_assertContext);
+    auto addType = builder.add_type(make_type(
+        "10000000-0000-4000-8000-000000000001", "Cue.Test.Active",
+        a_assertContext));
+    auto registryResult = builder.seal();
+    const auto *registryOwner = registryResult.try_value();
+
+    if (!addType || registryOwner == nullptr)
+    {
+        return false;
+    }
+
+    const auto unknownId = make_type_id(
+        "20000000-0000-4000-8000-000000000002", a_assertContext);
+    auto descriptorResult = (*registryOwner)->find(unknownId, a_assertContext);
+    auto indexResult = (*registryOwner)->dense_index(unknownId, a_assertContext);
+    return has_schema_error(descriptorResult, cue::schema::SchemaError::NotFound) &&
+           has_schema_error(indexResult, cue::schema::SchemaError::NotFound);
+}
+
+/// @brief Registry が Type ・名前・ Tombstone の衝突を診断付きで拒否することを検証する
+[[nodiscard]] bool test_registry_collision_validation(
+    const cue::AssertContext &a_assertContext)
+{
+    constexpr std::string_view firstId =
+        "10000000-0000-4000-8000-000000000001";
+    constexpr std::string_view secondId =
+        "20000000-0000-4000-8000-000000000002";
+    cue::schema::SchemaRegistryIdentitySource identitySource;
+
+    cue::schema::SchemaRegistryBuilder duplicateTypeBuilder(identitySource,
+                                                            a_assertContext);
+    auto movedTypeSource = make_type(
+        "40000000-0000-4000-8000-000000000004", "Cue.Test.Moved",
+        a_assertContext);
+    [[maybe_unused]] auto movedTypeDestination = std::move(movedTypeSource);
+    cue::schema::SchemaRegistryBuilder movedTypeBuilder(identitySource,
+                                                        a_assertContext);
+    auto movedType = movedTypeBuilder.add_type(std::move(movedTypeSource));
+    auto firstType = duplicateTypeBuilder.add_type(
+        make_type(firstId, "Cue.Test.First", a_assertContext));
+    auto duplicateType = duplicateTypeBuilder.add_type(
+        make_type(firstId, "Cue.Test.Other", a_assertContext));
+    auto addAfterFailure = duplicateTypeBuilder.add_tombstone(
+        make_type_id(secondId, a_assertContext), "Cue.Test.ModuleB");
+    auto sealAfterFailure = duplicateTypeBuilder.seal();
+
+    cue::schema::SchemaRegistryBuilder duplicateNameBuilder(identitySource,
+                                                            a_assertContext);
+    auto firstName = duplicateNameBuilder.add_type(
+        make_type(firstId, "Cue.Test.Shared", a_assertContext));
+    auto duplicateName = duplicateNameBuilder.add_type(
+        make_type(secondId, "Cue.Test.Shared", a_assertContext));
+
+    cue::schema::SchemaRegistryBuilder tombstoneBuilder(identitySource,
+                                                        a_assertContext);
+    const auto tombstoneId = make_type_id(secondId, a_assertContext);
+    auto firstTombstone = tombstoneBuilder.add_tombstone(
+        tombstoneId, "Cue.Test.ModuleA");
+    auto duplicateTombstone = tombstoneBuilder.add_tombstone(
+        tombstoneId, "Cue.Test.ModuleB");
+
+    cue::schema::SchemaRegistryBuilder tombstoneConflictBuilder(identitySource,
+                                                                a_assertContext);
+    auto conflictTombstone = tombstoneConflictBuilder.add_tombstone(
+        tombstoneId, "Cue.Test.ModuleA");
+    auto tombstonedType = tombstoneConflictBuilder.add_type(
+        make_type(secondId, "Cue.Test.Tombstoned", a_assertContext));
+
+    const cue::Error *duplicateTypeError = duplicateType.try_error();
+    const bool duplicateTypeDiagnostic = duplicateTypeError != nullptr &&
+        duplicateTypeError->summary().find(firstId) != std::string_view::npos &&
+        duplicateTypeError->summary().find("Cue.Test.First") != std::string_view::npos &&
+        duplicateTypeError->summary().find("Cue.Test.Other") != std::string_view::npos;
+    const cue::Error *duplicateTombstoneError = duplicateTombstone.try_error();
+    const bool tombstoneDiagnostic = duplicateTombstoneError != nullptr &&
+        duplicateTombstoneError->summary().find("Cue.Test.ModuleA") !=
+            std::string_view::npos &&
+        duplicateTombstoneError->summary().find("Cue.Test.ModuleB") !=
+            std::string_view::npos;
+
+    return has_schema_error(movedType, cue::schema::SchemaError::InvalidName) &&
+           firstType.has_value() && firstName.has_value() &&
+           firstTombstone.has_value() && conflictTombstone.has_value() &&
+           duplicateTypeDiagnostic && tombstoneDiagnostic &&
+           has_schema_error(duplicateType,
+                            cue::schema::SchemaError::DuplicateTypeId) &&
+           has_schema_error(addAfterFailure,
+                            cue::schema::SchemaError::BuilderFailed) &&
+           has_schema_error(sealAfterFailure,
+                            cue::schema::SchemaError::BuilderFailed) &&
+           has_schema_error(duplicateName,
+                            cue::schema::SchemaError::DuplicateTypeName) &&
+           has_schema_error(duplicateTombstone,
+                            cue::schema::SchemaError::DuplicateTombstone) &&
+           has_schema_error(tombstonedType,
+                            cue::schema::SchemaError::TombstonedTypeId);
+}
+
+/// @brief Seal 済み Builder が全 Build 構成で追加登録と再 Seal を拒否することを検証する
+[[nodiscard]] bool test_sealed_builder_rejection(
+    const cue::AssertContext &a_assertContext)
+{
+    constexpr std::string_view firstId =
+        "10000000-0000-4000-8000-000000000001";
+    constexpr std::string_view secondId =
+        "20000000-0000-4000-8000-000000000002";
+    cue::schema::SchemaRegistryIdentitySource identitySource;
+    cue::schema::SchemaRegistryBuilder builder(identitySource, a_assertContext);
+    auto addType = builder.add_type(
+        make_type(firstId, "Cue.Test.First", a_assertContext));
+    auto registry = builder.seal();
+    auto addAfterSeal = builder.add_tombstone(
+        make_type_id(secondId, a_assertContext), "Cue.Test.Module");
+    auto secondSeal = builder.seal();
+
+    return addType.has_value() && registry.has_value() &&
+           has_schema_error(addAfterSeal, cue::schema::SchemaError::BuilderSealed) &&
+           has_schema_error(secondSeal, cue::schema::SchemaError::BuilderSealed);
+}
+
+/// @brief Seal 済み Registry を複数 Reader Thread から変更なしで参照できることを検証する
+[[nodiscard]] bool test_immutable_concurrent_read(
+    const cue::AssertContext &a_assertContext)
+{
+    constexpr std::string_view activeIdText =
+        "10000000-0000-4000-8000-000000000001";
+    constexpr std::string_view tombstoneIdText =
+        "30000000-0000-4000-8000-000000000003";
+    const auto activeId = make_type_id(activeIdText, a_assertContext);
+    const auto tombstoneId = make_type_id(tombstoneIdText, a_assertContext);
+    cue::schema::SchemaRegistryIdentitySource identitySource;
+    cue::schema::SchemaRegistryBuilder builder(identitySource, a_assertContext);
+    auto addType = builder.add_type(
+        make_type(activeIdText, "Cue.Test.Active", a_assertContext));
+    auto addTombstone = builder.add_tombstone(tombstoneId, "Cue.Test.Module");
+    auto registryResult = builder.seal();
+    const auto *registryOwner = registryResult.try_value();
+    const auto *registry =
+        registryOwner == nullptr ? nullptr : registryOwner->get();
+
+    if (!addType || !addTombstone || registry == nullptr)
+    {
+        return false;
+    }
+
+    std::atomic_bool readsSucceeded = true;
+    std::vector<std::thread> readers;
+
+    for (std::size_t index = 0U; index < 4U; ++index)
+    {
+        readers.emplace_back(
+            /// @brief Immutable Registry の検索結果が全 Reader で一致するか繰り返し検証する
+            [registry, activeId, tombstoneId, &a_assertContext,
+             &readsSucceeded]() noexcept
+        {
+            for (std::size_t iteration = 0U; iteration < 1000U; ++iteration)
+            {
+                auto descriptorResult = registry->find(activeId, a_assertContext);
+                auto denseIndexResult = registry->dense_index(activeId, a_assertContext);
+                const auto *denseIndex = denseIndexResult.try_value();
+
+                if (!descriptorResult || denseIndex == nullptr ||
+                    registry->find(*denseIndex) == nullptr ||
+                    !registry->is_tombstoned(tombstoneId))
+                {
+                    readsSucceeded.store(false, std::memory_order_relaxed);
+                    return;
+                }
+            }
+        });
+    }
+
+    for (auto &reader : readers)
+    {
+        reader.join();
+    }
+
+    return readsSucceeded.load(std::memory_order_relaxed);
+}
+} // namespace
+
+static_assert(!std::is_copy_constructible_v<cue::schema::SchemaRegistry>);
+static_assert(!std::is_copy_constructible_v<cue::schema::TypeDescriptor>);
+static_assert(!std::is_move_constructible_v<cue::schema::SchemaRegistryIdentitySource>);
+static_assert(!std::is_default_constructible_v<
+              cue::schema::SchemaRegistry::ConstructionKey>);
+static_assert(!std::is_trivially_copyable_v<
+              cue::schema::SchemaRegistry::ConstructionKey>);
+static_assert(!std::is_trivially_copyable_v<cue::schema::TypeId>);
+static_assert(!std::is_trivially_copyable_v<cue::schema::FieldId>);
+static_assert(!std::is_trivially_copyable_v<cue::schema::SchemaVersion>);
+static_assert(!std::is_trivially_copyable_v<cue::schema::DenseTypeIndex>);
+static_assert(std::is_same_v<
+              decltype(std::declval<const cue::schema::SchemaRegistry &>().find(
+                  std::declval<cue::schema::TypeId>(),
+                  std::declval<const cue::AssertContext &>())),
+              cue::Result<const cue::schema::TypeDescriptor *>>);
+
+/// @brief Cue.Schema の Stable Identity と Immutable Registry 契約を実行時に検証する
+int main()
+{
+    TestFatalHandler fatalHandler;
+    std::vector<std::unique_ptr<cue::LogSink>> sinks;
+    cue::Logger logger(fatalHandler, std::move(sinks));
+    cue::AssertContext assertContext(logger, fatalHandler);
+
+    if (!test_stable_identity_validation(assertContext))
+    {
+        return 1;
+    }
+
+    if (!test_forged_identity_rejection(assertContext))
+    {
+        return 2;
+    }
+
+    if (!test_descriptor_validation(assertContext))
+    {
+        return 3;
+    }
+
+    if (!test_registration_order_independence(assertContext))
+    {
+        return 4;
+    }
+
+    if (!test_registry_not_found(assertContext))
+    {
+        return 5;
+    }
+
+    if (!test_registry_collision_validation(assertContext))
+    {
+        return 6;
+    }
+
+    if (!test_immutable_concurrent_read(assertContext))
+    {
+        return 7;
+    }
+
+    if (!test_sealed_builder_rejection(assertContext))
+    {
+        return 8;
+    }
+
+    return 0;
+}
