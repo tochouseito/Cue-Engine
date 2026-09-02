@@ -122,7 +122,7 @@ Runtime `WorldIdentity`、`EntityHandle`、Component Dense Index、Pointer、Con
 - Stable `ObjectId`を持つObject集合
 - Object名、Active状態、任意のParent `ObjectId`
 - ADR-0011に従うCore Transform Data
-- Stable `ComponentInstanceId`と`TypeId`を持つComponent Data
+- Stable `ComponentInstanceId`、`TypeId`、Typeごとの`SchemaVersion`を持つComponent Data
 - `FieldId`で識別する既知Field Data
 - 未知Component、未知Field、ExtensionのOpaque Data
 
@@ -174,8 +174,10 @@ SceneDocument -> SceneSnapshot -> Instantiation Plan -> RuntimeWorld + SceneInst
 `SceneInstantiator`はRuntime WorldのOwner ThreadかつSafe Pointでだけ実行する。まずSnapshot全体から生成Planを構築し、
 TypeとField、Hierarchy、Resource上限、Runtime Component生成能力を検証する。Plan検証中はRuntime Worldを変更しない。
 
-適用時はObjectごとにRuntime Entityを生成し、Core Transform、Hierarchy、既知Componentを構築する。途中で一件でも失敗した場合、
-その実体化Operationで生成したEntityを逆順で全て破棄し、呼び出し前のWorld状態へ戻す。他の既存Entityを変更しない。
+適用前に、生成と失敗時破棄に必要なStructural Mutation容量を検証する。適用時はObjectごとにRuntime Entityを生成し、Core Transform、
+Hierarchy、既知Componentを構築する。途中で一件でも失敗した場合、その実体化Operationで生成した生存Entityを逆順で全て破棄する。
+Slot Generation、Free List、`StructuralEpoch`を含むWorld内部状態が呼び出し前と同一になることは保証しない。他の既存Entityを変更せず、
+失敗したScene Instanceに由来する生存Entityを残さないことを観測可能なRollback契約とする。
 
 成功時に返す`SceneInstance`は次だけを保持する。
 
@@ -219,6 +221,10 @@ Format Version 1のTop-level Envelopeは次のMemberを必須とする。
 Issue #150と#151で本ADRのIdentityと未知Data契約に従って実装し、Issue #152でSerializerとして固定する。
 同じ`formatVersion`の意味を実装後に変更しない。
 
+各Component Entryは`TypeId`に加えて保存時のnon-zero `SchemaVersion`を必須Memberとして保持する。LoadとRuntime実体化は
+ADR-0015に従ってそのVersionから現在のType Schemaへ連続Migrationできることを検証し、Step欠落または未来Versionを拒否する。
+Top-level `formatVersion`をComponentの`SchemaVersion`として代用しない。
+
 固定Schema Objectの未知Memberと重複Memberを拒否する。`extensions`と未知Component／Field用Opaque Payloadだけは
 意味解釈せず所有し、再保存で失わない。Opaque JSONも構文、重複Member、Nesting、String、Container、File Size上限を適用する。
 
@@ -243,8 +249,10 @@ LoadはFileを上限内で読み、完全にParse、Migration、検証した新D
 部分適用しない。
 
 SaveはDocumentからMemory上にCandidate Byte列を生成し、同じParserでParse-backして同値性を確認してから
-ADR-0014のAtomic File Replaceで公開する。失敗時は元Fileを維持し、Temporary FileをCleanupする。Primary Errorを保持し、
-Cleanup失敗をSecondary診断へ追加する。
+ADR-0014のAtomic File Replaceで公開する。結果は`Committed`、`NotPublished`、`PublishedButDurabilityUnknown`を区別してそのまま返す。
+Publish前失敗の`NotPublished`では元Fileを維持してTemporary FileをCleanupする。Publish後の
+`PublishedButDurabilityUnknown`では新Fileが既に可視化されているため元Fileへ戻さず、呼び出し側へ再読込と診断を要求する。
+Cleanup失敗はPrimary Errorを置換せずSecondary診断へ追加する。
 
 ## Rejected Alternatives
 
@@ -299,7 +307,7 @@ Authoring上存在するGame LogicまたはDataの欠落を成功として実行
 - 未知Component、未知Field、ExtensionをLoad／SaveでLosslessに保持する
 - 同じDocumentからByte単位で安定した出力を生成する
 - Migrationの連続適用、欠落Step、未来Version、失敗時元File維持を検証する
-- Atomic Save失敗とParse-back失敗で元Fileと既存Documentを維持する
+- Parse-back失敗と`NotPublished`で元Fileと既存Documentを維持し、`PublishedButDurabilityUnknown`では新Fileの再読込を要求する
 - Snapshot作成後のDocument変更がSnapshotへ影響しないことを検証する
 - Runtime実体化成功時のObjectId／EntityHandle Mappingと、途中失敗時の全Entity Rollbackを検証する
 - Runtime変更がSceneDocumentへ暗黙反映されないことを検証する
