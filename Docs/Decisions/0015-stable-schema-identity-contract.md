@@ -67,11 +67,15 @@ Binary表現を導入する場合も同じ16 byte値をNetwork Byte Orderで表�
 Typeの改名、Source移動、Module分割、C++実装差替え、Hot Reloadでは`TypeId`を維持する。意味的に互換でない新Typeは新しい
 `TypeId`を発行する。削除した`TypeId`はTombstoneとして予約し、別の意味へ再利用しない。
 
-Version Control対象のFirst-party Schema Manifestを、Active `TypeDescriptor`と削除済み`TypeId` Tombstoneの正本とする。
-Type削除時はActive Entryを同じManifestのTombstone Setへ移し、履歴から値を消さない。新しいTypeを発行するAuthoring Toolは
-Active SetとTombstone Setの両方を検査する。Registry構築時も両方を入力し、同じ`TypeId`がActiveとTombstoneに現れる場合、
-またはTombstoneが重複する場合は失敗する。M10のRegistryはManifest FileのParserを所有せず、呼び出し側から登録されたActive
-DescriptorとTombstoneをSeal時に検査する。
+Version Control対象のFirst-party Schema Registration Sourceを、Active `TypeDescriptor`と削除済み`TypeId` Tombstoneの正本とする。
+これは独立したData FileまたはWire Formatではなく、各First-party ModuleがC++ Sourceの明示的な登録関数からLiteral ID、Descriptor、
+TombstoneをRegistry Builderへ渡すCode上の台帳である。したがってManifest Format VersionやParserをM10へ導入しない。
+
+Type削除時はActive登録を削除し、同じModuleのRegistration Sourceへ同じIDのTombstone登録を残してVersion Control履歴から値を
+消さない。新しいTypeを発行するAuthoring Toolは、全ModuleのActive SetとTombstone SetをRegistry検証経路へ通す。
+Registry構築時も両方を入力し、同じ`TypeId`がActiveとTombstoneに現れる場合、またはTombstoneが重複する場合は失敗する。
+Standalone Schema Manifest Fileを導入する場合は、導入前に別Research IssueとADRでFile名、Format Version、Migration、Atomic Storage、
+Module Merge規則を決定する。未決定のData FileをSchema Identityの正本として使用しない。
 
 ### FieldId
 
