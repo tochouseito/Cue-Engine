@@ -9,6 +9,24 @@
 
 namespace
 {
+/// @brief FieldValueKindが公開契約で定義した列挙値か判定する
+[[nodiscard]] bool is_defined_field_value_kind(
+    cue::scene::FieldValueKind a_kind) noexcept
+{
+    using cue::scene::FieldValueKind;
+    switch (a_kind)
+    {
+    case FieldValueKind::Boolean:
+    case FieldValueKind::SignedInteger:
+    case FieldValueKind::UnsignedInteger:
+    case FieldValueKind::FloatingPoint:
+    case FieldValueKind::String:
+    case FieldValueKind::AssetReference:
+        return true;
+    }
+    return false;
+}
+
 /// @brief Scene Component Data Allocation失敗をEmergency終了へ変換する
 [[noreturn]] void terminate_scene_allocation(
     const cue::AssertContext &a_assertContext) noexcept
@@ -988,7 +1006,8 @@ Result<ComponentValueSchema> create_component_value_schema(
     }
     for (std::size_t index = 0U; index < a_fieldKinds.size(); ++index)
     {
-        if (!descriptor_has_field(*descriptor, a_fieldKinds[index].id) ||
+        if (!is_defined_field_value_kind(a_fieldKinds[index].kind) ||
+            !descriptor_has_field(*descriptor, a_fieldKinds[index].id) ||
             (index > 0U &&
              !(a_fieldKinds[index - 1U].id < a_fieldKinds[index].id)))
         {

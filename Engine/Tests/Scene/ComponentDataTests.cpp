@@ -123,6 +123,13 @@ void test_component_data() noexcept
     const auto field1 = make_field_id(1U, assertContext);
     const auto field2 = make_field_id(2U, assertContext);
     const auto unknownField = make_field_id(99U, assertContext);
+    std::vector<cue::scene::FieldKindBinding> invalidBindings{
+        {field1, static_cast<cue::scene::FieldValueKind>(255U)},
+        {field2, cue::scene::FieldValueKind::String}};
+    const auto invalidValueSchema = cue::scene::create_component_value_schema(
+        make_type_id(assertContext), make_version(assertContext),
+        std::move(invalidBindings), *registry, assertContext);
+    require(!invalidValueSchema.has_value());
     std::vector<cue::scene::FieldKindBinding> bindings{
         {field1, cue::scene::FieldValueKind::SignedInteger},
         {field2, cue::scene::FieldValueKind::String}};
@@ -280,6 +287,7 @@ void test_component_data() noexcept
     require(!duplicateResult.has_value());
     require(document.find_object(objectId)->components().size() == 2U);
 }
+
 } // namespace
 
 /// @brief Cue.SceneのSchema駆動Component Data Testを実行する
