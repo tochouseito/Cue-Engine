@@ -37,12 +37,14 @@ class SequentialIdentitySource final : public cue::scene::SceneIdentitySource
         cue::scene::IdentityBytes bytes{};
         bytes[6] = 0x40U;
         bytes[8] = 0x80U;
-        bytes[15] = m_next++;
+        bytes[14] = static_cast<std::uint8_t>((m_next >> 8U) & 0xFFU);
+        bytes[15] = static_cast<std::uint8_t>(m_next & 0xFFU);
+        ++m_next;
         return bytes;
     }
 
   private:
-    std::uint8_t m_next = 1U;
+    std::uint16_t m_next = 1U;
 };
 
 /// @brief 条件が偽ならTest Processを失敗終了する
@@ -152,6 +154,47 @@ void test_identity_validation() noexcept
         "00000000-0000-0000-0000-000000000000", assertContext);
     require(!nil.has_value());
 }
+
+/// @brief 公開操作がHierarchy Depth上限を超える変更を拒否することを検証する
+void test_hierarchy_depth_limit() noexcept
+{
+    TestFatalHandler fatalHandler;
+    std::vector<std::unique_ptr<cue::LogSink>> sinks;
+    cue::Logger logger(fatalHandler, std::move(sinks));
+    cue::AssertContext assertContext(logger, fatalHandler);
+    SequentialIdentitySource identitySource;
+    auto sceneId = take_value(cue::scene::SceneAssetId::generate(
+        identitySource, assertContext));
+    auto document = cue::scene::SceneDocument::create(std::move(sceneId),
+                                                       assertContext);
+    auto parentId = take_value(cue::scene::ObjectId::generate(
+        identitySource, assertContext));
+    require(document.add_object(parentId, "Root", true, std::nullopt,
+                                cue::math::Transform{})
+                .has_value());
+
+    for (std::size_t depth = 2U;
+         depth <= cue::scene::SceneDocument::maximum_hierarchy_depth();
+         ++depth)
+    {
+        auto childId = take_value(cue::scene::ObjectId::generate(
+            identitySource, assertContext));
+        require(document.add_object(childId, "Nested", true, parentId,
+                                    cue::math::Transform{})
+                    .has_value());
+        parentId = std::move(childId);
+    }
+
+    auto tooDeepId = take_value(cue::scene::ObjectId::generate(
+        identitySource, assertContext));
+    const auto tooDeep = document.add_object(
+        tooDeepId, "TooDeep", true, parentId, cue::math::Transform{});
+    require(!tooDeep.has_value());
+    require(tooDeep.try_error()->code().value() == static_cast<std::int64_t>(
+               cue::scene::SceneError::HierarchyDepthExceeded));
+    require(document.object_count() ==
+            cue::scene::SceneDocument::maximum_hierarchy_depth());
+}
 } // namespace
 
 /// @brief Cue.Scene Stable IDとSceneDocumentのUnit Testを実行する
@@ -159,5 +202,6 @@ int main()
 {
     test_scene_document();
     test_identity_validation();
+    test_hierarchy_depth_limit();
     return 0;
 }

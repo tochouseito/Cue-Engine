@@ -50,6 +50,9 @@ class SceneObject final
 };
 
 /// @brief RuntimeとEditor一時状態を含まないAuthoring Sceneの編集・保存正本
+///
+/// 生成ThreadだけがMutationを直列実行し、複数Threadから同時に操作しない。
+/// 回復可能な公開操作が失敗した場合は、呼び出し前のDocument状態を維持する。
 class SceneDocument final
 {
   public:
@@ -65,9 +68,16 @@ class SceneDocument final
     ~SceneDocument() noexcept;
 
     /// @brief Scene Identityと非所有診断Contextから空Documentを生成する
+    /// @param a_assertContext OwnerがSceneDocumentより長く生存させる診断Context
     [[nodiscard]] static SceneDocument create(
         SceneAssetId a_sceneAssetId,
         const AssertContext &a_assertContext) noexcept;
+
+    /// @brief Rootを1とする許容Hierarchy Depth上限を返す
+    [[nodiscard]] static constexpr std::size_t maximum_hierarchy_depth() noexcept
+    {
+        return 256U;
+    }
 
     /// @brief 永続Scene Identityを返す
     [[nodiscard]] const SceneAssetId &scene_asset_id() const noexcept;
@@ -112,6 +122,9 @@ class SceneDocument final
     /// @brief 指定Parent ChainにObject自身が含まれるか判定する
     [[nodiscard]] bool would_create_cycle(
         const ObjectId &a_id,
+        const ObjectId &a_parentId) const noexcept;
+    /// @brief 指定Parentの下へ追加したObjectのRoot始まりDepthを返す
+    [[nodiscard]] std::size_t child_depth(
         const ObjectId &a_parentId) const noexcept;
     /// @brief Object配列の現在位置からStable ID Indexを再構築する
     void rebuild_index() noexcept;

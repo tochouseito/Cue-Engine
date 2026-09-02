@@ -21,7 +21,8 @@ enum class SceneError : std::int64_t
     DanglingParent = 4,
     HierarchyCycle = 5,
     ChildObjectsExist = 6,
-    InvalidName = 7
+    InvalidName = 7,
+    HierarchyDepthExceeded = 8
 };
 
 /// @brief Scene Errorを診断Summaryと共に生成する

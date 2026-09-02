@@ -112,6 +112,12 @@ Result<void> SceneDocument::add_object(
             *m_assertContext, SceneError::HierarchyCycle,
             "Scene object cannot be its own parent"));
     }
+    if (a_parentId && child_depth(*a_parentId) > maximum_hierarchy_depth())
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::HierarchyDepthExceeded,
+            "Scene object hierarchy exceeds the supported depth"));
+    }
 
     try
     {
@@ -208,6 +214,12 @@ Result<void> SceneDocument::set_parent(
             *m_assertContext, SceneError::HierarchyCycle,
             "Scene object reparenting would create a hierarchy cycle"));
     }
+    if (a_parentId && child_depth(*a_parentId) > maximum_hierarchy_depth())
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::HierarchyDepthExceeded,
+            "Scene object hierarchy exceeds the supported depth"));
+    }
     object->m_parentId = std::move(a_parentId);
     return Result<void>::success();
 }
@@ -274,6 +286,13 @@ Result<void> SceneDocument::validate() const noexcept
                 *m_assertContext, SceneError::HierarchyCycle,
                 "Scene object hierarchy contains a cycle"));
         }
+        if (parentId != nullptr &&
+            child_depth(*parentId) > maximum_hierarchy_depth())
+        {
+            return Result<void>::failure(make_scene_error(
+                *m_assertContext, SceneError::HierarchyDepthExceeded,
+                "Scene object hierarchy exceeds the supported depth"));
+        }
     }
     return Result<void>::success();
 }
@@ -298,6 +317,23 @@ bool SceneDocument::would_create_cycle(const ObjectId &a_id,
         currentId = current == nullptr ? nullptr : current->try_parent_id();
     }
     return false;
+}
+
+std::size_t SceneDocument::child_depth(const ObjectId &a_parentId) const noexcept
+{
+    std::size_t depth = 1U;
+    const auto *current = find_object(a_parentId);
+    while (current != nullptr)
+    {
+        ++depth;
+        if (depth > maximum_hierarchy_depth())
+        {
+            return depth;
+        }
+        const auto *parentId = current->try_parent_id();
+        current = parentId == nullptr ? nullptr : find_object(*parentId);
+    }
+    return depth;
 }
 
 void SceneDocument::rebuild_index() noexcept
