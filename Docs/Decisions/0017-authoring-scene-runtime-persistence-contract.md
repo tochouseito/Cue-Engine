@@ -333,6 +333,8 @@ Authoring上存在するGame LogicまたはDataの欠落を成功として実行
 - Snapshot作成後のDocument変更がSnapshotへ影響しないことを検証する
 - Runtime実体化成功時のObjectId／EntityHandle Mappingと、途中失敗時にOperation由来の生存Entityを残さないことを検証する
 - SceneInstance終了で先に破棄されたEntityを飛ばし、他の生存Entityを処理し、破棄失敗後の所有集合を維持する
+- live SceneInstanceのDestructorとlive移動先へのMove代入がDevelopment／Release子Processで規定終了することを検証する
+- 終了済み状態とMove元のDestructorがEmergencyHandlerを呼ばず正常終了することを子Processで検証する
 - Runtime変更がSceneDocumentへ暗黙反映されないことを検証する
 - Public Header単体Compile、依存方向、Debug／Development／Release BuildとCTestを実行する
 
