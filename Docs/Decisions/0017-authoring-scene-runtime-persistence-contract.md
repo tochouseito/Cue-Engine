@@ -188,7 +188,10 @@ Slot Generation、Free List、`StructuralEpoch`を含むWorld内部状態が呼�
 
 `SceneInstance`は`SceneDocument`または`SceneSnapshot`への生Pointerを保持しない。Runtime WorldもDocument、Snapshot、
 EditorDocumentへの参照を保持しない。Instance終了は呼び出し側が同じRuntime Worldを明示的に渡し、Owner ThreadのSafe Pointで
-所属Entityを破棄する。Runtime Worldより先にSceneInstanceを終了する所有順をComposition Rootが保証する。
+所属Entityを逆順で処理する。各Handleを`World::is_alive`で確認し、Gameplayにより既に破棄されたEntityは解放済みとして飛ばす。
+生存Entityの破棄が失敗しても後続を処理し、全失敗を順序付き結果として返す。失敗後も生存するEntityは`SceneInstance`の所有集合へ残し、
+呼び出し側が再試行またはRuntime World終了を選べるようにする。Runtime Worldより先にSceneInstanceを正常終了する所有順を
+Composition Rootが保証する。
 
 Runtime Type Builderが存在しない未知Componentまたは、解釈できない既知Component Fieldを含むSnapshotは実体化を失敗させる。
 Authoring保存では未知Dataを保持できるが、意味不明なDataを黙ってRuntimeへ無視して部分実行しない。
@@ -221,9 +224,10 @@ Format Version 1のTop-level Envelopeは次のMemberを必須とする。
 Issue #150と#151で本ADRのIdentityと未知Data契約に従って実装し、Issue #152でSerializerとして固定する。
 同じ`formatVersion`の意味を実装後に変更しない。
 
-各Component Entryは`TypeId`に加えて保存時のnon-zero `SchemaVersion`を必須Memberとして保持する。LoadとRuntime実体化は
+各Component Entryは`TypeId`に加えて保存時のnon-zero `SchemaVersion`を必須Memberとして保持する。登録済みTypeのAuthoring Loadは
 ADR-0015に従ってそのVersionから現在のType Schemaへ連続Migrationできることを検証し、Step欠落または未来Versionを拒否する。
-Top-level `formatVersion`をComponentの`SchemaVersion`として代用しない。
+未知`TypeId`のComponentはMigrationせず、`SchemaVersion`を含むEntry全体をOpaque DataとしてLosslessに保持する。
+Runtime実体化時は未知Typeを拒否する。Top-level `formatVersion`をComponentの`SchemaVersion`として代用しない。
 
 固定Schema Objectの未知Memberと重複Memberを拒否する。`extensions`と未知Component／Field用Opaque Payloadだけは
 意味解釈せず所有し、再保存で失わない。Opaque JSONも構文、重複Member、Nesting、String、Container、File Size上限を適用する。
@@ -309,7 +313,8 @@ Authoring上存在するGame LogicまたはDataの欠落を成功として実行
 - Migrationの連続適用、欠落Step、未来Version、失敗時元File維持を検証する
 - Parse-back失敗と`NotPublished`で元Fileと既存Documentを維持し、`PublishedButDurabilityUnknown`では新Fileの再読込を要求する
 - Snapshot作成後のDocument変更がSnapshotへ影響しないことを検証する
-- Runtime実体化成功時のObjectId／EntityHandle Mappingと、途中失敗時の全Entity Rollbackを検証する
+- Runtime実体化成功時のObjectId／EntityHandle Mappingと、途中失敗時にOperation由来の生存Entityを残さないことを検証する
+- SceneInstance終了で先に破棄されたEntityを飛ばし、他の生存Entityを処理し、破棄失敗後の所有集合を維持する
 - Runtime変更がSceneDocumentへ暗黙反映されないことを検証する
 - Public Header単体Compile、依存方向、Debug／Development／Release BuildとCTestを実行する
 
