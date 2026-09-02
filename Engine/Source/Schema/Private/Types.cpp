@@ -144,7 +144,9 @@ std::uint32_t SchemaVersion::value() const noexcept
     return m_value;
 }
 
-DenseTypeIndex::DenseTypeIndex(std::uint32_t a_value) noexcept : m_value(a_value)
+DenseTypeIndex::DenseTypeIndex(std::uint32_t a_value,
+                               std::uint64_t a_registryGeneration) noexcept
+    : m_value(a_value), m_registryGeneration(a_registryGeneration)
 {
 }
 

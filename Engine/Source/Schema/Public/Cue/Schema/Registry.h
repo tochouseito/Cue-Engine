@@ -3,6 +3,7 @@
 #include <Cue/Schema/Descriptor.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <thread>
 #include <vector>
@@ -42,10 +43,12 @@ class SchemaRegistry final
 
     /// @brief Stable ID順へ検証済みのDescriptorとTombstoneを所有する
     SchemaRegistry(std::vector<TypeDescriptor> &&a_descriptors,
-                   std::vector<TypeId> &&a_tombstones) noexcept;
+                   std::vector<TypeId> &&a_tombstones,
+                   std::uint64_t a_generation) noexcept;
 
     std::vector<TypeDescriptor> m_descriptors;
     std::vector<TypeId> m_tombstones;
+    std::uint64_t m_generation;
 };
 
 /// @brief Owner Thread上でSchema登録を収集してImmutable Registryを構築する
@@ -53,6 +56,7 @@ class SchemaRegistryBuilder final
 {
   public:
     /// @brief 診断依存と現在Owner Threadを記録して空Builderを構築する
+    /// @param a_assertContext Builderより長く生存する非所有診断Context
     explicit SchemaRegistryBuilder(const AssertContext &a_assertContext) noexcept;
     /// @brief Builderの一意所有を保つためCopy構築を禁止する
     SchemaRegistryBuilder(const SchemaRegistryBuilder &) = delete;
@@ -78,5 +82,6 @@ class SchemaRegistryBuilder final
     std::vector<TypeDescriptor> m_descriptors;
     std::vector<TypeId> m_tombstones;
     bool m_isSealed = false;
+    bool m_hasFailed = false;
 };
 } // namespace cue::schema

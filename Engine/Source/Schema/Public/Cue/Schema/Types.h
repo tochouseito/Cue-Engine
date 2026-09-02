@@ -151,9 +151,10 @@ class DenseTypeIndex final
   private:
     friend class SchemaRegistry;
 
-    /// @brief Seal済みRegistryが割り当てたnon-zero値からIndexを構築する
-    explicit DenseTypeIndex(std::uint32_t a_value) noexcept;
+    /// @brief Seal済みRegistryが割り当てた世代付きnon-zero値からIndexを構築する
+    DenseTypeIndex(std::uint32_t a_value, std::uint64_t a_registryGeneration) noexcept;
 
     std::uint32_t m_value;
+    std::uint64_t m_registryGeneration;
 };
 } // namespace cue::schema

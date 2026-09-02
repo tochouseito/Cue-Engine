@@ -237,7 +237,8 @@ template <typename T>
            firstIndex->value() == mirroredFirstIndex->value() &&
            secondIndex->value() == mirroredSecondIndex->value() &&
            firstIndex->value() == 1U && secondIndex->value() == 2U &&
-           firstRegistry->find(*firstIndex)->id() == firstTypeId;
+           firstRegistry->find(*firstIndex)->id() == firstTypeId &&
+           secondRegistry->find(*firstIndex) == nullptr;
 }
 
 /// @brief RegistryがType・名前・Tombstoneの衝突を診断付きで拒否することを検証する
@@ -254,6 +255,9 @@ template <typename T>
         make_type(firstId, "Cue.Test.First", a_assertContext));
     auto duplicateType = duplicateTypeBuilder.add_type(
         make_type(firstId, "Cue.Test.Other", a_assertContext));
+    auto addAfterFailure = duplicateTypeBuilder.add_tombstone(
+        make_type_id(secondId, a_assertContext));
+    auto sealAfterFailure = duplicateTypeBuilder.seal();
 
     cue::schema::SchemaRegistryBuilder duplicateNameBuilder(a_assertContext);
     auto firstName = duplicateNameBuilder.add_type(
@@ -265,13 +269,27 @@ template <typename T>
     const auto tombstoneId = make_type_id(secondId, a_assertContext);
     auto firstTombstone = tombstoneBuilder.add_tombstone(tombstoneId);
     auto duplicateTombstone = tombstoneBuilder.add_tombstone(tombstoneId);
-    auto tombstonedType = tombstoneBuilder.add_type(
+
+    cue::schema::SchemaRegistryBuilder tombstoneConflictBuilder(a_assertContext);
+    auto conflictTombstone = tombstoneConflictBuilder.add_tombstone(tombstoneId);
+    auto tombstonedType = tombstoneConflictBuilder.add_type(
         make_type(secondId, "Cue.Test.Tombstoned", a_assertContext));
 
+    const cue::Error *duplicateTypeError = duplicateType.try_error();
+    const bool duplicateTypeDiagnostic = duplicateTypeError != nullptr &&
+        duplicateTypeError->summary().find(firstId) != std::string_view::npos &&
+        duplicateTypeError->summary().find("Cue.Test.First") != std::string_view::npos &&
+        duplicateTypeError->summary().find("Cue.Test.Other") != std::string_view::npos;
+
     return firstType.has_value() && firstName.has_value() &&
-           firstTombstone.has_value() &&
+           firstTombstone.has_value() && conflictTombstone.has_value() &&
+           duplicateTypeDiagnostic &&
            has_schema_error(duplicateType,
                             cue::schema::SchemaError::DuplicateTypeId) &&
+           has_schema_error(addAfterFailure,
+                            cue::schema::SchemaError::BuilderFailed) &&
+           has_schema_error(sealAfterFailure,
+                            cue::schema::SchemaError::BuilderFailed) &&
            has_schema_error(duplicateName,
                             cue::schema::SchemaError::DuplicateTypeName) &&
            has_schema_error(duplicateTombstone,

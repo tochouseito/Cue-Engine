@@ -115,6 +115,60 @@ namespace
 {
     a_assertContext.fatal_handler().terminate("Cue.Schema unexpected exception");
 }
+
+/// @brief TypeIdをlowercase canonical UUIDとして既存診断文字列へ追記する
+void append_type_id(std::string &a_destination, cue::schema::TypeId a_id)
+{
+    constexpr char hexDigits[] = "0123456789abcdef";
+    std::size_t byteIndex = 0U;
+
+    for (const auto byte : a_id.bytes())
+    {
+        if (byteIndex == 4U || byteIndex == 6U || byteIndex == 8U || byteIndex == 10U)
+        {
+            a_destination.push_back('-');
+        }
+
+        a_destination.push_back(hexDigits[(byte >> 4U) & 0x0FU]);
+        a_destination.push_back(hexDigits[byte & 0x0FU]);
+        ++byteIndex;
+    }
+}
+
+/// @brief Field衝突のTypeと両方のField当事者を一つのErrorへ保持する
+[[nodiscard]] cue::Error make_field_collision_error(
+    const cue::AssertContext &a_assertContext, cue::schema::SchemaError a_code,
+    std::string_view a_rule, cue::schema::TypeId a_typeId,
+    std::string_view a_typeName, std::uint32_t a_existingFieldId,
+    std::string_view a_existingFieldName, std::uint32_t a_incomingFieldId,
+    std::string_view a_incomingFieldName) noexcept
+{
+    try
+    {
+        std::string summary(a_rule);
+        summary.append(" TypeId=");
+        append_type_id(summary, a_typeId);
+        summary.append(" TypeName=");
+        summary.append(a_typeName);
+        summary.append(" ExistingFieldId=");
+        summary.append(std::to_string(a_existingFieldId));
+        summary.append(" ExistingFieldName=");
+        summary.append(a_existingFieldName);
+        summary.append(" IncomingFieldId=");
+        summary.append(std::to_string(a_incomingFieldId));
+        summary.append(" IncomingFieldName=");
+        summary.append(a_incomingFieldName);
+        return cue::schema::make_schema_error(a_assertContext, a_code, summary);
+    }
+    catch (const std::bad_alloc &)
+    {
+        terminate_schema_allocation(a_assertContext);
+    }
+    catch (...)
+    {
+        terminate_schema_exception(a_assertContext);
+    }
+}
 } // namespace
 
 namespace cue::schema
@@ -217,9 +271,11 @@ Result<TypeDescriptor> create_type_descriptor(
     {
         if (a_fields[index - 1U].id() == a_fields[index].id())
         {
-            return Result<TypeDescriptor>::failure(make_schema_error(
-                a_assertContext, SchemaError::DuplicateFieldId,
-                "Type descriptor contains a duplicate FieldId"));
+            return Result<TypeDescriptor>::failure(make_field_collision_error(
+                a_assertContext, SchemaError::DuplicateFieldId, "DuplicateFieldId",
+                a_id, a_name, a_fields[index - 1U].id().value(),
+                a_fields[index - 1U].name(), a_fields[index].id().value(),
+                a_fields[index].name()));
         }
     }
 
@@ -229,9 +285,11 @@ Result<TypeDescriptor> create_type_descriptor(
         {
             if (a_fields[left].name() == a_fields[right].name())
             {
-                return Result<TypeDescriptor>::failure(make_schema_error(
+                return Result<TypeDescriptor>::failure(make_field_collision_error(
                     a_assertContext, SchemaError::DuplicateFieldName,
-                    "Type descriptor contains a duplicate field name"));
+                    "DuplicateFieldName", a_id, a_name, a_fields[left].id().value(),
+                    a_fields[left].name(), a_fields[right].id().value(),
+                    a_fields[right].name()));
             }
         }
     }
@@ -240,9 +298,11 @@ Result<TypeDescriptor> create_type_descriptor(
     {
         if (a_reservedFieldIds[index - 1U] == a_reservedFieldIds[index])
         {
-            return Result<TypeDescriptor>::failure(make_schema_error(
+            return Result<TypeDescriptor>::failure(make_field_collision_error(
                 a_assertContext, SchemaError::ReservedFieldId,
-                "Type descriptor contains a duplicate reserved FieldId"));
+                "DuplicateReservedFieldId", a_id, a_name,
+                a_reservedFieldIds[index - 1U].value(), "<reserved>",
+                a_reservedFieldIds[index].value(), "<reserved>"));
         }
     }
 
@@ -251,9 +311,10 @@ Result<TypeDescriptor> create_type_descriptor(
         if (std::binary_search(a_reservedFieldIds.begin(), a_reservedFieldIds.end(),
                                field.id()))
         {
-            return Result<TypeDescriptor>::failure(make_schema_error(
+            return Result<TypeDescriptor>::failure(make_field_collision_error(
                 a_assertContext, SchemaError::ReservedFieldId,
-                "Active FieldId cannot reuse a reserved FieldId"));
+                "ActiveFieldIdReusesReservedFieldId", a_id, a_name,
+                field.id().value(), "<reserved>", field.id().value(), field.name()));
         }
     }
 
