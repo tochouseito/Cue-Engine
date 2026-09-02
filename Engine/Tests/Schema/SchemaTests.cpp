@@ -195,6 +195,22 @@ template <typename T>
         "Cue.Test.MovedField", make_version(a_assertContext),
         std::move(movedFields), std::move(movedReservedIds), a_assertContext);
 
+    auto firstMovedFieldSource = make_field(6U, "firstMoved", a_assertContext);
+    auto secondMovedFieldSource = make_field(7U, "secondMoved", a_assertContext);
+    [[maybe_unused]] auto firstMovedFieldDestination =
+        std::move(firstMovedFieldSource);
+    [[maybe_unused]] auto secondMovedFieldDestination =
+        std::move(secondMovedFieldSource);
+    std::vector<cue::schema::FieldDescriptor> multipleMovedFields;
+    multipleMovedFields.push_back(std::move(firstMovedFieldSource));
+    multipleMovedFields.push_back(std::move(secondMovedFieldSource));
+    std::vector<cue::schema::FieldId> multipleMovedReservedIds;
+    auto multipleMovedFieldType = cue::schema::create_type_descriptor(
+        make_type_id("50000000-0000-4000-8000-000000000005", a_assertContext),
+        "Cue.Test.MultipleMovedFields", make_version(a_assertContext),
+        std::move(multipleMovedFields), std::move(multipleMovedReservedIds),
+        a_assertContext);
+
     const auto *ordered = orderedType.try_value();
 
     if (ordered == nullptr)
@@ -215,6 +231,8 @@ template <typename T>
                             cue::schema::SchemaError::DuplicateFieldId) &&
            has_schema_error(unknownField, cue::schema::SchemaError::NotFound) &&
            has_schema_error(movedFieldType, cue::schema::SchemaError::InvalidName) &&
+           has_schema_error(multipleMovedFieldType,
+                            cue::schema::SchemaError::InvalidName) &&
            has_schema_error(reusedField, cue::schema::SchemaError::ReservedFieldId);
 }
 

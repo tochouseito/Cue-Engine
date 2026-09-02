@@ -104,7 +104,7 @@ class TypeDescriptor final
     std::vector<FieldDescriptor> &&a_fields, std::vector<FieldId> &&a_reservedFieldIds,
     const AssertContext &a_assertContext) noexcept;
 
-/// @brief Registry登録前にTypeとFieldの診断名不変条件を再検証する
+/// @brief Registry 登録前に Type と Field の診断名不変条件を再検証する
 [[nodiscard]] Result<void> validate_type_descriptor(
     const TypeDescriptor &a_descriptor,
     const AssertContext &a_assertContext) noexcept;

@@ -345,6 +345,16 @@ Result<TypeDescriptor> create_type_descriptor(
             "Type name must be valid UTF-8 without control characters and at most 255 bytes"));
     }
 
+    for (const auto &field : a_fields)
+    {
+        if (!is_valid_diagnostic_name(field.name(), 128U))
+        {
+            return Result<TypeDescriptor>::failure(make_schema_error(
+                a_assertContext, SchemaError::InvalidName,
+                "Field name must be valid UTF-8 without control characters and at most 128 bytes"));
+        }
+    }
+
     std::sort(a_fields.begin(), a_fields.end(),
               /// @brief Field DescriptorをStable FieldId順へ並べる
               [](const FieldDescriptor &a_left, const FieldDescriptor &a_right) noexcept
