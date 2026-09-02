@@ -32,7 +32,7 @@ class TypeId final
     /// @brief 固定長 Identity を移動代入する
     TypeId &operator=(TypeId &&) noexcept = default;
     /// @brief 固定長 Identity の値を破棄する
-    ~TypeId() = default;
+    ~TypeId() noexcept;
 
     /// @brief lowercase の canonical UUID Version 4 を検証して Identity を返す
     [[nodiscard]] static Result<TypeId> parse(std::string_view a_text,
@@ -68,7 +68,7 @@ class FieldId final
     /// @brief Field Identity を移動代入する
     FieldId &operator=(FieldId &&) noexcept = default;
     /// @brief Field Identity の値を破棄する
-    ~FieldId() = default;
+    ~FieldId() noexcept;
 
     /// @brief non-zero 値を検証して Field Identity を返す
     [[nodiscard]] static Result<FieldId> create(std::uint32_t a_value,
@@ -104,7 +104,7 @@ class SchemaVersion final
     /// @brief Schema 世代を移動代入する
     SchemaVersion &operator=(SchemaVersion &&) noexcept = default;
     /// @brief Schema 世代の値を破棄する
-    ~SchemaVersion() = default;
+    ~SchemaVersion() noexcept;
 
     /// @brief non-zero 値を検証して Schema Version を返す
     [[nodiscard]] static Result<SchemaVersion> create(
@@ -140,7 +140,7 @@ class DenseTypeIndex final
     /// @brief Runtime Index を移動代入する
     DenseTypeIndex &operator=(DenseTypeIndex &&) noexcept = default;
     /// @brief Runtime Index の値を破棄する
-    ~DenseTypeIndex() = default;
+    ~DenseTypeIndex() noexcept;
 
     /// @brief Registry 内の 1 始まり Index を返す
     [[nodiscard]] std::uint32_t value() const noexcept;

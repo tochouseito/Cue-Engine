@@ -514,6 +514,10 @@ static_assert(!std::is_default_constructible_v<
               cue::schema::SchemaRegistry::ConstructionKey>);
 static_assert(!std::is_trivially_copyable_v<
               cue::schema::SchemaRegistry::ConstructionKey>);
+static_assert(!std::is_trivially_copyable_v<cue::schema::TypeId>);
+static_assert(!std::is_trivially_copyable_v<cue::schema::FieldId>);
+static_assert(!std::is_trivially_copyable_v<cue::schema::SchemaVersion>);
+static_assert(!std::is_trivially_copyable_v<cue::schema::DenseTypeIndex>);
 static_assert(std::is_same_v<
               decltype(std::declval<const cue::schema::SchemaRegistry &>().find(
                   std::declval<cue::schema::TypeId>(),

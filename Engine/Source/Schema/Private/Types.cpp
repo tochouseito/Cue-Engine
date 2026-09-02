@@ -45,6 +45,8 @@ TypeId::TypeId(std::array<std::uint8_t, 16> a_bytes) noexcept : m_bytes(a_bytes)
 {
 }
 
+TypeId::~TypeId() noexcept = default;
+
 Result<TypeId> TypeId::parse(std::string_view a_text,
                              const AssertContext &a_assertContext) noexcept
 {
@@ -104,6 +106,8 @@ FieldId::FieldId(std::uint32_t a_value) noexcept : m_value(a_value)
 {
 }
 
+FieldId::~FieldId() noexcept = default;
+
 Result<FieldId> FieldId::create(std::uint32_t a_value,
                                 const AssertContext &a_assertContext) noexcept
 {
@@ -125,6 +129,8 @@ std::uint32_t FieldId::value() const noexcept
 SchemaVersion::SchemaVersion(std::uint32_t a_value) noexcept : m_value(a_value)
 {
 }
+
+SchemaVersion::~SchemaVersion() noexcept = default;
 
 Result<SchemaVersion> SchemaVersion::create(
     std::uint32_t a_value, const AssertContext &a_assertContext) noexcept
@@ -151,6 +157,8 @@ DenseTypeIndex::DenseTypeIndex(std::uint32_t a_value,
       m_registryGeneration(a_registryGeneration)
 {
 }
+
+DenseTypeIndex::~DenseTypeIndex() noexcept = default;
 
 std::uint32_t DenseTypeIndex::value() const noexcept
 {
