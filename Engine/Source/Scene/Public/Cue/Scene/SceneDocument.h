@@ -20,6 +20,9 @@ namespace cue::scene
 class SceneDocument;
 
 /// @brief SceneDocumentが所有する永続Object Authoring Data
+///
+/// 返したReference、Pointer、Viewは所有SceneDocumentの次の成功した非const操作、
+/// Move、破棄のうち最初の時点まで有効とする。
 class SceneObject final
 {
   public:
@@ -83,9 +86,9 @@ class SceneDocument final
     [[nodiscard]] const SceneAssetId &scene_asset_id() const noexcept;
     /// @brief Object数を返す
     [[nodiscard]] std::size_t object_count() const noexcept;
-    /// @brief Object集合を外部変更できない連続Viewで返す
+    /// @brief Object集合を次の成功Mutation、Document Move、破棄まで有効な連続Viewで返す
     [[nodiscard]] std::span<const SceneObject> objects() const noexcept;
-    /// @brief Object Identityに対応するObjectへの非所有Pointerを返す
+    /// @brief Object Identityに対応し次の成功Mutation、Document Move、破棄まで有効な非所有Pointerを返す
     [[nodiscard]] const SceneObject *find_object(const ObjectId &a_id) const noexcept;
 
     /// @brief 検証済みStable IDとAuthoring DataでObjectを追加する
@@ -126,6 +129,9 @@ class SceneDocument final
     /// @brief 指定Parentの下へ追加したObjectのRoot始まりDepthを返す
     [[nodiscard]] std::size_t child_depth(
         const ObjectId &a_parentId) const noexcept;
+    /// @brief 指定Objectを1とするSubtree最大相対Depthを反復走査で返す
+    [[nodiscard]] std::size_t subtree_height(
+        const ObjectId &a_id) const noexcept;
     /// @brief Object配列の現在位置からStable ID Indexを再構築する
     void rebuild_index() noexcept;
     /// @brief 予期しない例外をScene境界のFatal終了へ変換する

@@ -172,6 +172,7 @@ void test_hierarchy_depth_limit() noexcept
     require(document.add_object(parentId, "Root", true, std::nullopt,
                                 cue::math::Transform{})
                 .has_value());
+    std::optional<cue::scene::ObjectId> depth255Id;
 
     for (std::size_t depth = 2U;
          depth <= cue::scene::SceneDocument::maximum_hierarchy_depth();
@@ -182,6 +183,10 @@ void test_hierarchy_depth_limit() noexcept
         require(document.add_object(childId, "Nested", true, parentId,
                                     cue::math::Transform{})
                     .has_value());
+        if (depth == cue::scene::SceneDocument::maximum_hierarchy_depth() - 1U)
+        {
+            depth255Id = childId;
+        }
         parentId = std::move(childId);
     }
 
@@ -194,6 +199,25 @@ void test_hierarchy_depth_limit() noexcept
                cue::scene::SceneError::HierarchyDepthExceeded));
     require(document.object_count() ==
             cue::scene::SceneDocument::maximum_hierarchy_depth());
+
+    auto subtreeRootId = take_value(cue::scene::ObjectId::generate(
+        identitySource, assertContext));
+    auto subtreeChildId = take_value(cue::scene::ObjectId::generate(
+        identitySource, assertContext));
+    require(document.add_object(subtreeRootId, "SubtreeRoot", true,
+                                std::nullopt, cue::math::Transform{})
+                .has_value());
+    require(document.add_object(subtreeChildId, "SubtreeChild", true,
+                                subtreeRootId, cue::math::Transform{})
+                .has_value());
+    require(depth255Id.has_value());
+    const auto deepReparent = document.set_parent(subtreeRootId, depth255Id);
+    require(!deepReparent.has_value());
+    require(deepReparent.try_error()->code().value() ==
+            static_cast<std::int64_t>(
+                cue::scene::SceneError::HierarchyDepthExceeded));
+    require(document.find_object(subtreeRootId)->try_parent_id() == nullptr);
+    require(document.validate().has_value());
 }
 } // namespace
 

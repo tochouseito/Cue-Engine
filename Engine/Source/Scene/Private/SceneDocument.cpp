@@ -214,11 +214,17 @@ Result<void> SceneDocument::set_parent(
             *m_assertContext, SceneError::HierarchyCycle,
             "Scene object reparenting would create a hierarchy cycle"));
     }
-    if (a_parentId && child_depth(*a_parentId) > maximum_hierarchy_depth())
+    if (a_parentId)
     {
-        return Result<void>::failure(make_scene_error(
-            *m_assertContext, SceneError::HierarchyDepthExceeded,
-            "Scene object hierarchy exceeds the supported depth"));
+        const auto targetDepth = child_depth(*a_parentId);
+        const auto subtreeHeight = subtree_height(a_id);
+        if (targetDepth > maximum_hierarchy_depth() ||
+            subtreeHeight > maximum_hierarchy_depth() - targetDepth + 1U)
+        {
+            return Result<void>::failure(make_scene_error(
+                *m_assertContext, SceneError::HierarchyDepthExceeded,
+                "Scene object subtree exceeds the supported hierarchy depth"));
+        }
     }
     object->m_parentId = std::move(a_parentId);
     return Result<void>::success();
@@ -334,6 +340,28 @@ std::size_t SceneDocument::child_depth(const ObjectId &a_parentId) const noexcep
         current = parentId == nullptr ? nullptr : find_object(*parentId);
     }
     return depth;
+}
+
+std::size_t SceneDocument::subtree_height(const ObjectId &a_id) const noexcept
+{
+    std::size_t maximumHeight = 1U;
+    for (const auto &candidate : m_objects)
+    {
+        std::size_t height = 1U;
+        const auto *parentId = candidate.try_parent_id();
+        while (parentId != nullptr && height <= maximum_hierarchy_depth())
+        {
+            if (*parentId == a_id)
+            {
+                maximumHeight = std::max(maximumHeight, height + 1U);
+                break;
+            }
+            const auto *parent = find_object(*parentId);
+            parentId = parent == nullptr ? nullptr : parent->try_parent_id();
+            ++height;
+        }
+    }
+    return maximumHeight;
 }
 
 void SceneDocument::rebuild_index() noexcept
