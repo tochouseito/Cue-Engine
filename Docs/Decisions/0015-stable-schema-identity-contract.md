@@ -74,6 +74,9 @@ TombstoneをRegistry Builderへ渡すCode上の台帳である。したがって
 Type削除時はActive登録を削除し、同じModuleのRegistration Sourceへ同じIDのTombstone登録を残してVersion Control履歴から値を
 消さない。新しいTypeを発行するAuthoring Toolは、全ModuleのActive SetとTombstone SetをRegistry検証経路へ通す。
 Registry構築時も両方を入力し、同じ`TypeId`がActiveとTombstoneに現れる場合、またはTombstoneが重複する場合は失敗する。
+Module自体を廃止する場合は、そのModuleが所有する全Tombstoneを、削除されない`Cue.Schema`のCentral Tombstone Registration
+Sourceへ移管してからModule Sourceを除去する。移管はCopyではなく所有場所の変更とし、同じBuildで重複登録しない。Central Sourceは
+過去Moduleの再導入有無に関係なくVersion Controlへ残し、削除済みIdentityの恒久的な最終所有者になる。
 Standalone Schema Manifest Fileを導入する場合は、導入前に別Research IssueとADRでFile名、Format Version、Migration、Atomic Storage、
 Module Merge規則を決定する。未決定のData FileをSchema Identityの正本として使用しない。
 
@@ -166,6 +169,16 @@ Mutable RegistryはSeal前にDescriptorを登録し、次を検出した時点�
 
 重複Descriptorを同値なら成功とするIdempotent規則は採用しない。複数Moduleによる所有権競合を隠すためである。Errorには衝突した
 Identity、登録元の診断名、規則を含めるが、Registryを部分的にSealしない。失敗後のMutable Registryは破棄して再構築する。
+
+### Threading and Lifetime
+
+Mutable Registry BuilderはThread-safeとしない。作成したOwner ThreadだけがActive DescriptorとTombstoneを登録し、同じThreadでSealする。
+異なるModuleの登録関数もComposition RootがOwner Thread上で順番に呼び出す。並行登録または並行Sealを行わない。
+
+Seal成功後のRegistryはImmutableとし、呼び出し側がRegistry Lifetimeを保証する間、複数Threadから同時に検索できる。
+読取りAPI内部でLazy Cache、統計Counter、遅延SortなどのMutable Stateを更新しない。返されたDescriptor参照とField参照はRegistryの
+Lifetime中有効で、Registry破棄後または別Generationへ持ち越して使用しない。Registryの所有と共有方法はComposition Rootが明示し、
+無制限なGlobal Singletonへ登録しない。
 
 ### Unknown Type and Field Policy
 
