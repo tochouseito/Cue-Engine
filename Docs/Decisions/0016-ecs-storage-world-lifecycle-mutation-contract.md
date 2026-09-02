@@ -46,6 +46,40 @@ Issue #182で旧ECSを隔離した`origin/release`から直接Compileし、同�
 
 旧Sourceは問題、制約、Baselineの確認だけに使用し、新実装へコピー、移植、部分抽出しない。
 
+## Reference Engine Comparison
+
+| Engine | Relevant approach | Strength | Adoption cost for CueEngine |
+| --- | --- | --- | --- |
+| Unreal Engine Mass | 同じFragment構成のEntityをArchetypeとChunkへまとめ、Processor Queryと`MassCommandBuffer`で処理中の構成変更を遅延する | 同一構成のBatch走査とChunk Localityが高く、World単位のManagerと遅延変更境界を持つ | `UScriptStruct`、Mass Fragment基底、Archetype移動、Chunk管理までM10へ導入するとSchema分離と初期検証範囲を超える |
+| Unity Entities | Component構成ごとのArchetype Chunkへ格納し、Add／Remove時は別Chunkへ移動する。Structural ChangeはMain ThreadまたはEntity Command Bufferで適用する | Query対象Archetypeを絞り、JobとCommand Bufferを組み合わせて大規模処理へ拡張できる | Job Safety、Sync Point、Chunk移動、Native Container規則を一体導入する必要があり、単一Thread基盤の初期Complexityが大きい |
+| Godot | NodeをScene Treeへ所有し、Scene InstanceとNode Path／参照でGame Objectを構成する | Editor上の階層、Lifetime、Scene Instancingが直感的でAuthoringとの対応が分かりやすい | Object／Tree中心の構造をHot Component Storageへ流用するとVirtual ObjectとHierarchy Costを全Entityへ強制する |
+| CueEngine M10 | Stable Schemaと分離した世代付きHandle、Per-component Sparse Set、Callback Query、Owner Thread Safe Pointを使用する | 小さいFirst-party実装でLifetimeとMutation Safetyを先に検証し、Legacyとの同一Workload比較ができる | Multi-component QueryのSparse照合が増え、ParallelismとArchetype Localityは後続Researchになる |
+
+Sources:
+
+- [Unreal Engine MassEntity Overview](https://dev.epicgames.com/documentation/en-us/unreal-engine/overview-of-mass-entity-in-unreal-engine)
+- [Unity Entities Archetypes](https://docs.unity.cn/Packages/com.unity.entities%401.0/manual/concepts-archetypes.html)
+- [Unity Entities Structural Changes](https://docs.unity.cn/Packages/com.unity.entities%401.0/manual/concepts-structural-changes.html)
+- [Godot Nodes and Scene Instances](https://docs.godotengine.org/en/stable/tutorials/scripting/nodes_and_scene_instances.html)
+
+必須の比較観点を次のように評価する。
+
+| Viewpoint | Unreal Mass | Unity Entities | Godot Nodes／Scenes | CueEngine M10 decision |
+| --- | --- | --- | --- | --- |
+| Usability | Fragment／Processor／Queryの専用概念を使う | Entity、Component、System、Job、ECBを使う | Node TreeとScene InstanceをEditorで直接扱う | 単一Worldと型付きComponent APIへ絞る |
+| Runtime Performance | Archetype Chunk Batchを優先する | Archetype ChunkとJobを優先する | ObjectとTree traversalを中心にする | Sparse Setの連続単一Type走査を優先し、結果を測定する |
+| Iteration Speed | Mass ConfigとEditor Toolへ統合する | Baking、World、Profilerへ統合する | Scene Tree編集と即時実行が近い | Headless Testを先に作り、Editor統合はScene Milestoneへ分ける |
+| Extensibility | Fragment、Tag、Processor、Traitを追加する | Component、System、Baking、Jobを追加する | Node／Resource／Scriptを継承・合成する | 基底ClassなしのComponentとStable TypeIdを追加する |
+| Portability | Unreal RuntimeとReflectionへ依存する | Unity Runtime、Burst、Native Containerへ依存する | Godot Object ModelとScene Runtimeへ依存する | Standard C++とFirst-party Moduleだけを使用する |
+| Data Safety | Processing ScopeとCommand Bufferを持つ | Safety Handle、Sync Point、ECBを持つ | Tree ownershipとObject lifetime規則を持つ | Generation、World Incarnation、Query Guard、Safe Pointを明示する |
+| Compatibility | `UScriptStruct`とMass APIが境界になる | Entities Package VersionとGenerated Codeが境界になる | Node ClassとScene Formatが境界になる | Schema Identity、Runtime Layout、Scene Formatを分離する |
+| Diagnostics | Mass DebuggerとProcessor／Archetype情報を使う | Systems／Archetypes WindowとProfilerを使う | Remote Scene TreeとDebuggerを使う | 分類済みError、Command Report、Headless Testを最初の診断にする |
+| Testability | Unreal Test／World Harnessが必要になる | Unity World／Entities Test環境が必要になる | SceneTree Test環境が必要になる | Platform／Graphics不要のWorld Testを提供する |
+| Complexity | Archetype、Chunk、Traits、Observerを含む | Archetype、Job、Sync、Bakingを含む | Object、Hierarchy、Signal、Sceneを含む | ParallelismとAuthoringを除外し、StorageとLifetimeへ限定する |
+
+比較の結果、Unreal／UnityのSafe PointとCommand Buffer、Godotの明確なWorld／Tree所有という問題分離は参考にする。一方、M10では
+Archetype Chunk、Job System、Reflection Object、Scene Treeを導入せず、Legacy比較とSafety Gateを満たす最小Storageを選ぶ。
+
 ## Storage Comparison
 
 | Candidate | Strength | Cost | M10 Decision |
@@ -74,12 +108,17 @@ Storageを所有する。Stable `TypeId`をStorage Array Indexへ直接使用せ
 
 | Part | Width | Rule |
 | --- | ---: | --- |
-| `WorldId` | 64-bit unsigned | Runtime Sessionが供給するnon-zeroのProcess-local値 |
+| `WorldId` | 64-bit unsigned | Process-wide Allocatorが供給するnon-zeroのIncarnation値 |
 | `EntityIndex` | 32-bit unsigned | Slot Table Index、`UINT32_MAX`はInvalidに予約 |
 | `Generation` | 32-bit unsigned | 1から開始、0はInvalidに予約 |
 
-`WorldId`はScene Object Identityまたは永続Entity IDではなく、別WorldへHandleを渡した誤りを検出するRuntime値である。Worldは
-作成時に明示的な`WorldId`を受け取り、0を拒否する。同一Runtime Session内の重複防止はIssue #147のSession所有者が保証する。
+`WorldId`はScene Object Identityまたは永続Entity IDではなく、別WorldへHandleを渡した誤りを検出するRuntime Incarnation値である。
+`Cue.GameCore`のProcess-wide Monotonic AllocatorがAtomic Counterから発行し、Process終了まで値を再利用しない。0をInvalidに予約し、
+`UINT64_MAX`を発行した後はWrapせず、以後のWorld作成を`CapacityExceeded`として拒否する。
+
+AllocatorはWorld Pointer、Registry、Session、Callbackを保持せず、ID発行だけを行う内部Process Stateとする。Reset、値指定、Service Lookup、
+任意Object登録APIを提供せず、無制限なGlobal World Singletonにしない。RuntimeHost、Editor Play Session、Testを含む全World作成経路は
+この一つの発行関数を使用し、Session再作成後も古い値を再発行しない。WorldのPublic Constructorから任意IDを注入させない。
 `EntityHandle`をScene、Project、Asset、Save Dataへ保存しない。
 
 WorldはSlot Tableを所有する。CreateはFree List末尾からIndexを再利用し、なければ新しいSlotを追加する。Destroy成功時は全Componentを
@@ -131,7 +170,7 @@ M10 QueryはCallback-scopedとし、Query View Objectを呼出し外へ返さな
 他StorageのSparse照合で一致Entityを選ぶ。Query開始時にActive Query Guardを取得し、Callback完了またはStack unwinding時に解放する。
 
 Query Callbackへ渡されたComponent参照はそのCallback呼出し中だけ有効である。非StructuralなComponent値更新はMutable Queryで許可する。
-同じWorldでのNested Queryは参照AliasとMutation規則を曖昧にするため拒否する。Query要求に重複Type、未登録Type、Storage未生成Typeがある場合は
+同じWorldでのNested Queryは参照AliasとMutation規則を曖昧にするProgrammer ErrorとしてAssertする。Query要求に重複Type、未登録Type、Storage未生成Typeがある場合は
 走査前に診断する。Storage未生成Typeは正常な0件結果、重複または未登録Typeは`InvalidQuery`とする。
 
 Callbackが予期しない例外を投げた場合、Guardを解放してからADR-0005のFatal経路へ移り、通常実行へ復帰しない。Callbackから
@@ -139,8 +178,8 @@ Component参照、World内部Pointer、Dense Indexを永続所有させない。
 
 ### Structural Mutation Safe Point
 
-Entity Create／Destroy、Component Add／Remove、Storage作成はStructural Mutationである。Active Query中の即時Structural APIは
-`QueryActive`を返し、Worldを変更しない。Debug／Developmentでは診断を追加できるがAssertだけへ依存しない。
+Entity Create／Destroy、Component Add／Remove、Storage作成はStructural Mutationである。Active Query中に即時Structural APIを呼ぶことは
+Safe Point前提への違反であり、Programmer ErrorとしてAssertする。Query Callbackから必要な変更はCommand Bufferへ記録する。
 
 Query中に構造変更が必要な場合は`StructuralCommandBuffer`へCommandを記録する。BufferはWorld Owner Threadだけが使用し、登録順を
 保持する。Safe PointはActive Queryがなく、WorldがShutdown中でない時点である。Issue #146は次の適用規則を実装する。
@@ -175,18 +214,20 @@ Worldは作成時ThreadをOwner Threadとして記録し、次のAPIをOwner Thr
 | Schema lookup | Sealed Schema Registry | Registry Lifetime中は複数Threadから同時読取り可能 |
 | Shutdown | World | Owner Threadのみ、Query中は拒否、全Componentを一度破棄 |
 
-M10 WorldはThread-safeではない。他Threadからの呼出しは`WrongThread`としてMutation前に拒否する。Thread-safe Queue、Parallel Query、
+M10 WorldはThread-safeではない。他Threadからの呼出しはADR-0005の所有権／Thread規則違反に該当するProgrammer ErrorとしてAssertする。
+`WrongThread`をRecoverable `Result`として通常分岐へ返さない。Thread-safe Queue、Parallel Query、
 Job Scheduler、Work Stealingを先回りして導入しない。将来のSchedulerはWorld Owner Thread上のSafe PointへCommandを集約する。
 
 ### World Lifecycle
 
 World状態は`Active`、`ShuttingDown`、`Destroyed`を持つ。作成成功後は`Active`となる。明示`shutdown`はActive QueryがないOwner Threadで
 だけ実行し、全Storageを逆作成順で破棄し、Slot TableとCommand Bufferを解放して`Destroyed`へ移る。Shutdown中またはDestroyed後の
-Public操作は`WorldUnavailable`を返す。Destructorは未Shutdownなら同じ破棄順を実行するが、診断を返せないため通常Flowは明示Shutdownを
+Public操作は不正StateのProgrammer ErrorとしてAssertする。Destructorは未Shutdownなら同じ破棄順を実行するが、診断を返せないため通常Flowは明示Shutdownを
 使用する。別ThreadでのDestructorを正しい終了経路として利用しない。
 
 Runtime Session、複数World切替、Fixed／Variable Update、Frame ClockはIssue #147でWorld所有者として実装する。Global World Singletonを
-導入せず、RuntimeHost、Editor Play Session、Testが所有者を明示する。
+導入せず、RuntimeHost、Editor Play Session、Testが所有者を明示する。Process-wide World ID Allocatorは所有者ではなく、再利用不能な
+Incarnation値だけを発行する限定状態とする。
 
 ## Rejected Alternatives
 
@@ -238,7 +279,7 @@ World、Slot再利用、Runtime Sessionに依存し、Authoring ObjectのIdentit
 - 0／1／10,000／100,000 EntityでSparse Set整合性を検証する
 - Queryの最小Storage走査、0件、重複Type、Nested Query、参照Lifetimeを検証する
 - Query中の即時Mutation拒否とDeferred CommandのFIFO／失敗Report／Pending Entity依存を検証する
-- Wrong Thread、Query中Shutdown、明示Shutdown、Destructor FallbackをProcess Testする
+- Wrong Thread、Nested Query、Query中即時Mutation、Query中ShutdownのAssert終了と、明示Shutdown、Destructor FallbackをProcess Testする
 - Runtime WorldをGraphics、Window、Editorなしで起動・更新・終了する
 - Issue #182と同じDevelopment条件で新ECS Benchmarkを取り、中央値／p95を機能差とともに記録する
 - Debug／Development／Release Build、CTest、Public Header単体Compile、依存方向、`git diff --check`を実行する
