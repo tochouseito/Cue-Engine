@@ -8,13 +8,13 @@
 
 namespace
 {
-/// @brief UTF-8継続Byteか判定する
+/// @brief UTF-8 継続 Byte か判定する
 [[nodiscard]] bool is_continuation(std::uint8_t a_value) noexcept
 {
     return (a_value & 0xC0U) == 0x80U;
 }
 
-/// @brief UTF-8文字列がScalar列でControl文字を含まないか検証する
+/// @brief UTF-8 文字列が Scalar 列で Control 文字を含まないか検証する
 [[nodiscard]] bool is_valid_diagnostic_name(std::string_view a_value,
                                             std::size_t a_maximumBytes) noexcept
 {
@@ -102,21 +102,21 @@ namespace
     return true;
 }
 
-/// @brief Schema所有値のAllocation失敗をEmergency終了へ変換する
+/// @brief Schema 所有値の Allocation 失敗を Emergency 終了へ変換する
 [[noreturn]] void terminate_schema_allocation(
     const cue::AssertContext &a_assertContext) noexcept
 {
     a_assertContext.fatal_handler().terminate("Cue.Schema allocation failed");
 }
 
-/// @brief Schema構築中の予期しない例外をEmergency終了へ変換する
+/// @brief Schema 構築中の予期しない例外を Emergency 終了へ変換する
 [[noreturn]] void terminate_schema_exception(
     const cue::AssertContext &a_assertContext) noexcept
 {
     a_assertContext.fatal_handler().terminate("Cue.Schema unexpected exception");
 }
 
-/// @brief TypeIdをlowercase canonical UUIDとして既存診断文字列へ追記する
+/// @brief TypeId を lowercase canonical UUID として既存診断文字列へ追記する
 void append_type_id(std::string &a_destination, cue::schema::TypeId a_id)
 {
     constexpr char hexDigits[] = "0123456789abcdef";
@@ -135,7 +135,7 @@ void append_type_id(std::string &a_destination, cue::schema::TypeId a_id)
     }
 }
 
-/// @brief Field衝突のTypeと両方のField当事者を一つのErrorへ保持する
+/// @brief Field 衝突の Type と両方の Field 当事者を一つの Error へ保持する
 [[nodiscard]] cue::Error make_field_collision_error(
     const cue::AssertContext &a_assertContext, cue::schema::SchemaError a_code,
     std::string_view a_rule, cue::schema::TypeId a_typeId,
@@ -263,7 +263,7 @@ Result<const FieldDescriptor *> TypeDescriptor::find_field(
 {
     const auto iterator = std::lower_bound(
         m_fields.begin(), m_fields.end(), a_id,
-        /// @brief Field DescriptorのStable FieldIdが検索値より小さいか判定する
+        /// @brief Field Descriptor の Stable FieldId が検索値より小さいか判定する
         [](const FieldDescriptor &a_descriptor, FieldId a_value) noexcept
         {
             return a_descriptor.id() < a_value;
@@ -345,6 +345,21 @@ Result<TypeDescriptor> create_type_descriptor(
             "Type name must be valid UTF-8 without control characters and at most 255 bytes"));
     }
 
+    std::string ownedName;
+
+    try
+    {
+        ownedName.assign(a_name);
+    }
+    catch (const std::bad_alloc &)
+    {
+        terminate_schema_allocation(a_assertContext);
+    }
+    catch (...)
+    {
+        terminate_schema_exception(a_assertContext);
+    }
+
     for (const auto &field : a_fields)
     {
         if (!is_valid_diagnostic_name(field.name(), 128U))
@@ -356,7 +371,7 @@ Result<TypeDescriptor> create_type_descriptor(
     }
 
     std::sort(a_fields.begin(), a_fields.end(),
-              /// @brief Field DescriptorをStable FieldId順へ並べる
+              /// @brief Field Descriptor を Stable FieldId 順へ並べる
               [](const FieldDescriptor &a_left, const FieldDescriptor &a_right) noexcept
               {
                   return a_left.id() < a_right.id();
@@ -369,7 +384,7 @@ Result<TypeDescriptor> create_type_descriptor(
         {
             return Result<TypeDescriptor>::failure(make_field_collision_error(
                 a_assertContext, SchemaError::DuplicateFieldId, "DuplicateFieldId",
-                a_id, a_name, a_fields[index - 1U].id().value(),
+                a_id, ownedName, a_fields[index - 1U].id().value(),
                 a_fields[index - 1U].name(), a_fields[index].id().value(),
                 a_fields[index].name()));
         }
@@ -383,7 +398,7 @@ Result<TypeDescriptor> create_type_descriptor(
             {
                 return Result<TypeDescriptor>::failure(make_field_collision_error(
                     a_assertContext, SchemaError::DuplicateFieldName,
-                    "DuplicateFieldName", a_id, a_name, a_fields[left].id().value(),
+                    "DuplicateFieldName", a_id, ownedName, a_fields[left].id().value(),
                     a_fields[left].name(), a_fields[right].id().value(),
                     a_fields[right].name()));
             }
@@ -396,7 +411,7 @@ Result<TypeDescriptor> create_type_descriptor(
         {
             return Result<TypeDescriptor>::failure(make_field_collision_error(
                 a_assertContext, SchemaError::ReservedFieldId,
-                "DuplicateReservedFieldId", a_id, a_name,
+                "DuplicateReservedFieldId", a_id, ownedName,
                 a_reservedFieldIds[index - 1U].value(), "<reserved>",
                 a_reservedFieldIds[index].value(), "<reserved>"));
         }
@@ -409,7 +424,7 @@ Result<TypeDescriptor> create_type_descriptor(
         {
             return Result<TypeDescriptor>::failure(make_field_collision_error(
                 a_assertContext, SchemaError::ReservedFieldId,
-                "ActiveFieldIdReusesReservedFieldId", a_id, a_name,
+                "ActiveFieldIdReusesReservedFieldId", a_id, ownedName,
                 field.id().value(), "<reserved>", field.id().value(), field.name()));
         }
     }
@@ -417,7 +432,7 @@ Result<TypeDescriptor> create_type_descriptor(
     try
     {
         TypeDescriptor descriptor(
-            a_id, std::string(a_name), a_version, std::move(a_fields),
+            a_id, std::move(ownedName), a_version, std::move(a_fields),
             std::move(a_reservedFieldIds));
         auto validation = validate_type_descriptor(descriptor, a_assertContext);
 

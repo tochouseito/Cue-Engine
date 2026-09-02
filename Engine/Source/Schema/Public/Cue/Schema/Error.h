@@ -12,7 +12,7 @@ class AssertContext;
 
 namespace cue::schema
 {
-/// @brief Schema値とRegistry構築の失敗を分類するCode
+/// @brief Schema 値と Registry 構築の失敗を分類する Code
 enum class SchemaError : std::int64_t
 {
     InvalidTypeId = 1,
@@ -32,7 +32,7 @@ enum class SchemaError : std::int64_t
     NotFound = 15
 };
 
-/// @brief Schema Errorを診断Summaryと共に生成する
+/// @brief Schema Error を診断 Summary と共に生成する
 [[nodiscard]] Error make_schema_error(const AssertContext &a_assertContext,
                                       SchemaError a_code, std::string_view a_summary) noexcept;
 } // namespace cue::schema

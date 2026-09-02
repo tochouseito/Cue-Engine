@@ -7,7 +7,7 @@
 
 namespace
 {
-/// @brief lowercase hexadecimal文字を4-bit値へ変換する
+/// @brief lowercase hexadecimal 文字を 4-bit 値へ変換する
 [[nodiscard]] bool decode_hex(char a_character, std::uint8_t &a_value) noexcept
 {
     if (a_character >= '0' && a_character <= '9')
@@ -25,7 +25,7 @@ namespace
     return false;
 }
 
-/// @brief UUID内で固定Hyphenを除く次のHexadecimal文字位置を返す
+/// @brief UUID 内で固定 Hyphen を除く次の Hexadecimal 文字位置を返す
 [[nodiscard]] std::size_t next_hex_position(std::size_t a_position) noexcept
 {
     auto position = a_position;
@@ -79,7 +79,7 @@ Result<TypeId> TypeId::parse(std::string_view a_text,
     }
 
     const bool isNil = std::all_of(bytes.begin(), bytes.end(),
-                                   /// @brief UUIDの全Byteが0か判定する
+                                   /// @brief UUID の全 Byte が 0 か判定する
                                    [](std::uint8_t a_value) noexcept
                                    {
                                        return a_value == 0U;

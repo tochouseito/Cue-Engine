@@ -24,20 +24,20 @@ static_assert(!std::is_move_assignable_v<cue::schema::SchemaRegistry>);
 class TestFatalHandler final : public cue::FatalHandler
 {
   public:
-    /// @brief Test中の通常FatalをProcess失敗へ変換する
+    /// @brief Test 中の通常 Fatal を Process 失敗へ変換する
     [[noreturn]] void terminate() noexcept override
     {
         std::abort();
     }
 
-    /// @brief Test中のEmergency FatalをProcess失敗へ変換する
+    /// @brief Test 中の Emergency Fatal を Process 失敗へ変換する
     [[noreturn]] void terminate(std::string_view) noexcept override
     {
         std::abort();
     }
 };
 
-/// @brief Resultが指定したCue.Schema Errorを保持するか判定する
+/// @brief Result が指定した Cue.Schema Error を保持するか判定する
 template <typename T>
 [[nodiscard]] bool has_schema_error(const cue::Result<T> &a_result,
                                     cue::schema::SchemaError a_expected) noexcept
@@ -47,7 +47,7 @@ template <typename T>
            error->code().value() == static_cast<std::int64_t>(a_expected);
 }
 
-/// @brief Test Fixture用の検証済みTypeIdを生成する
+/// @brief Test Fixture 用の検証済み TypeId を生成する
 [[nodiscard]] cue::schema::TypeId make_type_id(
     std::string_view a_text, const cue::AssertContext &a_assertContext)
 {
@@ -61,7 +61,7 @@ template <typename T>
     return std::move(*result.try_value());
 }
 
-/// @brief Test Fixture用の検証済みFieldIdを生成する
+/// @brief Test Fixture 用の検証済み FieldId を生成する
 [[nodiscard]] cue::schema::FieldId make_field_id(
     std::uint32_t a_value, const cue::AssertContext &a_assertContext)
 {
@@ -75,7 +75,7 @@ template <typename T>
     return std::move(*result.try_value());
 }
 
-/// @brief Test Fixture用の検証済みSchemaVersionを生成する
+/// @brief Test Fixture 用の検証済み SchemaVersion を生成する
 [[nodiscard]] cue::schema::SchemaVersion make_version(
     const cue::AssertContext &a_assertContext)
 {
@@ -89,7 +89,7 @@ template <typename T>
     return std::move(*result.try_value());
 }
 
-/// @brief Test Fixture用のField Descriptorを生成する
+/// @brief Test Fixture 用の Field Descriptor を生成する
 [[nodiscard]] cue::schema::FieldDescriptor make_field(
     std::uint32_t a_id, std::string_view a_name,
     const cue::AssertContext &a_assertContext)
@@ -105,7 +105,7 @@ template <typename T>
     return std::move(*result.try_value());
 }
 
-/// @brief Test Fixture用の単一Field Type Descriptorを生成する
+/// @brief Test Fixture 用の単一 Field Type Descriptor を生成する
 [[nodiscard]] cue::schema::TypeDescriptor make_type(
     std::string_view a_typeId, std::string_view a_name,
     const cue::AssertContext &a_assertContext)
@@ -126,7 +126,7 @@ template <typename T>
     return std::move(*result.try_value());
 }
 
-/// @brief Stable Identity Valueが不正入力を拒否することを検証する
+/// @brief Stable Identity Value が不正入力を拒否することを検証する
 [[nodiscard]] bool test_stable_identity_validation(
     const cue::AssertContext &a_assertContext)
 {
@@ -150,7 +150,7 @@ template <typename T>
                             cue::schema::SchemaError::InvalidSchemaVersion);
 }
 
-/// @brief DescriptorがField順序とStable ID不変条件を検証することを確認する
+/// @brief Descriptor が Field 順序と Stable ID 不変条件を検証することを確認する
 [[nodiscard]] bool test_descriptor_validation(
     const cue::AssertContext &a_assertContext)
 {
@@ -166,6 +166,17 @@ template <typename T>
         make_type_id("10000000-0000-4000-8000-000000000001", a_assertContext),
         "Cue.Test.Ordered", make_version(a_assertContext),
         std::move(orderedFields), std::move(reservedIds), a_assertContext);
+
+    std::vector<cue::schema::FieldDescriptor> aliasedNameFields;
+    aliasedNameFields.push_back(make_field(2U, "AliasedType", a_assertContext));
+    aliasedNameFields.push_back(make_field(1U, "first", a_assertContext));
+    const std::string_view aliasedTypeName = aliasedNameFields[0].name();
+    std::vector<cue::schema::FieldId> aliasedReservedIds;
+    auto aliasedNameType = cue::schema::create_type_descriptor(
+        make_type_id("60000000-0000-4000-8000-000000000006", a_assertContext),
+        aliasedTypeName, make_version(a_assertContext),
+        std::move(aliasedNameFields), std::move(aliasedReservedIds),
+        a_assertContext);
 
     std::vector<cue::schema::FieldDescriptor> duplicateFields;
     duplicateFields.push_back(make_field(1U, "first", a_assertContext));
@@ -222,8 +233,11 @@ template <typename T>
                                           a_assertContext);
     auto unknownField = ordered->find_field(make_field_id(9U, a_assertContext),
                                             a_assertContext);
+    const auto *aliasedNameDescriptor = aliasedNameType.try_value();
     return has_schema_error(invalidName, cue::schema::SchemaError::InvalidName) &&
            knownField.has_value() && ordered->fields().size() == 2U &&
+           aliasedNameDescriptor != nullptr &&
+           aliasedNameDescriptor->name() == "AliasedType" &&
            ordered->fields()[0].id().value() == 1U &&
            ordered->fields()[1].id().value() == 2U &&
            ordered->reserved_field_ids().size() == 1U &&
@@ -236,7 +250,7 @@ template <typename T>
            has_schema_error(reusedField, cue::schema::SchemaError::ReservedFieldId);
 }
 
-/// @brief 登録順に依存せず同じTypeIdへ同じDense Indexを割り当てることを検証する
+/// @brief 登録順に依存せず同じ TypeId へ同じ Dense Index を割り当てることを検証する
 [[nodiscard]] bool test_registration_order_independence(
     const cue::AssertContext &a_assertContext)
 {
@@ -307,7 +321,7 @@ template <typename T>
            otherRegistry->find(*firstIndex) == nullptr;
 }
 
-/// @brief 未登録Stable Identityの検索を分類済みNotFoundとして拒否することを検証する
+/// @brief 未登録 Stable Identity の検索を分類済み NotFound として拒否することを検証する
 [[nodiscard]] bool test_registry_not_found(const cue::AssertContext &a_assertContext)
 {
     cue::schema::SchemaRegistryIdentitySource identitySource;
@@ -331,7 +345,7 @@ template <typename T>
            has_schema_error(indexResult, cue::schema::SchemaError::NotFound);
 }
 
-/// @brief RegistryがType・名前・Tombstoneの衝突を診断付きで拒否することを検証する
+/// @brief Registry が Type ・名前・ Tombstone の衝突を診断付きで拒否することを検証する
 [[nodiscard]] bool test_registry_collision_validation(
     const cue::AssertContext &a_assertContext)
 {
@@ -410,7 +424,7 @@ template <typename T>
                             cue::schema::SchemaError::TombstonedTypeId);
 }
 
-/// @brief Seal済みBuilderが全Build構成で追加登録と再Sealを拒否することを検証する
+/// @brief Seal 済み Builder が全 Build 構成で追加登録と再 Seal を拒否することを検証する
 [[nodiscard]] bool test_sealed_builder_rejection(
     const cue::AssertContext &a_assertContext)
 {
@@ -432,7 +446,7 @@ template <typename T>
            has_schema_error(secondSeal, cue::schema::SchemaError::BuilderSealed);
 }
 
-/// @brief Seal済みRegistryを複数Reader Threadから変更なしで参照できることを検証する
+/// @brief Seal 済み Registry を複数 Reader Thread から変更なしで参照できることを検証する
 [[nodiscard]] bool test_immutable_concurrent_read(
     const cue::AssertContext &a_assertContext)
 {
@@ -463,7 +477,7 @@ template <typename T>
     for (std::size_t index = 0U; index < 4U; ++index)
     {
         readers.emplace_back(
-            /// @brief Immutable Registryの検索結果が全Readerで一致するか繰り返し検証する
+            /// @brief Immutable Registry の検索結果が全 Reader で一致するか繰り返し検証する
             [registry, activeId, tombstoneId, &a_assertContext,
              &readsSucceeded]() noexcept
         {
@@ -496,13 +510,15 @@ template <typename T>
 static_assert(!std::is_copy_constructible_v<cue::schema::SchemaRegistry>);
 static_assert(!std::is_copy_constructible_v<cue::schema::TypeDescriptor>);
 static_assert(!std::is_move_constructible_v<cue::schema::SchemaRegistryIdentitySource>);
+static_assert(!std::is_default_constructible_v<
+              cue::schema::SchemaRegistry::ConstructionKey>);
 static_assert(std::is_same_v<
               decltype(std::declval<const cue::schema::SchemaRegistry &>().find(
                   std::declval<cue::schema::TypeId>(),
                   std::declval<const cue::AssertContext &>())),
               cue::Result<const cue::schema::TypeDescriptor *>>);
 
-/// @brief Cue.SchemaのStable IdentityとImmutable Registry契約を実行時に検証する
+/// @brief Cue.Schema の Stable Identity と Immutable Registry 契約を実行時に検証する
 int main()
 {
     TestFatalHandler fatalHandler;

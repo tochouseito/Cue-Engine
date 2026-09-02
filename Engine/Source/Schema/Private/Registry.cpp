@@ -10,21 +10,21 @@
 
 namespace
 {
-/// @brief Registry構築中のAllocation失敗をEmergency終了へ変換する
+/// @brief Registry 構築中の Allocation 失敗を Emergency 終了へ変換する
 [[noreturn]] void terminate_registry_allocation(
     const cue::AssertContext &a_assertContext) noexcept
 {
     a_assertContext.fatal_handler().terminate("Cue.Schema registry allocation failed");
 }
 
-/// @brief Registry構築中の予期しない例外をEmergency終了へ変換する
+/// @brief Registry 構築中の予期しない例外を Emergency 終了へ変換する
 [[noreturn]] void terminate_registry_exception(
     const cue::AssertContext &a_assertContext) noexcept
 {
     a_assertContext.fatal_handler().terminate("Cue.Schema registry unexpected exception");
 }
 
-/// @brief TypeIdをAllocationなしのlowercase canonical UUIDとして既存文字列へ追記する
+/// @brief TypeId を Allocation なしの lowercase canonical UUID として既存文字列へ追記する
 void append_type_id(std::string &a_destination, cue::schema::TypeId a_id)
 {
     constexpr char hexDigits[] = "0123456789abcdef";
@@ -43,7 +43,7 @@ void append_type_id(std::string &a_destination, cue::schema::TypeId a_id)
     }
 }
 
-/// @brief TypeId衝突の規則と両方の診断名を一つのErrorへ保持する
+/// @brief TypeId 衝突の規則と両方の診断名を一つの Error へ保持する
 [[nodiscard]] cue::Error make_type_id_collision_error(
     const cue::AssertContext &a_assertContext, cue::schema::SchemaError a_code,
     std::string_view a_rule, cue::schema::TypeId a_id,
@@ -70,7 +70,7 @@ void append_type_id(std::string &a_destination, cue::schema::TypeId a_id)
     }
 }
 
-/// @brief Canonical Name衝突の規則と両方のTypeIdを一つのErrorへ保持する
+/// @brief Canonical Name 衝突の規則と両方の TypeId を一つの Error へ保持する
 [[nodiscard]] cue::Error make_type_name_collision_error(
     const cue::AssertContext &a_assertContext, std::string_view a_name,
     cue::schema::TypeId a_existingId, cue::schema::TypeId a_incomingId) noexcept
@@ -96,7 +96,7 @@ void append_type_id(std::string &a_destination, cue::schema::TypeId a_id)
     }
 }
 
-/// @brief Tombstone衝突の規則とTypeIdおよび追加元診断名を一つのErrorへ保持する
+/// @brief Tombstone 衝突の規則と TypeId および追加元診断名を一つの Error へ保持する
 [[nodiscard]] cue::Error make_tombstone_collision_error(
     const cue::AssertContext &a_assertContext, cue::schema::SchemaError a_code,
     std::string_view a_rule, cue::schema::TypeId a_id,
@@ -125,7 +125,7 @@ void append_type_id(std::string &a_destination, cue::schema::TypeId a_id)
     }
 }
 
-/// @brief Tombstone登録元名が安定したASCII診断Tokenか検証する
+/// @brief Tombstone 登録元名が安定した ASCII 診断 Token か検証する
 [[nodiscard]] bool is_valid_registration_source(std::string_view a_sourceName) noexcept
 {
     if (a_sourceName.empty() || a_sourceName.size() > 128U)
@@ -172,7 +172,8 @@ std::optional<std::uint64_t> SchemaRegistryIdentitySource::acquire_generation() 
     return std::nullopt;
 }
 
-SchemaRegistry::SchemaRegistry(std::vector<TypeDescriptor> &&a_descriptors,
+SchemaRegistry::SchemaRegistry(ConstructionKey,
+                               std::vector<TypeDescriptor> &&a_descriptors,
                                std::vector<TypeId> &&a_tombstones,
                                const SchemaRegistryIdentitySource &a_identitySource,
                                std::uint64_t a_generation) noexcept
@@ -191,7 +192,7 @@ Result<const TypeDescriptor *> SchemaRegistry::find(
 {
     const auto iterator = std::lower_bound(
         m_descriptors.begin(), m_descriptors.end(), a_id,
-        /// @brief DescriptorのStable TypeIdが検索値より小さいか判定する
+        /// @brief Descriptor の Stable TypeId が検索値より小さいか判定する
         [](const TypeDescriptor &a_descriptor, TypeId a_value) noexcept
         {
             return a_descriptor.id() < a_value;
@@ -225,7 +226,7 @@ Result<DenseTypeIndex> SchemaRegistry::dense_index(
 {
     const auto iterator = std::lower_bound(
         m_descriptors.begin(), m_descriptors.end(), a_id,
-        /// @brief DescriptorのStable TypeIdが検索値より小さいか判定する
+        /// @brief Descriptor の Stable TypeId が検索値より小さいか判定する
         [](const TypeDescriptor &a_descriptor, TypeId a_value) noexcept
         {
             return a_descriptor.id() < a_value;
@@ -287,7 +288,7 @@ Result<void> SchemaRegistryBuilder::add_type(TypeDescriptor &&a_descriptor) noex
 
     const auto duplicateType = std::find_if(
         m_descriptors.begin(), m_descriptors.end(),
-        /// @brief 既存Descriptorが追加対象と同じTypeIdを持つか判定する
+        /// @brief 既存 Descriptor が追加対象と同じ TypeId を持つか判定する
         [&a_descriptor](const TypeDescriptor &a_existing) noexcept
         {
             return a_existing.id() == a_descriptor.id();
@@ -303,7 +304,7 @@ Result<void> SchemaRegistryBuilder::add_type(TypeDescriptor &&a_descriptor) noex
 
     const auto duplicateName = std::find_if(
         m_descriptors.begin(), m_descriptors.end(),
-        /// @brief 既存Descriptorが追加対象と同じ診断名を持つか判定する
+        /// @brief 既存 Descriptor が追加対象と同じ診断名を持つか判定する
         [&a_descriptor](const TypeDescriptor &a_existing) noexcept
         {
             return a_existing.name() == a_descriptor.name();
@@ -389,7 +390,7 @@ Result<void> SchemaRegistryBuilder::add_tombstone(
 
     const auto activeType = std::find_if(
         m_descriptors.begin(), m_descriptors.end(),
-        /// @brief Active Descriptorが追加対象Tombstoneと同じTypeIdを持つか判定する
+        /// @brief Active Descriptor が追加対象 Tombstone と同じ TypeId を持つか判定する
         [a_id](const TypeDescriptor &a_descriptor) noexcept
         {
             return a_descriptor.id() == a_id;
@@ -462,7 +463,7 @@ Result<std::unique_ptr<SchemaRegistry>> SchemaRegistryBuilder::seal() noexcept
     }
 
     std::sort(m_descriptors.begin(), m_descriptors.end(),
-              /// @brief DescriptorをStable TypeId順へ並べDense Indexを決定する
+              /// @brief Descriptor を Stable TypeId 順へ並べ Dense Index を決定する
               [](const TypeDescriptor &a_left, const TypeDescriptor &a_right) noexcept
               {
                   return a_left.id() < a_right.id();
@@ -472,9 +473,9 @@ Result<std::unique_ptr<SchemaRegistry>> SchemaRegistryBuilder::seal() noexcept
 
     try
     {
-        registry.reset(new SchemaRegistry(std::move(m_descriptors),
-                                          std::move(m_tombstones),
-                                          *m_identitySource, *generation));
+        registry = std::make_unique<SchemaRegistry>(
+            SchemaRegistry::ConstructionKey{}, std::move(m_descriptors),
+            std::move(m_tombstones), *m_identitySource, *generation);
     }
     catch (const std::bad_alloc &)
     {
