@@ -1,0 +1,18 @@
+{
+    "schemaVersion": 1,
+    "implementation": "legacy-release",
+    "legacyCommit": "c3727915060df333be61f4fd72c0b51970799cd5",
+    "clock": "std::chrono::steady_clock",
+    "entityCount": 1000,
+    "warmupCount": 3,
+    "iterationCount": 10,
+    "results": [
+        {"name": "entity_generate", "operationCount": 1000, "medianNanoseconds": 97250, "p95Nanoseconds": 105000, "operationsPerSecond": 1.02828e+07},
+        {"name": "entity_destroy_reuse", "operationCount": 2000, "medianNanoseconds": 287050, "p95Nanoseconds": 323200, "operationsPerSecond": 6.96743e+06},
+        {"name": "component_add", "operationCount": 1000, "medianNanoseconds": 724850, "p95Nanoseconds": 1.0235e+06, "operationsPerSecond": 1.3796e+06},
+        {"name": "component_get_sequential", "operationCount": 1000, "medianNanoseconds": 12150, "p95Nanoseconds": 16600, "operationsPerSecond": 8.23045e+07},
+        {"name": "component_remove", "operationCount": 1000, "medianNanoseconds": 79400, "p95Nanoseconds": 79800, "operationsPerSecond": 1.25945e+07},
+        {"name": "query_two_components", "operationCount": 1000, "medianNanoseconds": 75350, "p95Nanoseconds": 79800, "operationsPerSecond": 1.32714e+07},
+        {"name": "deferred_component_remove", "operationCount": 1000, "medianNanoseconds": 82400, "p95Nanoseconds": 82800, "operationsPerSecond": 1.21359e+07}
+    ]
+}
