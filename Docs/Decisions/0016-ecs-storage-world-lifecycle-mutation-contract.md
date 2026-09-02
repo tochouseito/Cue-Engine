@@ -108,17 +108,18 @@ Storageを所有する。Stable `TypeId`をStorage Array Indexへ直接使用せ
 
 | Part | Width | Rule |
 | --- | ---: | --- |
-| `WorldId` | 64-bit unsigned | Process-wide Allocatorが供給するnon-zeroのIncarnation値 |
+| `WorldId` | 64-bit unsigned | Process共有`WorldIdentitySource`が供給するnon-zeroのIncarnation値 |
 | `EntityIndex` | 32-bit unsigned | Slot Table Index、`UINT32_MAX`はInvalidに予約 |
 | `Generation` | 32-bit unsigned | 1から開始、0はInvalidに予約 |
 
 `WorldId`はScene Object Identityまたは永続Entity IDではなく、別WorldへHandleを渡した誤りを検出するRuntime Incarnation値である。
-`Cue.GameCore`のProcess-wide Monotonic AllocatorがAtomic Counterから発行し、Process終了まで値を再利用しない。0をInvalidに予約し、
-`UINT64_MAX`を発行した後はWrapせず、以後のWorld作成を`CapacityExceeded`として拒否する。
+Composition Rootが一意所有する`WorldIdentitySource`のMonotonic Atomic Counterから発行し、Process終了まで値を再利用しない。
+0をInvalidに予約し、`UINT64_MAX`を発行した後はWrapせず、以後のWorld作成を`CapacityExceeded`として拒否する。
 
-AllocatorはWorld Pointer、Registry、Session、Callbackを保持せず、ID発行だけを行う内部Process Stateとする。Reset、値指定、Service Lookup、
-任意Object登録APIを提供せず、無制限なGlobal World Singletonにしない。RuntimeHost、Editor Play Session、Testを含む全World作成経路は
-この一つの発行関数を使用し、Session再作成後も古い値を再発行しない。WorldのPublic Constructorから任意IDを注入させない。
+`WorldIdentitySource`はWorld Pointer、Registry、Session、Callbackを保持せず、ID発行だけを行う明示所有のProcess Stateとする。
+Reset、値指定、Service Lookup、任意Object登録APIを提供せず、無制限なGlobal World Singletonにしない。RuntimeHost、Editor Play Session、
+Testを含む全World作成経路は同じSourceを共有し、Session再作成後も古い値を再発行しない。WorldのPublic Constructorから任意IDを
+注入させない。明示Sourceにより、`Cue.GameCore`を複数DLLへStatic Linkした場合もLibrary内部Counterの複製を避ける。
 `EntityHandle`をScene、Project、Asset、Save Dataへ保存しない。
 
 WorldはSlot Tableを所有する。CreateはFree List末尾からIndexを再利用し、なければ新しいSlotを追加する。Destroy成功時は全Componentを
@@ -226,8 +227,8 @@ Public操作は不正StateのProgrammer ErrorとしてAssertする。Destructor�
 使用する。別ThreadでのDestructorを正しい終了経路として利用しない。
 
 Runtime Session、複数World切替、Fixed／Variable Update、Frame ClockはIssue #147でWorld所有者として実装する。Global World Singletonを
-導入せず、RuntimeHost、Editor Play Session、Testが所有者を明示する。Process-wide World ID Allocatorは所有者ではなく、再利用不能な
-Incarnation値だけを発行する限定状態とする。
+導入せず、RuntimeHost、Editor Play Session、Testが所有者を明示する。Process共有`WorldIdentitySource`は所有者ではなく、
+再利用不能なIncarnation値だけを発行する限定状態とする。
 
 ## Rejected Alternatives
 

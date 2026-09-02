@@ -1,0 +1,9 @@
+#include <Cue/GameCore/Entity.h>
+#include <Cue/GameCore/Error.h>
+#include <Cue/GameCore/World.h>
+
+/// @brief Cue.GameCore Public Header が自己完結して Compile できることを検証する
+int main()
+{
+    return 0;
+}
