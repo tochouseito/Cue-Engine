@@ -69,9 +69,9 @@ class TypeDescriptor final
     [[nodiscard]] std::span<const FieldDescriptor> fields() const noexcept;
     /// @brief Stable FieldIdに対応するDescriptorへの非所有PointerまたはNotFoundを返す
     ///
-    /// Seal前のPointerは、このTypeDescriptorの次のMove構築、Move代入、破棄まで有効とする
-    /// Builderへ所有権を移した時点で以前のPointerは無効となり、Seal後にRegistryが返した
-    /// TypeDescriptorから取得したPointerは所有Registry ObjectのLifetime中有効とする
+    /// Seal 前の Pointer は、この TypeDescriptor の次の Move 構築、Move 代入、破棄まで有効とする
+    /// Builder へ所有権を移した時点で以前の Pointer は無効となり、Seal 後に Registry が返した
+    /// TypeDescriptor から取得した Pointer は所有 Registry Object の Lifetime 中有効とする
     [[nodiscard]] Result<const FieldDescriptor *> find_field(
         FieldId a_id, const AssertContext &a_assertContext) const noexcept;
     /// @brief 再利用禁止Field IDをunsigned値順で返す
