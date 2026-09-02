@@ -238,6 +238,12 @@ void test_component_data() noexcept
                         cue::scene::SceneComponent::known(
                             std::move(knownComponent)))
                 .has_value());
+    const auto movedKnownResult = document.add_component(
+        objectId, cue::scene::SceneComponent::known(std::move(knownComponent)));
+    require(!movedKnownResult.has_value());
+    require(movedKnownResult.try_error()->code().value() ==
+            static_cast<std::int64_t>(
+                cue::scene::SceneError::InvalidComponentData));
 
     auto opaqueId = take_value(cue::scene::ComponentInstanceId::generate(
         sceneIdentitySource, assertContext));
@@ -273,6 +279,12 @@ void test_component_data() noexcept
                         objectId,
                         cue::scene::SceneComponent::opaque(std::move(opaque)))
                 .has_value());
+    const auto movedOpaqueResult = document.add_component(
+        objectId, cue::scene::SceneComponent::opaque(std::move(opaque)));
+    require(!movedOpaqueResult.has_value());
+    require(movedOpaqueResult.try_error()->code().value() ==
+            static_cast<std::int64_t>(
+                cue::scene::SceneError::InvalidComponentData));
     require(document.find_object(objectId)->components().size() == 2U);
     require(document.validate().has_value());
 

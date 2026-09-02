@@ -217,6 +217,17 @@ class OpaqueFieldData final
 class KnownComponentData final
 {
   public:
+    /// @brief 検証済みComponent Dataを複製する
+    KnownComponentData(const KnownComponentData &) = default;
+    /// @brief 検証済みComponent Dataを複製代入する
+    KnownComponentData &operator=(const KnownComponentData &) = default;
+    /// @brief Component Dataを移動し、移動元を無効状態にする
+    KnownComponentData(KnownComponentData &&a_other) noexcept;
+    /// @brief Component Dataを移動代入し、移動元を無効状態にする
+    KnownComponentData &operator=(KnownComponentData &&a_other) noexcept;
+    /// @brief Component Data所有値を破棄する
+    ~KnownComponentData() = default;
+
     /// @brief Stable Component Instance Identityを返す
     [[nodiscard]] const ComponentInstanceId &instance_id() const noexcept;
     /// @brief Stable Component Type Identityを返す
@@ -229,6 +240,7 @@ class KnownComponentData final
     [[nodiscard]] std::span<const OpaqueFieldData> unknown_fields() const noexcept;
 
   private:
+    friend class SceneComponent;
     friend Result<KnownComponentData> create_known_component(
         ComponentInstanceId, schema::TypeId, schema::SchemaVersion,
         std::vector<KnownFieldData>, std::vector<OpaqueFieldData>,
@@ -248,12 +260,24 @@ class KnownComponentData final
     schema::SchemaVersion m_schemaVersion;
     std::vector<KnownFieldData> m_knownFields;
     std::vector<OpaqueFieldData> m_unknownFields;
+    bool m_isValid = true;
 };
 
 /// @brief 未登録または未来Schema Component Entry全体をLosslessに所有する
 class OpaqueComponentData final
 {
   public:
+    /// @brief 検証済みOpaque Dataを複製する
+    OpaqueComponentData(const OpaqueComponentData &) = default;
+    /// @brief 検証済みOpaque Dataを複製代入する
+    OpaqueComponentData &operator=(const OpaqueComponentData &) = default;
+    /// @brief Opaque Dataを移動し、移動元を無効状態にする
+    OpaqueComponentData(OpaqueComponentData &&a_other) noexcept;
+    /// @brief Opaque Dataを移動代入し、移動元を無効状態にする
+    OpaqueComponentData &operator=(OpaqueComponentData &&a_other) noexcept;
+    /// @brief Opaque Data所有値を破棄する
+    ~OpaqueComponentData() = default;
+
     /// @brief Identity Metadataを含まない空でないRaw JSON Payloadから未知Componentを生成する
     [[nodiscard]] static Result<OpaqueComponentData> create(
         ComponentInstanceId a_instanceId, schema::TypeId a_typeId,
@@ -271,6 +295,7 @@ class OpaqueComponentData final
     [[nodiscard]] std::string_view raw_json() const noexcept;
 
   private:
+    friend class SceneComponent;
     /// @brief 検証済みOpaque Component Entryを所有する
     OpaqueComponentData(ComponentInstanceId a_instanceId,
                         schema::TypeId a_typeId,
@@ -281,6 +306,7 @@ class OpaqueComponentData final
     schema::TypeId m_typeId;
     schema::SchemaVersion m_schemaVersion;
     std::string m_rawJson;
+    bool m_isValid = true;
 };
 
 /// @brief 既知またはOpaque Component Dataの正確に一方を所有する
@@ -294,6 +320,8 @@ class SceneComponent final
 
     /// @brief Stable Component Instance Identityを返す
     [[nodiscard]] const ComponentInstanceId &instance_id() const noexcept;
+    /// @brief Component DataがFactory検証済みの有効状態か返す
+    [[nodiscard]] bool is_valid() const noexcept;
     /// @brief 既知Component Dataまたはnullptrを返す
     [[nodiscard]] const KnownComponentData *try_known() const noexcept;
     /// @brief Opaque Component Dataまたはnullptrを返す

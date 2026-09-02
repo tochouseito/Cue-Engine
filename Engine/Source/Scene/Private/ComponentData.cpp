@@ -829,6 +829,30 @@ KnownComponentData::KnownComponentData(
 {
 }
 
+KnownComponentData::KnownComponentData(KnownComponentData &&a_other) noexcept
+    : m_instanceId(std::move(a_other.m_instanceId)),
+      m_typeId(a_other.m_typeId), m_schemaVersion(a_other.m_schemaVersion),
+      m_knownFields(std::move(a_other.m_knownFields)),
+      m_unknownFields(std::move(a_other.m_unknownFields)),
+      m_isValid(std::exchange(a_other.m_isValid, false))
+{
+}
+
+KnownComponentData &KnownComponentData::operator=(
+    KnownComponentData &&a_other) noexcept
+{
+    if (this != &a_other)
+    {
+        m_instanceId = std::move(a_other.m_instanceId);
+        m_typeId = a_other.m_typeId;
+        m_schemaVersion = a_other.m_schemaVersion;
+        m_knownFields = std::move(a_other.m_knownFields);
+        m_unknownFields = std::move(a_other.m_unknownFields);
+        m_isValid = std::exchange(a_other.m_isValid, false);
+    }
+    return *this;
+}
+
 const ComponentInstanceId &KnownComponentData::instance_id() const noexcept
 {
     return m_instanceId;
@@ -860,6 +884,29 @@ OpaqueComponentData::OpaqueComponentData(
     : m_instanceId(std::move(a_instanceId)), m_typeId(a_typeId),
       m_schemaVersion(a_schemaVersion), m_rawJson(std::move(a_rawJson))
 {
+}
+
+OpaqueComponentData::OpaqueComponentData(
+    OpaqueComponentData &&a_other) noexcept
+    : m_instanceId(std::move(a_other.m_instanceId)),
+      m_typeId(a_other.m_typeId), m_schemaVersion(a_other.m_schemaVersion),
+      m_rawJson(std::move(a_other.m_rawJson)),
+      m_isValid(std::exchange(a_other.m_isValid, false))
+{
+}
+
+OpaqueComponentData &OpaqueComponentData::operator=(
+    OpaqueComponentData &&a_other) noexcept
+{
+    if (this != &a_other)
+    {
+        m_instanceId = std::move(a_other.m_instanceId);
+        m_typeId = a_other.m_typeId;
+        m_schemaVersion = a_other.m_schemaVersion;
+        m_rawJson = std::move(a_other.m_rawJson);
+        m_isValid = std::exchange(a_other.m_isValid, false);
+    }
+    return *this;
 }
 
 Result<OpaqueComponentData> OpaqueComponentData::create(
@@ -942,6 +989,15 @@ const ComponentInstanceId &SceneComponent::instance_id() const noexcept
         return knownData->instance_id();
     }
     return std::get<OpaqueComponentData>(m_storage).instance_id();
+}
+
+bool SceneComponent::is_valid() const noexcept
+{
+    if (const auto *knownData = try_known(); knownData != nullptr)
+    {
+        return knownData->m_isValid;
+    }
+    return std::get<OpaqueComponentData>(m_storage).m_isValid;
 }
 
 const KnownComponentData *SceneComponent::try_known() const noexcept

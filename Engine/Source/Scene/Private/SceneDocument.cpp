@@ -270,6 +270,12 @@ Result<void> SceneDocument::add_component(
     const ObjectId &a_objectId,
     SceneComponent a_component) noexcept
 {
+    if (!a_component.is_valid())
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::InvalidComponentData,
+            "Moved-from component data cannot be added to a document"));
+    }
     auto *object = find_mutable_object(a_objectId);
     if (object == nullptr)
     {
@@ -358,6 +364,12 @@ Result<void> SceneDocument::validate() const noexcept
         {
             for (const auto &component : object.m_components)
             {
+                if (!component.is_valid())
+                {
+                    return Result<void>::failure(make_scene_error(
+                        *m_assertContext, SceneError::InvalidComponentData,
+                        "Scene document contains moved-from component data"));
+                }
                 componentIds.push_back(component.instance_id());
             }
         }
