@@ -239,6 +239,7 @@ Runtime Session、複数World切替、Fixed／Variable Update、Frame ClockはIs
 Issue #147の`RuntimeWorld`は`Initializing`、`Running`、`Stopping`、`Shutdown`、`Failed`を持つ。初期化はWorld、Core Transform、
 Structural Command Bufferの順に行い、失敗と終了は逆順に解放する。`request_stop`は即時破棄せず、次の`tick`でCommandをFIFO適用した後の
 Safe Pointに終了する。Runtime Entity HandleはSession-localであり、永続Scene Identityとして公開しない。
+`RuntimeWorld`の状態参照、停止要求、Tick、終了は生成したOwner Threadだけが呼び出し、違反は全構成でProgrammer Errorとして拒否する。
 
 ## Rejected Alternatives
 

@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <thread>
 
 namespace cue::game_core
 {
@@ -97,6 +98,8 @@ class RuntimeWorld final
     [[nodiscard]] const ComponentType<math::Transform> *try_transform_type() const noexcept;
 
   private:
+    /// @brief Runtime World API を生成 Thread へ限定して Data Race を防ぐ
+    void assert_owner_thread() const noexcept;
     /// @brief 現在 State が Tick と Runtime Data 参照を許可するか返す
     [[nodiscard]] bool is_operational() const noexcept;
     /// @brief Command Buffer、Transform Token、World を構築の逆順で解放する
@@ -112,6 +115,7 @@ class RuntimeWorld final
     const schema::SchemaRegistry *m_schemaRegistry;
     schema::TypeId m_transformTypeId;
     const AssertContext *m_assertContext;
+    std::thread::id m_ownerThread;
     RuntimeWorldState m_state = RuntimeWorldState::Initializing;
     std::unique_ptr<World> m_world;
     std::optional<ComponentType<math::Transform>> m_transformType;

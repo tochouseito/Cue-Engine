@@ -342,6 +342,27 @@ struct EmptyComponent final
                    : 13;
     }
 
+    if (a_mode == "RuntimeStopWrongThread")
+    {
+        auto runtime = cue::game_core::RuntimeWorld::create(
+            worldIdentitySource, **registry.try_value(), transformTypeId,
+            assertContext);
+
+        if (!runtime->initialize())
+        {
+            return 14;
+        }
+
+        /// @brief Runtime World の停止要求を Owner 以外の Thread から試行する
+        std::thread worker([&runtime]() noexcept
+        {
+            auto stop = runtime->request_stop();
+            static_cast<void>(stop);
+        });
+        worker.join();
+        return 0;
+    }
+
     return 9;
 }
 } // namespace

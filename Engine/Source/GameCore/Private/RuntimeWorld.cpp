@@ -42,18 +42,22 @@ RuntimeWorld::RuntimeWorld(
     const AssertContext &a_assertContext) noexcept
     : m_identitySource(&a_identitySource), m_schemaRegistry(&a_schemaRegistry),
       m_transformTypeId(std::move(a_transformTypeId)),
-      m_assertContext(&a_assertContext)
+      m_assertContext(&a_assertContext),
+      m_ownerThread(std::this_thread::get_id())
 {
 }
 
 RuntimeWorld::~RuntimeWorld() noexcept
 {
+    assert_owner_thread();
     release_owned_state();
     m_state = RuntimeWorldState::Shutdown;
 }
 
 Result<void> RuntimeWorld::initialize() noexcept
 {
+    assert_owner_thread();
+
     if (m_state != RuntimeWorldState::Initializing)
     {
         return Result<void>::failure(
@@ -103,6 +107,8 @@ Result<void> RuntimeWorld::initialize() noexcept
 
 Result<StructuralCommandReport> RuntimeWorld::tick() noexcept
 {
+    assert_owner_thread();
+
     if (!is_operational())
     {
         return Result<StructuralCommandReport>::failure(
@@ -127,6 +133,8 @@ Result<StructuralCommandReport> RuntimeWorld::tick() noexcept
 
 Result<void> RuntimeWorld::request_stop() noexcept
 {
+    assert_owner_thread();
+
     if (m_state == RuntimeWorldState::Stopping ||
         m_state == RuntimeWorldState::Shutdown)
     {
@@ -145,6 +153,8 @@ Result<void> RuntimeWorld::request_stop() noexcept
 
 Result<void> RuntimeWorld::shutdown() noexcept
 {
+    assert_owner_thread();
+
     if (m_state == RuntimeWorldState::Shutdown)
     {
         return Result<void>::success();
@@ -157,26 +167,31 @@ Result<void> RuntimeWorld::shutdown() noexcept
 
 RuntimeWorldState RuntimeWorld::state() const noexcept
 {
+    assert_owner_thread();
     return m_state;
 }
 
 World *RuntimeWorld::try_world() noexcept
 {
+    assert_owner_thread();
     return is_operational() ? m_world.get() : nullptr;
 }
 
 const World *RuntimeWorld::try_world() const noexcept
 {
+    assert_owner_thread();
     return is_operational() ? m_world.get() : nullptr;
 }
 
 StructuralCommandBuffer *RuntimeWorld::try_command_buffer() noexcept
 {
+    assert_owner_thread();
     return is_operational() ? m_commandBuffer.get() : nullptr;
 }
 
 const ComponentType<math::Transform> *RuntimeWorld::try_transform_type() const noexcept
 {
+    assert_owner_thread();
     return is_operational() && m_transformType.has_value()
                ? &m_transformType.value()
                : nullptr;
@@ -186,6 +201,19 @@ bool RuntimeWorld::is_operational() const noexcept
 {
     return m_state == RuntimeWorldState::Running ||
            m_state == RuntimeWorldState::Stopping;
+}
+
+void RuntimeWorld::assert_owner_thread() const noexcept
+{
+    const bool isOwner = std::this_thread::get_id() == m_ownerThread;
+    CUE_ASSERT(*m_assertContext, isOwner,
+               "Cue.GameCore runtime world API requires its owner thread");
+
+    if (!isOwner)
+    {
+        m_assertContext->fatal_handler().terminate(
+            "Cue.GameCore runtime world API requires its owner thread");
+    }
 }
 
 void RuntimeWorld::release_owned_state() noexcept

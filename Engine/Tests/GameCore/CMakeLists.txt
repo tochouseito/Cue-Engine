@@ -47,6 +47,7 @@ foreach(processMode IN ITEMS
         NestedEmptyQuery
         QueryDestruction
         QueryException
+        RuntimeStopWrongThread
 )
     add_test(
         NAME Cue.GameCore.Process.${processMode}
@@ -88,6 +89,7 @@ set_tests_properties(
     Cue.GameCore.Process.NestedEmptyQuery
     Cue.GameCore.Process.QueryDestruction
     Cue.GameCore.Process.QueryException
+    Cue.GameCore.Process.RuntimeStopWrongThread
     Cue.GameCore.Process.WrongThread
     Cue.GameCore.Process.HeadlessRuntimeWorld
     PROPERTIES
