@@ -24,6 +24,7 @@
 namespace cue::game_core
 {
 class World;
+class RuntimeWorld;
 class StructuralCommandBuffer;
 class StructuralCommandReport;
 
@@ -447,7 +448,11 @@ class World final
     }
 
   private:
+    friend class RuntimeWorld;
     friend class StructuralCommandBuffer;
+
+    /// @brief 全 Component Storage と Entity Slot を逆所有順で明示終了する
+    void shutdown() noexcept;
 
     enum class State : std::uint8_t
     {

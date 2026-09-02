@@ -69,6 +69,16 @@ add_test(
         -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyProcessExit.cmake
 )
 
+add_test(
+    NAME Cue.GameCore.Process.HeadlessRuntimeWorld
+    COMMAND
+        ${CMAKE_COMMAND}
+        -DTEST_EXECUTABLE=$<TARGET_FILE:CueGameCoreProcessTests>
+        -DTEST_MODE=HeadlessRuntimeWorld
+        -DEXPECTED_EXIT_CODE=0
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyProcessExit.cmake
+)
+
 set_tests_properties(
     Cue.GameCore.Storage
     Cue.GameCore.PublicHeaders
@@ -79,6 +89,7 @@ set_tests_properties(
     Cue.GameCore.Process.QueryDestruction
     Cue.GameCore.Process.QueryException
     Cue.GameCore.Process.WrongThread
+    Cue.GameCore.Process.HeadlessRuntimeWorld
     PROPERTIES
         LABELS GameCore
         TIMEOUT 30

@@ -5,6 +5,7 @@ target_sources(
     PRIVATE
         Private/CommandBuffer.cpp
         Private/Error.cpp
+        Private/RuntimeWorld.cpp
         Private/World.cpp
     PUBLIC
         FILE_SET HEADERS
@@ -13,11 +14,12 @@ target_sources(
             Public/Cue/GameCore/CommandBuffer.h
             Public/Cue/GameCore/Entity.h
             Public/Cue/GameCore/Error.h
+            Public/Cue/GameCore/RuntimeWorld.h
             Public/Cue/GameCore/World.h
 )
 
 target_compile_features(Cue.GameCore PUBLIC cxx_std_20)
-target_link_libraries(Cue.GameCore PUBLIC Cue.Foundation Cue.Schema)
+target_link_libraries(Cue.GameCore PUBLIC Cue.Foundation Cue.Math Cue.Schema)
 target_include_directories(Cue.GameCore PUBLIC Public)
 
 set_target_properties(
@@ -45,10 +47,10 @@ endif()
 get_target_property(cueGameCoreLinks Cue.GameCore LINK_LIBRARIES)
 get_target_property(cueGameCoreInterfaceLinks Cue.GameCore INTERFACE_LINK_LIBRARIES)
 
-if(NOT "${cueGameCoreLinks}" STREQUAL "Cue.Foundation;Cue.Schema")
-    message(FATAL_ERROR "Cue.GameCore must directly link only Cue.Foundation and Cue.Schema: ${cueGameCoreLinks}")
+if(NOT "${cueGameCoreLinks}" STREQUAL "Cue.Foundation;Cue.Math;Cue.Schema")
+    message(FATAL_ERROR "Cue.GameCore must directly link only Cue.Foundation, Cue.Math, and Cue.Schema: ${cueGameCoreLinks}")
 endif()
 
-if(NOT "${cueGameCoreInterfaceLinks}" STREQUAL "Cue.Foundation;Cue.Schema")
-    message(FATAL_ERROR "Cue.GameCore must expose only Cue.Foundation and Cue.Schema: ${cueGameCoreInterfaceLinks}")
+if(NOT "${cueGameCoreInterfaceLinks}" STREQUAL "Cue.Foundation;Cue.Math;Cue.Schema")
+    message(FATAL_ERROR "Cue.GameCore must expose only Cue.Foundation, Cue.Math, and Cue.Schema: ${cueGameCoreInterfaceLinks}")
 endif()

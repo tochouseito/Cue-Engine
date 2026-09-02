@@ -1,7 +1,9 @@
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Fatal.h>
 #include <Cue/Foundation/Log.h>
+#include <Cue/GameCore/RuntimeWorld.h>
 #include <Cue/GameCore/World.h>
+#include <Cue/Math/Transform.h>
 #include <Cue/Schema/Descriptor.h>
 #include <Cue/Schema/Registry.h>
 #include <Cue/Schema/Types.h>
@@ -120,6 +122,29 @@ struct EmptyComponent final
         std::move(fields), std::move(reservedFieldIds), assertContext);
 
     if (!descriptor || !builder.add_type(std::move(*descriptor.try_value())))
+    {
+        return 4;
+    }
+
+    auto transformVersion =
+        cue::schema::SchemaVersion::create(1U, assertContext);
+    const auto transformTypeId = make_type_id(
+        "50000000-0000-4000-8000-000000000005", assertContext);
+    std::vector<cue::schema::FieldDescriptor> transformFields;
+    std::vector<cue::schema::FieldId> transformReservedFieldIds;
+
+    if (!transformVersion)
+    {
+        return 4;
+    }
+
+    auto transformDescriptor = cue::schema::create_type_descriptor(
+        transformTypeId, "Cue.Core.Transform",
+        std::move(*transformVersion.try_value()), std::move(transformFields),
+        std::move(transformReservedFieldIds), assertContext);
+
+    if (!transformDescriptor ||
+        !builder.add_type(std::move(*transformDescriptor.try_value())))
     {
         return 4;
     }
@@ -283,6 +308,38 @@ struct EmptyComponent final
         });
         worker.join();
         return 0;
+    }
+
+    if (a_mode == "HeadlessRuntimeWorld")
+    {
+        auto runtime = cue::game_core::RuntimeWorld::create(
+            worldIdentitySource, **registry.try_value(), transformTypeId,
+            assertContext);
+        auto initialized = runtime->initialize();
+        auto *commands = runtime->try_command_buffer();
+        const auto *transformType = runtime->try_transform_type();
+
+        if (!initialized || commands == nullptr || transformType == nullptr)
+        {
+            return 11;
+        }
+
+        auto pending = commands->create_entity();
+
+        if (!pending ||
+            !commands->add_component(*transformType, *pending.try_value()))
+        {
+            return 12;
+        }
+
+        auto tick = runtime->tick();
+        auto stop = runtime->request_stop();
+        auto stopTick = runtime->tick();
+        return tick && stop && stopTick &&
+                       runtime->state() ==
+                           cue::game_core::RuntimeWorldState::Shutdown
+                   ? 0
+                   : 13;
     }
 
     return 9;

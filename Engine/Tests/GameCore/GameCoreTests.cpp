@@ -3,6 +3,7 @@
 #include <Cue/Foundation/Log.h>
 #include <Cue/GameCore/CommandBuffer.h>
 #include <Cue/GameCore/Error.h>
+#include <Cue/GameCore/RuntimeWorld.h>
 #include <Cue/GameCore/World.h>
 #include <Cue/Schema/Descriptor.h>
 #include <Cue/Schema/Registry.h>
@@ -207,7 +208,7 @@ template <typename T>
     return std::move(*result.try_value());
 }
 
-/// @brief Position、Lifetime、Velocity Componentを登録したSchema Registryを生成する
+/// @brief Position、Lifetime、Velocity、Transform を登録した Schema Registry を生成する
 [[nodiscard]] std::unique_ptr<cue::schema::SchemaRegistry> make_registry(
     cue::schema::SchemaRegistryIdentitySource &a_identitySource,
     const cue::AssertContext &a_assertContext)
@@ -223,9 +224,12 @@ template <typename T>
     auto velocity = builder.add_type(make_type(
         "30000000-0000-4000-8000-000000000003", "Cue.Test.Velocity",
         a_assertContext));
+    auto transform = builder.add_type(make_type(
+        "50000000-0000-4000-8000-000000000005", "Cue.Core.Transform",
+        a_assertContext));
     auto registryResult = builder.seal();
 
-    if (!position || !lifetime || !velocity || !registryResult)
+    if (!position || !lifetime || !velocity || !transform || !registryResult)
     {
         std::abort();
     }
@@ -238,6 +242,72 @@ template <typename T>
     cue::game_core::WorldIdentitySource &a_identitySource,
     const cue::schema::SchemaRegistry &a_registry,
     const cue::AssertContext &a_assertContext);
+
+/// @brief Headless Runtime World の初期化、Tick Safe Point、停止、Rollback を検証する
+[[nodiscard]] bool test_runtime_world_lifecycle(
+    const cue::schema::SchemaRegistry &a_registry,
+    const cue::AssertContext &a_assertContext)
+{
+    cue::game_core::WorldIdentitySource identitySource;
+    const auto transformId = make_type_id(
+        "50000000-0000-4000-8000-000000000005", a_assertContext);
+    const auto missingTypeId = make_type_id(
+        "60000000-0000-4000-8000-000000000006", a_assertContext);
+    auto failedRuntime = cue::game_core::RuntimeWorld::create(
+        identitySource, a_registry, missingTypeId, a_assertContext);
+
+    if (failedRuntime->state() !=
+            cue::game_core::RuntimeWorldState::Initializing ||
+        failedRuntime->initialize() ||
+        failedRuntime->state() != cue::game_core::RuntimeWorldState::Failed ||
+        failedRuntime->try_world() != nullptr ||
+        !failedRuntime->shutdown() ||
+        failedRuntime->state() != cue::game_core::RuntimeWorldState::Shutdown)
+    {
+        return false;
+    }
+
+    auto runtime = cue::game_core::RuntimeWorld::create(
+        identitySource, a_registry, transformId, a_assertContext);
+    auto initialized = runtime->initialize();
+    auto *world = runtime->try_world();
+    auto *commands = runtime->try_command_buffer();
+    const auto *transformType = runtime->try_transform_type();
+
+    if (!initialized || world == nullptr || commands == nullptr ||
+        transformType == nullptr || world->id() != 2U ||
+        runtime->state() != cue::game_core::RuntimeWorldState::Running)
+    {
+        return false;
+    }
+
+    auto pending = commands->create_entity();
+
+    if (!pending ||
+        !commands->add_component(*transformType, *pending.try_value()))
+    {
+        return false;
+    }
+
+    auto tickResult = runtime->tick();
+    const auto *tickReport = tickResult.try_value();
+
+    if (tickReport == nullptr || tickReport->results().size() != 2U ||
+        !tickReport->results()[0].succeeded() ||
+        !tickReport->results()[1].succeeded() || world->entity_count() != 1U ||
+        !runtime->request_stop() ||
+        runtime->state() != cue::game_core::RuntimeWorldState::Stopping)
+    {
+        return false;
+    }
+
+    auto stopTick = runtime->tick();
+    return stopTick &&
+           runtime->state() == cue::game_core::RuntimeWorldState::Shutdown &&
+           runtime->try_world() == nullptr &&
+           runtime->try_command_buffer() == nullptr &&
+           runtime->try_transform_type() == nullptr && runtime->shutdown();
+}
 
 /// @brief Callback QueryのRead／Write、最小集合、0件、Invalid Query契約を検証する
 [[nodiscard]] bool test_queries(
@@ -755,6 +825,11 @@ int main()
     if (!test_structural_command_buffer(*registry, assertContext))
     {
         return 6;
+    }
+
+    if (!test_runtime_world_lifecycle(*registry, assertContext))
+    {
+        return 7;
     }
 
     return 0;
