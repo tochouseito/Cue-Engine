@@ -77,6 +77,410 @@ namespace
     return true;
 }
 
+/// @brief Opaque PayloadをTree化せず上限付きで検証するFirst-party JSON Reader
+class JsonSyntaxValidator final
+{
+  public:
+    /// @brief 検証対象UTF-8 JSON Textを非所有で保持する
+    explicit JsonSyntaxValidator(std::string_view a_input) noexcept
+        : m_input(a_input)
+    {
+    }
+
+    /// @brief JSON文書全体と必要なRoot形状を検証する
+    [[nodiscard]] bool validate(bool a_requireObject)
+    {
+        skip_whitespace();
+        if (a_requireObject && peek() != '{')
+        {
+            return false;
+        }
+        if (!parse_value(0U))
+        {
+            return false;
+        }
+        skip_whitespace();
+        return m_position == m_input.size();
+    }
+
+  private:
+    /// @brief 次のByteまたは終端のNullを返す
+    [[nodiscard]] char peek() const noexcept
+    {
+        return m_position < m_input.size() ? m_input[m_position] : '\0';
+    }
+
+    /// @brief JSON Whitespaceを読み飛ばす
+    void skip_whitespace() noexcept
+    {
+        while (peek() == ' ' || peek() == '\t' || peek() == '\r' ||
+               peek() == '\n')
+        {
+            ++m_position;
+        }
+    }
+
+    /// @brief 現在位置から一つのJSON Valueを検証する
+    [[nodiscard]] bool parse_value(std::size_t a_depth)
+    {
+        if (a_depth > 64U)
+        {
+            return false;
+        }
+        skip_whitespace();
+        switch (peek())
+        {
+        case '{':
+            return parse_object(a_depth + 1U);
+        case '[':
+            return parse_array(a_depth + 1U);
+        case '"':
+            return parse_string(nullptr);
+        case 't':
+            return consume_literal("true");
+        case 'f':
+            return consume_literal("false");
+        case 'n':
+            return consume_literal("null");
+        default:
+            return parse_number();
+        }
+    }
+
+    /// @brief 重複Memberを拒否してJSON Objectを検証する
+    [[nodiscard]] bool parse_object(std::size_t a_depth)
+    {
+        ++m_position;
+        skip_whitespace();
+        std::vector<std::string> names;
+        if (peek() == '}')
+        {
+            ++m_position;
+            return true;
+        }
+        while (names.size() < 4096U)
+        {
+            std::string name;
+            if (!parse_string(&name) ||
+                std::find(names.begin(), names.end(), name) != names.end())
+            {
+                return false;
+            }
+            names.push_back(std::move(name));
+            skip_whitespace();
+            if (peek() != ':')
+            {
+                return false;
+            }
+            ++m_position;
+            if (!parse_value(a_depth))
+            {
+                return false;
+            }
+            skip_whitespace();
+            if (peek() == '}')
+            {
+                ++m_position;
+                return true;
+            }
+            if (peek() != ',')
+            {
+                return false;
+            }
+            ++m_position;
+            skip_whitespace();
+        }
+        return false;
+    }
+
+    /// @brief 要素数上限内のJSON Arrayを検証する
+    [[nodiscard]] bool parse_array(std::size_t a_depth)
+    {
+        ++m_position;
+        skip_whitespace();
+        if (peek() == ']')
+        {
+            ++m_position;
+            return true;
+        }
+        std::size_t count = 0U;
+        while (count < 4096U)
+        {
+            if (!parse_value(a_depth))
+            {
+                return false;
+            }
+            ++count;
+            skip_whitespace();
+            if (peek() == ']')
+            {
+                ++m_position;
+                return true;
+            }
+            if (peek() != ',')
+            {
+                return false;
+            }
+            ++m_position;
+        }
+        return false;
+    }
+
+    /// @brief Escapeを復号しながらJSON Stringを検証する
+    [[nodiscard]] bool parse_string(std::string *a_decoded)
+    {
+        if (peek() != '"')
+        {
+            return false;
+        }
+        ++m_position;
+        while (m_position < m_input.size())
+        {
+            const auto value = static_cast<unsigned char>(m_input[m_position++]);
+            if (value == '"')
+            {
+                return true;
+            }
+            if (value < 0x20U)
+            {
+                return false;
+            }
+            if (value != '\\')
+            {
+                if (a_decoded != nullptr)
+                {
+                    a_decoded->push_back(static_cast<char>(value));
+                }
+                continue;
+            }
+            if (m_position >= m_input.size())
+            {
+                return false;
+            }
+            const char escape = m_input[m_position++];
+            if (escape == 'u')
+            {
+                std::uint32_t codePoint = 0U;
+                if (!parse_hex_quad(codePoint))
+                {
+                    return false;
+                }
+                if (codePoint >= 0xD800U && codePoint <= 0xDBFFU)
+                {
+                    if (m_position + 2U > m_input.size() ||
+                        m_input[m_position] != '\\' ||
+                        m_input[m_position + 1U] != 'u')
+                    {
+                        return false;
+                    }
+                    m_position += 2U;
+                    std::uint32_t low = 0U;
+                    if (!parse_hex_quad(low) || low < 0xDC00U || low > 0xDFFFU)
+                    {
+                        return false;
+                    }
+                    codePoint = 0x10000U + ((codePoint - 0xD800U) << 10U) +
+                                (low - 0xDC00U);
+                }
+                else if (codePoint >= 0xDC00U && codePoint <= 0xDFFFU)
+                {
+                    return false;
+                }
+                if (a_decoded != nullptr)
+                {
+                    append_utf8(*a_decoded, codePoint);
+                }
+                continue;
+            }
+            char decoded = '\0';
+            switch (escape)
+            {
+            case '"':
+                decoded = '"';
+                break;
+            case '\\':
+                decoded = '\\';
+                break;
+            case '/':
+                decoded = '/';
+                break;
+            case 'b':
+                decoded = '\b';
+                break;
+            case 'f':
+                decoded = '\f';
+                break;
+            case 'n':
+                decoded = '\n';
+                break;
+            case 'r':
+                decoded = '\r';
+                break;
+            case 't':
+                decoded = '\t';
+                break;
+            default:
+                return false;
+            }
+            if (a_decoded != nullptr)
+            {
+                a_decoded->push_back(decoded);
+            }
+        }
+        return false;
+    }
+
+    /// @brief 4桁Hexadecimal Unicode Code Unitを読む
+    [[nodiscard]] bool parse_hex_quad(std::uint32_t &a_value) noexcept
+    {
+        if (m_position + 4U > m_input.size())
+        {
+            return false;
+        }
+        a_value = 0U;
+        for (std::size_t index = 0U; index < 4U; ++index)
+        {
+            const char value = m_input[m_position++];
+            std::uint32_t digit = 0U;
+            if (value >= '0' && value <= '9')
+            {
+                digit = static_cast<std::uint32_t>(value - '0');
+            }
+            else if (value >= 'a' && value <= 'f')
+            {
+                digit = static_cast<std::uint32_t>(value - 'a' + 10);
+            }
+            else if (value >= 'A' && value <= 'F')
+            {
+                digit = static_cast<std::uint32_t>(value - 'A' + 10);
+            }
+            else
+            {
+                return false;
+            }
+            a_value = (a_value << 4U) | digit;
+        }
+        return true;
+    }
+
+    /// @brief Unicode Scalarをcanonical UTF-8として追記する
+    static void append_utf8(std::string &a_output, std::uint32_t a_codePoint)
+    {
+        if (a_codePoint <= 0x7FU)
+        {
+            a_output.push_back(static_cast<char>(a_codePoint));
+        }
+        else if (a_codePoint <= 0x7FFU)
+        {
+            a_output.push_back(static_cast<char>(0xC0U | (a_codePoint >> 6U)));
+            a_output.push_back(static_cast<char>(0x80U | (a_codePoint & 0x3FU)));
+        }
+        else if (a_codePoint <= 0xFFFFU)
+        {
+            a_output.push_back(static_cast<char>(0xE0U | (a_codePoint >> 12U)));
+            a_output.push_back(static_cast<char>(0x80U | ((a_codePoint >> 6U) & 0x3FU)));
+            a_output.push_back(static_cast<char>(0x80U | (a_codePoint & 0x3FU)));
+        }
+        else
+        {
+            a_output.push_back(static_cast<char>(0xF0U | (a_codePoint >> 18U)));
+            a_output.push_back(static_cast<char>(0x80U | ((a_codePoint >> 12U) & 0x3FU)));
+            a_output.push_back(static_cast<char>(0x80U | ((a_codePoint >> 6U) & 0x3FU)));
+            a_output.push_back(static_cast<char>(0x80U | (a_codePoint & 0x3FU)));
+        }
+    }
+
+    /// @brief JSON Number文法を検証する
+    [[nodiscard]] bool parse_number() noexcept
+    {
+        const auto start = m_position;
+        if (peek() == '-')
+        {
+            ++m_position;
+        }
+        if (peek() == '0')
+        {
+            ++m_position;
+        }
+        else if (peek() >= '1' && peek() <= '9')
+        {
+            while (peek() >= '0' && peek() <= '9')
+            {
+                ++m_position;
+            }
+        }
+        else
+        {
+            return false;
+        }
+        if (peek() == '.')
+        {
+            ++m_position;
+            const auto fractionStart = m_position;
+            while (peek() >= '0' && peek() <= '9')
+            {
+                ++m_position;
+            }
+            if (fractionStart == m_position)
+            {
+                return false;
+            }
+        }
+        if (peek() == 'e' || peek() == 'E')
+        {
+            ++m_position;
+            if (peek() == '+' || peek() == '-')
+            {
+                ++m_position;
+            }
+            const auto exponentStart = m_position;
+            while (peek() >= '0' && peek() <= '9')
+            {
+                ++m_position;
+            }
+            if (exponentStart == m_position)
+            {
+                return false;
+            }
+        }
+        return m_position > start;
+    }
+
+    /// @brief 固定JSON Literalを現在位置から消費する
+    [[nodiscard]] bool consume_literal(std::string_view a_literal) noexcept
+    {
+        if (m_input.substr(m_position, a_literal.size()) != a_literal)
+        {
+            return false;
+        }
+        m_position += a_literal.size();
+        return true;
+    }
+
+    std::string_view m_input;
+    std::size_t m_position = 0U;
+};
+
+/// @brief Opaque JSONのUTF-8、構文、重複Member、Root形状を検証する
+[[nodiscard]] bool validate_opaque_json(
+    std::string_view a_json, bool a_requireObject,
+    const cue::AssertContext &a_assertContext) noexcept
+{
+    if (!is_valid_utf8(a_json))
+    {
+        return false;
+    }
+    try
+    {
+        JsonSyntaxValidator validator(a_json);
+        return validator.validate(a_requireObject);
+    }
+    catch (...)
+    {
+        terminate_scene_allocation(a_assertContext);
+    }
+}
+
 /// @brief Field Kind BindingをStable FieldId順で検索する
 [[nodiscard]] const cue::scene::FieldKindBinding *find_binding(
     std::span<const cue::scene::FieldKindBinding> a_bindings,
@@ -261,7 +665,8 @@ Result<OpaqueFieldData> OpaqueFieldData::create(
     schema::FieldId a_id, std::string_view a_rawJson,
     const AssertContext &a_assertContext) noexcept
 {
-    if (a_rawJson.empty() || !is_valid_utf8(a_rawJson))
+    if (a_rawJson.empty() ||
+        !validate_opaque_json(a_rawJson, false, a_assertContext))
     {
         return Result<OpaqueFieldData>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidOpaqueData,
@@ -290,9 +695,10 @@ std::string_view OpaqueFieldData::raw_json() const noexcept
 
 ComponentValueSchema::ComponentValueSchema(
     schema::TypeId a_typeId, schema::SchemaVersion a_version,
-    std::vector<FieldKindBinding> a_fieldKinds) noexcept
+    std::vector<FieldKindBinding> a_fieldKinds,
+    const schema::SchemaRegistry &a_schemaRegistry) noexcept
     : m_typeId(a_typeId), m_version(a_version),
-      m_fieldKinds(std::move(a_fieldKinds))
+      m_fieldKinds(std::move(a_fieldKinds)), m_schemaRegistry(&a_schemaRegistry)
 {
 }
 
@@ -312,13 +718,15 @@ std::span<const FieldKindBinding> ComponentValueSchema::field_kinds() const noex
 }
 
 ComponentValueSchemaRegistry::ComponentValueSchemaRegistry(
-    std::vector<ComponentValueSchema> a_schemas) noexcept
-    : m_schemas(std::move(a_schemas))
+    std::vector<ComponentValueSchema> a_schemas,
+    const schema::SchemaRegistry &a_schemaRegistry) noexcept
+    : m_schemas(std::move(a_schemas)), m_schemaRegistry(&a_schemaRegistry)
 {
 }
 
 Result<ComponentValueSchemaRegistry> ComponentValueSchemaRegistry::create(
     std::vector<ComponentValueSchema> a_schemas,
+    const schema::SchemaRegistry &a_schemaRegistry,
     const AssertContext &a_assertContext) noexcept
 {
     try
@@ -344,8 +752,23 @@ Result<ComponentValueSchemaRegistry> ComponentValueSchemaRegistry::create(
                 "Component value schema registry contains a duplicate TypeId"));
         }
     }
+    for (const auto &schema : a_schemas)
+    {
+        if (schema.m_schemaRegistry != &a_schemaRegistry)
+        {
+            return Result<ComponentValueSchemaRegistry>::failure(make_scene_error(
+                a_assertContext, SceneError::InvalidComponentData,
+                "Component value schemas must share one M10 registry generation"));
+        }
+    }
     return Result<ComponentValueSchemaRegistry>::success(
-        ComponentValueSchemaRegistry(std::move(a_schemas)));
+        ComponentValueSchemaRegistry(std::move(a_schemas), a_schemaRegistry));
+}
+
+bool ComponentValueSchemaRegistry::is_bound_to(
+    const schema::SchemaRegistry &a_schemaRegistry) const noexcept
+{
+    return m_schemaRegistry == &a_schemaRegistry;
 }
 
 const ComponentValueSchema *ComponentValueSchemaRegistry::find(
@@ -415,7 +838,8 @@ Result<OpaqueComponentData> OpaqueComponentData::create(
     const schema::SchemaRegistry &a_schemaRegistry,
     const AssertContext &a_assertContext) noexcept
 {
-    if (a_rawJson.empty() || !is_valid_utf8(a_rawJson))
+    if (a_rawJson.empty() ||
+        !validate_opaque_json(a_rawJson, true, a_assertContext))
     {
         return Result<OpaqueComponentData>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidOpaqueData,
@@ -562,7 +986,7 @@ Result<ComponentValueSchema> create_component_value_schema(
         }
     }
     return Result<ComponentValueSchema>::success(ComponentValueSchema(
-        a_typeId, a_version, std::move(a_fieldKinds)));
+        a_typeId, a_version, std::move(a_fieldKinds), a_schemaRegistry));
 }
 
 Result<KnownComponentData> create_known_component(
@@ -570,9 +994,16 @@ Result<KnownComponentData> create_known_component(
     schema::SchemaVersion a_schemaVersion,
     std::vector<KnownFieldData> a_knownFields,
     std::vector<OpaqueFieldData> a_unknownFields,
+    const schema::SchemaRegistry &a_schemaRegistry,
     const ComponentValueSchemaRegistry &a_valueSchemaRegistry,
     const AssertContext &a_assertContext) noexcept
 {
+    if (!a_valueSchemaRegistry.is_bound_to(a_schemaRegistry))
+    {
+        return Result<KnownComponentData>::failure(make_scene_error(
+            a_assertContext, SceneError::InvalidComponentData,
+            "Component value schema belongs to a different M10 registry generation"));
+    }
     const auto *valueSchema = a_valueSchemaRegistry.find(a_typeId);
     if (valueSchema == nullptr)
     {

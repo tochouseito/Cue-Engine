@@ -111,6 +111,7 @@ class ComponentValueSchema final
     [[nodiscard]] std::span<const FieldKindBinding> field_kinds() const noexcept;
 
   private:
+    friend class ComponentValueSchemaRegistry;
     friend Result<ComponentValueSchema> create_component_value_schema(
         schema::TypeId, schema::SchemaVersion,
         std::vector<FieldKindBinding>, const schema::SchemaRegistry &,
@@ -119,11 +120,13 @@ class ComponentValueSchema final
     /// @brief 検証済みType、Version、Field Kind集合を所有する
     ComponentValueSchema(schema::TypeId a_typeId,
                          schema::SchemaVersion a_version,
-                         std::vector<FieldKindBinding> a_fieldKinds) noexcept;
+                         std::vector<FieldKindBinding> a_fieldKinds,
+                         const schema::SchemaRegistry &a_schemaRegistry) noexcept;
 
     schema::TypeId m_typeId;
     schema::SchemaVersion m_version;
     std::vector<FieldKindBinding> m_fieldKinds;
+    const schema::SchemaRegistry *m_schemaRegistry;
 };
 
 /// @brief TypeIdごとに一つのComponent Value Schemaを所有するImmutable Registry
@@ -143,21 +146,28 @@ class ComponentValueSchemaRegistry final
     /// @brief Immutable Schema集合を破棄する
     ~ComponentValueSchemaRegistry() = default;
 
-    /// @brief TypeId重複を拒否してStable順のImmutable Registryを生成する
+    /// @brief TypeId重複を拒否して一つのM10 Registryへ結び付くImmutable Registryを生成する
+    /// @param a_schemaRegistry OwnerがComponentValueSchemaRegistryより長く生存させるM10 Registry
     [[nodiscard]] static Result<ComponentValueSchemaRegistry> create(
         std::vector<ComponentValueSchema> a_schemas,
+        const schema::SchemaRegistry &a_schemaRegistry,
         const AssertContext &a_assertContext) noexcept;
 
     /// @brief TypeIdに対応する不変Value Schemaまたはnullptrを返す
     [[nodiscard]] const ComponentValueSchema *find(
         schema::TypeId a_typeId) const noexcept;
+    /// @brief 指定M10 Registry Objectと同じGeneration／Lifetime境界へ結び付くか返す
+    [[nodiscard]] bool is_bound_to(
+        const schema::SchemaRegistry &a_schemaRegistry) const noexcept;
 
   private:
     /// @brief 検証・整列済みValue Schema集合を所有する
     explicit ComponentValueSchemaRegistry(
-        std::vector<ComponentValueSchema> a_schemas) noexcept;
+        std::vector<ComponentValueSchema> a_schemas,
+        const schema::SchemaRegistry &a_schemaRegistry) noexcept;
 
     std::vector<ComponentValueSchema> m_schemas;
+    const schema::SchemaRegistry *m_schemaRegistry;
 };
 
 /// @brief Stable FieldIdと型付きValueを所有する既知Field Data
@@ -222,6 +232,7 @@ class KnownComponentData final
     friend Result<KnownComponentData> create_known_component(
         ComponentInstanceId, schema::TypeId, schema::SchemaVersion,
         std::vector<KnownFieldData>, std::vector<OpaqueFieldData>,
+        const schema::SchemaRegistry &,
         const ComponentValueSchemaRegistry &,
         const AssertContext &) noexcept;
 
@@ -315,6 +326,7 @@ class SceneComponent final
     schema::SchemaVersion a_schemaVersion,
     std::vector<KnownFieldData> a_knownFields,
     std::vector<OpaqueFieldData> a_unknownFields,
+    const schema::SchemaRegistry &a_schemaRegistry,
     const ComponentValueSchemaRegistry &a_valueSchemaRegistry,
     const AssertContext &a_assertContext) noexcept;
 } // namespace cue::scene

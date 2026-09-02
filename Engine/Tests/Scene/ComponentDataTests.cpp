@@ -132,7 +132,7 @@ void test_component_data() noexcept
         std::move(bindings), *registry, assertContext)));
     auto valueSchemaRegistry = take_value(
         cue::scene::ComponentValueSchemaRegistry::create(
-            std::move(valueSchemas), assertContext));
+            std::move(valueSchemas), *registry, assertContext));
 
     std::vector<cue::scene::KnownFieldData> knownFields;
     knownFields.push_back(take_value(cue::scene::create_known_field(
@@ -150,7 +150,7 @@ void test_component_data() noexcept
     auto knownComponent = take_value(cue::scene::create_known_component(
         std::move(componentId), make_type_id(assertContext),
         make_version(assertContext), std::move(knownFields),
-        std::move(unknownFields), valueSchemaRegistry, assertContext));
+        std::move(unknownFields), *registry, valueSchemaRegistry, assertContext));
     require(knownComponent.known_fields().size() == 2U);
     require(knownComponent.known_fields()[0].id() == field1);
     require(knownComponent.unknown_fields()[0].raw_json() ==
@@ -169,6 +169,12 @@ void test_component_data() noexcept
     const auto invalidOpaqueField = cue::scene::OpaqueFieldData::create(
         unknownField, invalidUtf8, assertContext);
     require(!invalidOpaqueField.has_value());
+    const auto malformedOpaqueField = cue::scene::OpaqueFieldData::create(
+        unknownField, "{\"broken\":", assertContext);
+    require(!malformedOpaqueField.has_value());
+    const auto duplicateMemberField = cue::scene::OpaqueFieldData::create(
+        unknownField, "{\"same\":1,\"same\":2}", assertContext);
+    require(!duplicateMemberField.has_value());
 
     std::vector<cue::scene::KnownFieldData> repeatedFields;
     repeatedFields.push_back(take_value(cue::scene::create_known_field(
@@ -184,10 +190,27 @@ void test_component_data() noexcept
     const auto repeated = cue::scene::create_known_component(
         std::move(repeatedComponentId), make_type_id(assertContext),
         make_version(assertContext), std::move(repeatedFields),
-        std::move(noRepeatedUnknownFields), valueSchemaRegistry, assertContext);
+        std::move(noRepeatedUnknownFields), *registry, valueSchemaRegistry,
+        assertContext);
     require(!repeated.has_value());
     require(repeated.try_error()->code().value() == static_cast<std::int64_t>(
                cue::scene::SceneError::DuplicateFieldId));
+
+    auto newerRegistry = make_registry(registryIdentitySource, assertContext);
+    std::vector<cue::scene::KnownFieldData> staleFields;
+    staleFields.push_back(take_value(cue::scene::create_known_field(
+        field1, cue::scene::FieldValue::signed_integer(5),
+        cue::scene::FieldValueKind::SignedInteger, assertContext)));
+    std::vector<cue::scene::OpaqueFieldData> noStaleUnknownFields;
+    auto staleComponentId = take_value(
+        cue::scene::ComponentInstanceId::generate(sceneIdentitySource,
+                                                   assertContext));
+    const auto staleSchema = cue::scene::create_known_component(
+        std::move(staleComponentId), make_type_id(assertContext),
+        make_version(assertContext), std::move(staleFields),
+        std::move(noStaleUnknownFields), *newerRegistry, valueSchemaRegistry,
+        assertContext);
+    require(!staleSchema.has_value());
 
     auto sceneId = take_value(cue::scene::SceneAssetId::generate(
         sceneIdentitySource, assertContext));
@@ -214,6 +237,13 @@ void test_component_data() noexcept
         make_version(assertContext), "{\"known\":true}", *registry,
         assertContext);
     require(!incorrectlyOpaque.has_value());
+    auto nonObjectOpaqueId = take_value(
+        cue::scene::ComponentInstanceId::generate(sceneIdentitySource,
+                                                   assertContext));
+    const auto nonObjectOpaque = cue::scene::OpaqueComponentData::create(
+        std::move(nonObjectOpaqueId), make_type_id(assertContext),
+        make_version(assertContext, 2U), "true", *registry, assertContext);
+    require(!nonObjectOpaque.has_value());
     auto opaque = take_value(cue::scene::OpaqueComponentData::create(
         std::move(opaqueId), make_type_id(assertContext),
         make_version(assertContext, 2U),
@@ -234,7 +264,8 @@ void test_component_data() noexcept
     auto duplicateComponent = take_value(cue::scene::create_known_component(
         preservedComponentId, make_type_id(assertContext),
         make_version(assertContext), std::move(duplicateFields),
-        std::move(noUnknownFields), valueSchemaRegistry, assertContext));
+        std::move(noUnknownFields), *registry, valueSchemaRegistry,
+        assertContext));
     const auto duplicateResult = document.add_component(
         objectId,
         cue::scene::SceneComponent::known(std::move(duplicateComponent)));
