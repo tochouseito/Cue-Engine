@@ -23,7 +23,8 @@ enum class GameCoreError : std::int64_t
     CapacityExceeded = 6,
     InvalidQuery = 7,
     DependencyFailed = 8,
-    InvalidCommandBuffer = 9
+    InvalidCommandBuffer = 9,
+    InvalidRuntimeState = 10
 };
 
 /// @brief GameCore Error を診断 Summary と共に生成する

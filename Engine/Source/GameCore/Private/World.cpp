@@ -104,6 +104,21 @@ World::World(ConstructionKey, std::uint64_t a_worldId,
 World::~World() noexcept
 {
     assert_owner_thread();
+
+    if (m_state == State::Active)
+    {
+        shutdown();
+    }
+    else
+    {
+        CUE_ASSERT(*m_assertContext, m_state == State::Destroyed,
+                   "Cue.GameCore world destruction requires a stable state");
+    }
+}
+
+void World::shutdown() noexcept
+{
+    assert_owner_thread();
     assert_active();
     CUE_ASSERT(*m_assertContext,
                !m_isQueryActive && !m_isStructuralMutationActive,
@@ -123,6 +138,12 @@ World::~World() noexcept
         m_componentStorages[*iterator].reset();
     }
 
+    m_storageCreationOrder.clear();
+    m_componentStorages.clear();
+    m_componentBindings.clear();
+    m_freeIndices.clear();
+    m_slots.clear();
+    m_entityCount = 0U;
     m_state = State::Destroyed;
 }
 

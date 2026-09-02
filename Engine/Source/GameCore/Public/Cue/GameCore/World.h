@@ -24,12 +24,14 @@
 namespace cue::game_core
 {
 class World;
+class RuntimeWorld;
 class StructuralCommandBuffer;
 class StructuralCommandReport;
 
 /// @brief Process 全体で World Incarnation ID を一意発行する明示所有 Source
 ///
-/// RuntimeHost、Editor、Test を含む全 World 所有者は同じ Source を共有し、Source を全 World より長く生存させる
+/// RuntimeHost、Editor、Test を含む全 World 所有者は同じ Source を共有し、Source を全 World、
+/// 発行済み EntityHandle、発行済み ComponentType より長く生存させる
 class WorldIdentitySource final
 {
   public:
@@ -43,7 +45,7 @@ class WorldIdentitySource final
     WorldIdentitySource(WorldIdentitySource &&) = delete;
     /// @brief 発行元 Address を安定させるため Move 代入を禁止する
     WorldIdentitySource &operator=(WorldIdentitySource &&) = delete;
-    /// @brief 全 World と Entity Handle の破棄後に発行状態を破棄する
+    /// @brief 全 World、EntityHandle、ComponentType の破棄後に発行状態を破棄する
     ~WorldIdentitySource() = default;
 
   private:
@@ -56,6 +58,7 @@ class WorldIdentitySource final
 };
 
 /// @brief 一つの World と Schema Type に C++ Component 型を結び付ける Runtime Token
+/// @details 発行元 WorldIdentitySource はこの Token の破棄完了まで生存させる
 /// @tparam T 共通基底や RTTI を要求しない Component 型
 template <typename T> class ComponentType final
 {
@@ -127,7 +130,7 @@ class World final
     };
 
     /// @brief Identity Source と Schema Registry から空の World を生成する
-    /// @param a_identitySource Process 全体で共有し全 World と Handle より長く生存する発行元
+    /// @param a_identitySource Process 全体で共有し全 World、発行済み EntityHandle、ComponentType より長く生存する発行元
     /// @param a_schemaRegistry World より長く生存する Seal 済み Schema Registry
     /// @param a_assertContext World より長く生存する非所有診断 Context
     [[nodiscard]] static Result<std::unique_ptr<World>> create(
@@ -447,7 +450,11 @@ class World final
     }
 
   private:
+    friend class RuntimeWorld;
     friend class StructuralCommandBuffer;
+
+    /// @brief 全 Component Storage と Entity Slot を逆所有順で明示終了する
+    void shutdown() noexcept;
 
     enum class State : std::uint8_t
     {

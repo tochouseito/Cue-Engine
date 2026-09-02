@@ -96,7 +96,8 @@ M10はPer-component packed sparse setを採用する。ArchetypeはBenchmarkと�
 
 ### Module Boundary
 
-`Cue.GameCore`は`Cue.Foundation`と`Cue.Schema`だけへ公開依存する。Platform、RHI、RuntimeHost、Editor、Scene、Assetへ依存しない。
+`Cue.GameCore`は`Cue.Foundation`、`Cue.Math`、`Cue.Schema`だけへ公開依存する。`Cue.Math::Transform`をCore Componentとして登録するため
+`Cue.Math`を公開依存へ含める。Platform、RHI、RuntimeHost、Editor、Scene、Assetへ依存しない。
 Componentは共通基底Class、Virtual Function、RTTI登録、Editor型を要求しない。
 
 `Cue.Schema`はIdentityとImmutable Descriptorを所有し、`Cue.GameCore`は同じSeal済みRegistryに対応するComponent Runtime Adapterと
@@ -234,6 +235,11 @@ Public操作は不正StateのProgrammer ErrorとしてAssertする。Destructor�
 Runtime Session、複数World切替、Fixed／Variable Update、Frame ClockはIssue #147でWorld所有者として実装する。Global World Singletonを
 導入せず、RuntimeHost、Editor Play Session、Testが所有者を明示する。Process共有`WorldIdentitySource`は所有者ではなく、
 再利用不能なIncarnation値だけを発行する限定状態とする。
+
+Issue #147の`RuntimeWorld`は`Initializing`、`Running`、`Stopping`、`Shutdown`、`Failed`を持つ。初期化はWorld、Core Transform、
+Structural Command Bufferの順に行い、失敗と終了は逆順に解放する。`request_stop`は即時破棄せず、次の`tick`でCommandをFIFO適用した後の
+Safe Pointに終了する。Runtime Entity HandleはSession-localであり、永続Scene Identityとして公開しない。
+`RuntimeWorld`の状態参照、停止要求、Tick、終了は生成したOwner Threadだけが呼び出し、違反は全構成でProgrammer Errorとして拒否する。
 
 ## Rejected Alternatives
 
