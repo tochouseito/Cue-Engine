@@ -319,7 +319,8 @@ void add_velocities(BenchmarkFixture &a_fixture)
 /// @brief Warm-up 後の Sample から中央値と p95 を同じ算出規則で求める
 [[nodiscard]] BenchmarkResult measure_workload(std::string a_name, std::uint64_t a_operationCount,
                                                BenchmarkEnvironment &a_environment, const BenchmarkOptions &a_options,
-                                               const FixtureAction &a_prepare, const FixtureAction &a_execute)
+                                               const FixtureAction &a_prepare, const FixtureAction &a_execute,
+                                               const FixtureAction &a_validate = {})
 {
     std::vector<double> samples;
     samples.reserve(a_options.iterationCount);
@@ -334,6 +335,11 @@ void add_velocities(BenchmarkFixture &a_fixture)
         const auto begin = std::chrono::steady_clock::now();
         a_execute(fixture);
         const auto end = std::chrono::steady_clock::now();
+
+        if (a_validate)
+        {
+            a_validate(fixture);
+        }
         aggregateChecksum ^= fixture.checksum;
 
         if (runIndex >= a_options.warmupCount)
@@ -429,10 +435,24 @@ void add_velocities(BenchmarkFixture &a_fixture)
         {
             require_success(a_fixture.world->remove_component(a_fixture.position_type(), entity));
         }
-        a_fixture.checksum = a_fixture.world->entity_count();
+    };
+    /// @brief 測定後に全 Position の削除結果を検証して最終状態を Checksum 化する
+    const FixtureAction validatePositionRemoval = [](BenchmarkFixture &a_fixture)
+    {
+        std::uint64_t removedCount = 0;
+        for (const auto entity : a_fixture.entities)
+        {
+            const bool hasPosition = require_value(a_fixture.world->has_component(a_fixture.position_type(), entity));
+            if (hasPosition)
+            {
+                throw std::runtime_error("Position component removal was incomplete");
+            }
+            ++removedCount;
+        }
+        a_fixture.checksum = removedCount;
     };
     results.push_back(measure_workload("component_remove", a_options.entityCount, a_environment, a_options,
-                                       preparePositions, removePosition));
+                                       preparePositions, removePosition, validatePositionRemoval));
 
     /// @brief 二 Component Query へ Position と Velocity の交差集合を用意する
     const FixtureAction prepareQuery = [&a_options](BenchmarkFixture &a_fixture)

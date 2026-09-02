@@ -17,9 +17,8 @@ endif()
 
 add_executable(CueGameCoreBenchmark)
 
-add_custom_command(
-    TARGET CueGameCoreBenchmark
-    PRE_BUILD
+add_custom_target(
+    CueGameCoreBenchmarkVerifyCheckout
     COMMAND
         "${CMAKE_COMMAND}"
         "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
@@ -29,6 +28,8 @@ add_custom_command(
     COMMENT "Verifying the Rebuild ECS benchmark inputs before compilation"
     VERBATIM
 )
+
+add_dependencies(CueGameCoreBenchmark CueGameCoreBenchmarkVerifyCheckout)
 
 target_sources(
     CueGameCoreBenchmark
