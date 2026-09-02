@@ -538,6 +538,35 @@ class JsonSyntaxValidator final
             return a_field.id() == a_id;
         });
 }
+
+/// @brief FieldValueのKindと内部Valueが公開不変条件を満たすか判定する
+[[nodiscard]] bool is_valid_field_value(
+    const cue::scene::FieldValue &a_value) noexcept
+{
+    using cue::scene::FieldValueKind;
+    switch (a_value.kind())
+    {
+    case FieldValueKind::Boolean:
+        return a_value.try_boolean() != nullptr;
+    case FieldValueKind::SignedInteger:
+        return a_value.try_signed_integer() != nullptr;
+    case FieldValueKind::UnsignedInteger:
+        return a_value.try_unsigned_integer() != nullptr;
+    case FieldValueKind::FloatingPoint:
+        return a_value.try_floating_point() != nullptr &&
+               std::isfinite(*a_value.try_floating_point());
+    case FieldValueKind::String:
+        return a_value.try_string() != nullptr &&
+               is_valid_utf8(*a_value.try_string());
+    case FieldValueKind::AssetReference:
+    {
+        const auto *reference = a_value.try_asset_reference();
+        return reference != nullptr && !reference->token().empty() &&
+               is_valid_utf8(reference->token());
+    }
+    }
+    return false;
+}
 } // namespace
 
 namespace cue::scene
@@ -790,6 +819,28 @@ Result<ComponentValueSchemaRegistry> ComponentValueSchemaRegistry::create(
                 a_assertContext, SceneError::InvalidComponentData,
                 "Component value schemas must share one M10 registry generation"));
         }
+        auto descriptorResult = a_schemaRegistry.find(schema.type_id(),
+                                                       a_assertContext);
+        if (!descriptorResult ||
+            (*descriptorResult.try_value())->version() != schema.version() ||
+            (*descriptorResult.try_value())->fields().size() !=
+                schema.field_kinds().size())
+        {
+            return Result<ComponentValueSchemaRegistry>::failure(make_scene_error(
+                a_assertContext, SceneError::InvalidComponentData,
+                "Component value schema no longer matches its M10 descriptor"));
+        }
+        for (const auto &binding : schema.field_kinds())
+        {
+            if (!is_defined_field_value_kind(binding.kind) ||
+                !descriptor_has_field(**descriptorResult.try_value(), binding.id))
+            {
+                return Result<ComponentValueSchemaRegistry>::failure(
+                    make_scene_error(
+                        a_assertContext, SceneError::InvalidComponentData,
+                        "Component value schema contains an invalid field binding"));
+            }
+        }
     }
     return Result<ComponentValueSchemaRegistry>::success(
         ComponentValueSchemaRegistry(std::move(a_schemas), a_schemaRegistry));
@@ -1015,7 +1066,7 @@ Result<KnownFieldData> create_known_field(
     FieldValueKind a_expectedKind,
     const AssertContext &a_assertContext) noexcept
 {
-    if (a_value.kind() != a_expectedKind)
+    if (!is_valid_field_value(a_value) || a_value.kind() != a_expectedKind)
     {
         return Result<KnownFieldData>::failure(make_scene_error(
             a_assertContext, SceneError::FieldTypeMismatch,
@@ -1132,7 +1183,9 @@ Result<KnownComponentData> create_known_component(
                 "Known scene component contains a duplicate FieldId"));
         }
         const auto *binding = find_binding(fieldKinds, id);
-        if (binding == nullptr || binding->kind != a_knownFields[index].value().kind())
+        if (!is_valid_field_value(a_knownFields[index].value()) ||
+            binding == nullptr ||
+            binding->kind != a_knownFields[index].value().kind())
         {
             return Result<KnownComponentData>::failure(make_scene_error(
                 a_assertContext,
@@ -1145,6 +1198,14 @@ Result<KnownComponentData> create_known_component(
     for (std::size_t index = 0U; index < a_unknownFields.size(); ++index)
     {
         const auto id = a_unknownFields[index].id();
+        if (a_unknownFields[index].raw_json().empty() ||
+            !validate_opaque_json(a_unknownFields[index].raw_json(), false,
+                                  false, a_assertContext))
+        {
+            return Result<KnownComponentData>::failure(make_scene_error(
+                a_assertContext, SceneError::InvalidOpaqueData,
+                "Opaque scene field payload is no longer valid JSON"));
+        }
         if (find_binding(fieldKinds, id) != nullptr ||
             (index > 0U && a_unknownFields[index - 1U].id() == id) ||
             std::any_of(a_knownFields.begin(), a_knownFields.end(),

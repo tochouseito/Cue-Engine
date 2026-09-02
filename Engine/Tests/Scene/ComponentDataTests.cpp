@@ -131,6 +131,21 @@ void test_component_data() noexcept
         make_type_id(assertContext), make_version(assertContext),
         std::move(invalidBindings), *registry, assertContext);
     require(!invalidValueSchema.has_value());
+    std::vector<cue::scene::FieldKindBinding> movedSchemaBindings{
+        {field1, cue::scene::FieldValueKind::SignedInteger},
+        {field2, cue::scene::FieldValueKind::String}};
+    auto movedSchema = take_value(cue::scene::create_component_value_schema(
+        make_type_id(assertContext), make_version(assertContext),
+        std::move(movedSchemaBindings), *registry, assertContext));
+    std::vector<cue::scene::ComponentValueSchema> consumedSchemas;
+    consumedSchemas.push_back(std::move(movedSchema));
+    (void)consumedSchemas;
+    std::vector<cue::scene::ComponentValueSchema> reusedSchemas;
+    reusedSchemas.push_back(std::move(movedSchema));
+    const auto movedSchemaRegistry =
+        cue::scene::ComponentValueSchemaRegistry::create(
+            std::move(reusedSchemas), *registry, assertContext);
+    require(!movedSchemaRegistry.has_value());
     std::vector<cue::scene::FieldKindBinding> bindings{
         {field1, cue::scene::FieldValueKind::SignedInteger},
         {field2, cue::scene::FieldValueKind::String}};
@@ -141,6 +156,24 @@ void test_component_data() noexcept
     auto valueSchemaRegistry = take_value(
         cue::scene::ComponentValueSchemaRegistry::create(
             std::move(valueSchemas), *registry, assertContext));
+
+    auto movedOpaqueField = take_value(cue::scene::OpaqueFieldData::create(
+        unknownField, "{\"future\":true}", assertContext));
+    std::vector<cue::scene::OpaqueFieldData> consumedOpaqueFields;
+    consumedOpaqueFields.push_back(std::move(movedOpaqueField));
+    (void)consumedOpaqueFields;
+    std::vector<cue::scene::OpaqueFieldData> reusedOpaqueFields;
+    reusedOpaqueFields.push_back(std::move(movedOpaqueField));
+    std::vector<cue::scene::KnownFieldData> noMovedKnownFields;
+    auto movedFieldComponentId = take_value(
+        cue::scene::ComponentInstanceId::generate(sceneIdentitySource,
+                                                   assertContext));
+    const auto movedOpaqueComponent = cue::scene::create_known_component(
+        std::move(movedFieldComponentId), make_type_id(assertContext),
+        make_version(assertContext), std::move(noMovedKnownFields),
+        std::move(reusedOpaqueFields), *registry, valueSchemaRegistry,
+        assertContext);
+    require(!movedOpaqueComponent.has_value());
 
     std::vector<cue::scene::KnownFieldData> knownFields;
     knownFields.push_back(take_value(cue::scene::create_known_field(
@@ -178,6 +211,16 @@ void test_component_data() noexcept
     const auto validLongAssetToken = cue::scene::AssetReferenceValue::create(
         longAssetToken, assertContext);
     require(validLongAssetToken.has_value());
+    auto movedAssetToken = take_value(cue::scene::AssetReferenceValue::create(
+        "asset:test", assertContext));
+    const auto consumedAssetValue = cue::scene::FieldValue::asset_reference(
+        std::move(movedAssetToken));
+    (void)consumedAssetValue;
+    const auto movedAssetField = cue::scene::create_known_field(
+        field1,
+        cue::scene::FieldValue::asset_reference(std::move(movedAssetToken)),
+        cue::scene::FieldValueKind::AssetReference, assertContext);
+    require(!movedAssetField.has_value());
     const auto invalidOpaqueField = cue::scene::OpaqueFieldData::create(
         unknownField, invalidUtf8, assertContext);
     require(!invalidOpaqueField.has_value());
