@@ -122,9 +122,16 @@ void test_component_data() noexcept
     const auto field1 = make_field_id(1U, assertContext);
     const auto field2 = make_field_id(2U, assertContext);
     const auto unknownField = make_field_id(99U, assertContext);
-    const std::vector<cue::scene::FieldKindBinding> bindings{
+    std::vector<cue::scene::FieldKindBinding> bindings{
         {field1, cue::scene::FieldValueKind::SignedInteger},
         {field2, cue::scene::FieldValueKind::String}};
+    std::vector<cue::scene::ComponentValueSchema> valueSchemas;
+    valueSchemas.push_back(take_value(cue::scene::create_component_value_schema(
+        make_type_id(assertContext), make_version(assertContext),
+        std::move(bindings), *registry, assertContext)));
+    auto valueSchemaRegistry = take_value(
+        cue::scene::ComponentValueSchemaRegistry::create(
+            std::move(valueSchemas), assertContext));
 
     std::vector<cue::scene::KnownFieldData> knownFields;
     knownFields.push_back(take_value(cue::scene::create_known_field(
@@ -142,7 +149,7 @@ void test_component_data() noexcept
     auto knownComponent = take_value(cue::scene::create_known_component(
         std::move(componentId), make_type_id(assertContext),
         make_version(assertContext), std::move(knownFields),
-        std::move(unknownFields), *registry, bindings, assertContext));
+        std::move(unknownFields), valueSchemaRegistry, assertContext));
     require(knownComponent.known_fields().size() == 2U);
     require(knownComponent.known_fields()[0].id() == field1);
     require(knownComponent.unknown_fields()[0].raw_json() ==
@@ -154,6 +161,29 @@ void test_component_data() noexcept
     require(!mismatch.has_value());
     require(mismatch.try_error()->code().value() == static_cast<std::int64_t>(
                cue::scene::SceneError::FieldTypeMismatch));
+    const std::string_view invalidUtf8("\xC3\x28", 2U);
+    const auto invalidString = cue::scene::FieldValue::string(invalidUtf8,
+                                                              assertContext);
+    require(!invalidString.has_value());
+
+    std::vector<cue::scene::KnownFieldData> repeatedFields;
+    repeatedFields.push_back(take_value(cue::scene::create_known_field(
+        field1, cue::scene::FieldValue::signed_integer(1),
+        cue::scene::FieldValueKind::SignedInteger, assertContext)));
+    repeatedFields.push_back(take_value(cue::scene::create_known_field(
+        field1, cue::scene::FieldValue::signed_integer(2),
+        cue::scene::FieldValueKind::SignedInteger, assertContext)));
+    std::vector<cue::scene::OpaqueFieldData> noRepeatedUnknownFields;
+    auto repeatedComponentId = take_value(
+        cue::scene::ComponentInstanceId::generate(sceneIdentitySource,
+                                                   assertContext));
+    const auto repeated = cue::scene::create_known_component(
+        std::move(repeatedComponentId), make_type_id(assertContext),
+        make_version(assertContext), std::move(repeatedFields),
+        std::move(noRepeatedUnknownFields), valueSchemaRegistry, assertContext);
+    require(!repeated.has_value());
+    require(repeated.try_error()->code().value() == static_cast<std::int64_t>(
+               cue::scene::SceneError::DuplicateFieldId));
 
     auto sceneId = take_value(cue::scene::SceneAssetId::generate(
         sceneIdentitySource, assertContext));
@@ -175,7 +205,7 @@ void test_component_data() noexcept
     auto opaque = take_value(cue::scene::OpaqueComponentData::create(
         std::move(opaqueId), make_type_id(assertContext),
         make_version(assertContext),
-        "{\"componentInstanceId\":\"opaque\",\"future\":true}",
+        "{\"future\":true}",
         assertContext));
     require(document.add_component(
                         objectId,
@@ -192,7 +222,7 @@ void test_component_data() noexcept
     auto duplicateComponent = take_value(cue::scene::create_known_component(
         preservedComponentId, make_type_id(assertContext),
         make_version(assertContext), std::move(duplicateFields),
-        std::move(noUnknownFields), *registry, bindings, assertContext));
+        std::move(noUnknownFields), valueSchemaRegistry, assertContext));
     const auto duplicateResult = document.add_component(
         objectId,
         cue::scene::SceneComponent::known(std::move(duplicateComponent)));

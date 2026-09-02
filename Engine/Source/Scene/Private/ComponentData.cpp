@@ -17,6 +17,66 @@ namespace
         "Cue.Scene component data allocation failed");
 }
 
+/// @brief UTF-8継続Byteか判定する
+[[nodiscard]] bool is_continuation(std::uint8_t a_value) noexcept
+{
+    return (a_value & 0xC0U) == 0x80U;
+}
+
+/// @brief TextがUnicode Scalar列として有効なUTF-8か検証する
+[[nodiscard]] bool is_valid_utf8(std::string_view a_value) noexcept
+{
+    const auto *bytes = reinterpret_cast<const std::uint8_t *>(a_value.data());
+    for (std::size_t index = 0U; index < a_value.size();)
+    {
+        const auto first = bytes[index];
+        if (first <= 0x7FU)
+        {
+            ++index;
+            continue;
+        }
+        if (first >= 0xC2U && first <= 0xDFU)
+        {
+            if (index + 1U >= a_value.size() ||
+                !is_continuation(bytes[index + 1U]))
+            {
+                return false;
+            }
+            index += 2U;
+            continue;
+        }
+        if (first >= 0xE0U && first <= 0xEFU)
+        {
+            if (index + 2U >= a_value.size() ||
+                !is_continuation(bytes[index + 1U]) ||
+                !is_continuation(bytes[index + 2U]) ||
+                (first == 0xE0U && bytes[index + 1U] < 0xA0U) ||
+                (first == 0xEDU && bytes[index + 1U] >= 0xA0U))
+            {
+                return false;
+            }
+            index += 3U;
+            continue;
+        }
+        if (first >= 0xF0U && first <= 0xF4U)
+        {
+            if (index + 3U >= a_value.size() ||
+                !is_continuation(bytes[index + 1U]) ||
+                !is_continuation(bytes[index + 2U]) ||
+                !is_continuation(bytes[index + 3U]) ||
+                (first == 0xF0U && bytes[index + 1U] < 0x90U) ||
+                (first == 0xF4U && bytes[index + 1U] >= 0x90U))
+            {
+                return false;
+            }
+            index += 4U;
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
 /// @brief Field Kind BindingをStable FieldId順で検索する
 [[nodiscard]] const cue::scene::FieldKindBinding *find_binding(
     std::span<const cue::scene::FieldKindBinding> a_bindings,
@@ -59,7 +119,7 @@ Result<AssetReferenceValue> AssetReferenceValue::create(
     std::string_view a_token,
     const AssertContext &a_assertContext) noexcept
 {
-    if (a_token.empty() || a_token.size() > 255U)
+    if (a_token.empty() || a_token.size() > 255U || !is_valid_utf8(a_token))
     {
         return Result<AssetReferenceValue>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidComponentData,
@@ -117,6 +177,12 @@ Result<FieldValue> FieldValue::floating_point(
 Result<FieldValue> FieldValue::string(
     std::string_view a_value, const AssertContext &a_assertContext) noexcept
 {
+    if (!is_valid_utf8(a_value))
+    {
+        return Result<FieldValue>::failure(make_scene_error(
+            a_assertContext, SceneError::InvalidComponentData,
+            "Scene string field must contain valid UTF-8"));
+    }
     try
     {
         return Result<FieldValue>::success(FieldValue(
@@ -220,6 +286,82 @@ schema::FieldId OpaqueFieldData::id() const noexcept
 std::string_view OpaqueFieldData::raw_json() const noexcept
 {
     return m_rawJson;
+}
+
+ComponentValueSchema::ComponentValueSchema(
+    schema::TypeId a_typeId, schema::SchemaVersion a_version,
+    std::vector<FieldKindBinding> a_fieldKinds) noexcept
+    : m_typeId(a_typeId), m_version(a_version),
+      m_fieldKinds(std::move(a_fieldKinds))
+{
+}
+
+schema::TypeId ComponentValueSchema::type_id() const noexcept
+{
+    return m_typeId;
+}
+
+schema::SchemaVersion ComponentValueSchema::version() const noexcept
+{
+    return m_version;
+}
+
+std::span<const FieldKindBinding> ComponentValueSchema::field_kinds() const noexcept
+{
+    return m_fieldKinds;
+}
+
+ComponentValueSchemaRegistry::ComponentValueSchemaRegistry(
+    std::vector<ComponentValueSchema> a_schemas) noexcept
+    : m_schemas(std::move(a_schemas))
+{
+}
+
+Result<ComponentValueSchemaRegistry> ComponentValueSchemaRegistry::create(
+    std::vector<ComponentValueSchema> a_schemas,
+    const AssertContext &a_assertContext) noexcept
+{
+    try
+    {
+        std::sort(a_schemas.begin(), a_schemas.end(),
+                  /// @brief Value SchemaをStable TypeId順へ並べる
+                  [](const ComponentValueSchema &a_left,
+                     const ComponentValueSchema &a_right) noexcept
+                  {
+                      return a_left.type_id() < a_right.type_id();
+                  });
+    }
+    catch (...)
+    {
+        terminate_scene_allocation(a_assertContext);
+    }
+    for (std::size_t index = 1U; index < a_schemas.size(); ++index)
+    {
+        if (a_schemas[index - 1U].type_id() == a_schemas[index].type_id())
+        {
+            return Result<ComponentValueSchemaRegistry>::failure(make_scene_error(
+                a_assertContext, SceneError::InvalidComponentData,
+                "Component value schema registry contains a duplicate TypeId"));
+        }
+    }
+    return Result<ComponentValueSchemaRegistry>::success(
+        ComponentValueSchemaRegistry(std::move(a_schemas)));
+}
+
+const ComponentValueSchema *ComponentValueSchemaRegistry::find(
+    schema::TypeId a_typeId) const noexcept
+{
+    const auto found = std::lower_bound(
+        m_schemas.begin(), m_schemas.end(), a_typeId,
+        /// @brief Value SchemaのTypeIdを検索値と比較する
+        [](const ComponentValueSchema &a_schema,
+           schema::TypeId a_value) noexcept
+        {
+            return a_schema.type_id() < a_value;
+        });
+    return found != m_schemas.end() && found->type_id() == a_typeId
+               ? &*found
+               : nullptr;
 }
 
 KnownComponentData::KnownComponentData(
@@ -361,42 +503,79 @@ Result<KnownFieldData> create_known_field(
         KnownFieldData(a_id, std::move(a_value)));
 }
 
-Result<KnownComponentData> create_known_component(
-    ComponentInstanceId a_instanceId, schema::TypeId a_typeId,
-    schema::SchemaVersion a_schemaVersion,
-    std::vector<KnownFieldData> a_knownFields,
-    std::vector<OpaqueFieldData> a_unknownFields,
+Result<ComponentValueSchema> create_component_value_schema(
+    schema::TypeId a_typeId, schema::SchemaVersion a_version,
+    std::vector<FieldKindBinding> a_fieldKinds,
     const schema::SchemaRegistry &a_schemaRegistry,
-    std::span<const FieldKindBinding> a_fieldKinds,
     const AssertContext &a_assertContext) noexcept
 {
     auto descriptorResult = a_schemaRegistry.find(a_typeId, a_assertContext);
     if (!descriptorResult)
     {
-        return Result<KnownComponentData>::failure(make_scene_error(
+        return Result<ComponentValueSchema>::failure(make_scene_error(
             a_assertContext, SceneError::UnknownSchemaType,
-            "Known scene component requires a registered schema type"));
+            "Component value schema requires a registered TypeId"));
     }
     const auto *descriptor = *descriptorResult.try_value();
-    if (descriptor->version() != a_schemaVersion ||
+    if (descriptor->version() != a_version ||
         descriptor->fields().size() != a_fieldKinds.size())
     {
-        return Result<KnownComponentData>::failure(make_scene_error(
+        return Result<ComponentValueSchema>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidComponentData,
-            "Known scene component schema version or field binding set is invalid"));
+            "Component value schema version or field set does not match M10 schema"));
     }
-
+    try
+    {
+        std::sort(a_fieldKinds.begin(), a_fieldKinds.end(),
+                  /// @brief Field Kind BindingをStable FieldId順へ並べる
+                  [](const FieldKindBinding &a_left,
+                     const FieldKindBinding &a_right) noexcept
+                  {
+                      return a_left.id < a_right.id;
+                  });
+    }
+    catch (...)
+    {
+        terminate_scene_allocation(a_assertContext);
+    }
     for (std::size_t index = 0U; index < a_fieldKinds.size(); ++index)
     {
         if (!descriptor_has_field(*descriptor, a_fieldKinds[index].id) ||
             (index > 0U &&
              !(a_fieldKinds[index - 1U].id < a_fieldKinds[index].id)))
         {
-            return Result<KnownComponentData>::failure(make_scene_error(
+            return Result<ComponentValueSchema>::failure(make_scene_error(
                 a_assertContext, SceneError::InvalidComponentData,
-                "Scene field kind bindings must match schema fields in stable order"));
+                "Component value schema fields must match M10 schema exactly"));
         }
     }
+    return Result<ComponentValueSchema>::success(ComponentValueSchema(
+        a_typeId, a_version, std::move(a_fieldKinds)));
+}
+
+Result<KnownComponentData> create_known_component(
+    ComponentInstanceId a_instanceId, schema::TypeId a_typeId,
+    schema::SchemaVersion a_schemaVersion,
+    std::vector<KnownFieldData> a_knownFields,
+    std::vector<OpaqueFieldData> a_unknownFields,
+    const ComponentValueSchemaRegistry &a_valueSchemaRegistry,
+    const AssertContext &a_assertContext) noexcept
+{
+    const auto *valueSchema = a_valueSchemaRegistry.find(a_typeId);
+    if (valueSchema == nullptr)
+    {
+        return Result<KnownComponentData>::failure(make_scene_error(
+            a_assertContext, SceneError::UnknownSchemaType,
+            "Known scene component requires a registered schema type"));
+    }
+    if (valueSchema->version() != a_schemaVersion)
+    {
+        return Result<KnownComponentData>::failure(make_scene_error(
+            a_assertContext, SceneError::InvalidComponentData,
+            "Known scene component schema version or field binding set is invalid"));
+    }
+
+    const auto fieldKinds = valueSchema->field_kinds();
 
     std::sort(a_knownFields.begin(), a_knownFields.end(),
               /// @brief Known FieldをStable FieldId順へ並べる
@@ -416,9 +595,14 @@ Result<KnownComponentData> create_known_component(
     for (std::size_t index = 0U; index < a_knownFields.size(); ++index)
     {
         const auto id = a_knownFields[index].id();
-        const auto *binding = find_binding(a_fieldKinds, id);
-        if (binding == nullptr || binding->kind != a_knownFields[index].value().kind() ||
-            (index > 0U && a_knownFields[index - 1U].id() == id))
+        if (index > 0U && a_knownFields[index - 1U].id() == id)
+        {
+            return Result<KnownComponentData>::failure(make_scene_error(
+                a_assertContext, SceneError::DuplicateFieldId,
+                "Known scene component contains a duplicate FieldId"));
+        }
+        const auto *binding = find_binding(fieldKinds, id);
+        if (binding == nullptr || binding->kind != a_knownFields[index].value().kind())
         {
             return Result<KnownComponentData>::failure(make_scene_error(
                 a_assertContext,
@@ -431,7 +615,7 @@ Result<KnownComponentData> create_known_component(
     for (std::size_t index = 0U; index < a_unknownFields.size(); ++index)
     {
         const auto id = a_unknownFields[index].id();
-        if (descriptor_has_field(*descriptor, id) ||
+        if (find_binding(fieldKinds, id) != nullptr ||
             (index > 0U && a_unknownFields[index - 1U].id() == id) ||
             std::any_of(a_knownFields.begin(), a_knownFields.end(),
                         /// @brief Known FieldとUnknown FieldのIdentity衝突を判定する
