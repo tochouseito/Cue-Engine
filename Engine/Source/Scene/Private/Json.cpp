@@ -11,7 +11,6 @@
 namespace
 {
 constexpr std::size_t k_maximumDepth = 64U;
-constexpr std::size_t k_maximumElements = 4096U;
 
 /// @brief UTF-8先頭位置から一ScalarとByte長を厳密に復号する
 [[nodiscard]] bool decode_utf8(std::string_view a_text, std::size_t a_offset, std::uint32_t &a_scalar,
@@ -216,7 +215,7 @@ class Parser final
         }
         while (true)
         {
-            if (a_value.members.size() >= k_maximumElements)
+            if (a_value.members.size() >= cue::scene::k_maximumSceneContainerElements)
             {
                 return fail("JSON object exceeds member limit");
             }
@@ -267,7 +266,7 @@ class Parser final
         }
         while (true)
         {
-            if (a_value.elements.size() >= k_maximumElements)
+            if (a_value.elements.size() >= cue::scene::k_maximumSceneContainerElements)
             {
                 return fail("JSON array exceeds element limit");
             }

@@ -107,15 +107,17 @@ class JsonSyntaxValidator final
 
     /// @brief JSON文書全体と必要なRoot形状を検証する
     [[nodiscard]] bool validate(bool a_requireObject,
-                                bool a_rejectIdentityMembers)
+                                bool a_rejectIdentityMembers,
+                                std::size_t a_embeddingDepth)
     {
         m_rejectIdentityMembers = a_rejectIdentityMembers;
+        m_rootObjectDepth = a_embeddingDepth + 1U;
         skip_whitespace();
         if (a_requireObject && peek() != '{')
         {
             return false;
         }
-        if (!parse_value(0U))
+        if (!parse_value(a_embeddingDepth))
         {
             return false;
         }
@@ -178,7 +180,7 @@ class JsonSyntaxValidator final
             ++m_position;
             return true;
         }
-        while (names.size() < 4096U)
+        while (names.size() < cue::scene::k_maximumSceneContainerElements)
         {
             std::string name;
             if (!parse_string(&name) ||
@@ -186,7 +188,7 @@ class JsonSyntaxValidator final
             {
                 return false;
             }
-            if (a_depth == 1U && m_rejectIdentityMembers &&
+            if (a_depth == m_rootObjectDepth && m_rejectIdentityMembers &&
                 (name == "componentInstanceId" || name == "typeId" ||
                  name == "schemaVersion"))
             {
@@ -230,7 +232,7 @@ class JsonSyntaxValidator final
             return true;
         }
         std::size_t count = 0U;
-        while (count < 4096U)
+        while (count < cue::scene::k_maximumSceneContainerElements)
         {
             if (!parse_value(a_depth))
             {
@@ -260,6 +262,7 @@ class JsonSyntaxValidator final
             return false;
         }
         ++m_position;
+        std::size_t decodedBytes = 0U;
         while (m_position < m_input.size())
         {
             const auto value = static_cast<unsigned char>(m_input[m_position++]);
@@ -273,6 +276,11 @@ class JsonSyntaxValidator final
             }
             if (value != '\\')
             {
+                ++decodedBytes;
+                if (decodedBytes > cue::scene::k_maximumSceneStringBytes)
+                {
+                    return false;
+                }
                 if (a_decoded != nullptr)
                 {
                     a_decoded->push_back(static_cast<char>(value));
@@ -312,6 +320,17 @@ class JsonSyntaxValidator final
                 {
                     return false;
                 }
+                const std::size_t encodedBytes =
+                    codePoint <= 0x7FU     ? 1U
+                    : codePoint <= 0x7FFU  ? 2U
+                    : codePoint <= 0xFFFFU ? 3U
+                                           : 4U;
+                if (decodedBytes >
+                    cue::scene::k_maximumSceneStringBytes - encodedBytes)
+                {
+                    return false;
+                }
+                decodedBytes += encodedBytes;
                 if (a_decoded != nullptr)
                 {
                     append_utf8(*a_decoded, codePoint);
@@ -346,6 +365,11 @@ class JsonSyntaxValidator final
                 decoded = '\t';
                 break;
             default:
+                return false;
+            }
+            ++decodedBytes;
+            if (decodedBytes > cue::scene::k_maximumSceneStringBytes)
+            {
                 return false;
             }
             if (a_decoded != nullptr)
@@ -486,12 +510,13 @@ class JsonSyntaxValidator final
     std::string_view m_input;
     std::size_t m_position = 0U;
     bool m_rejectIdentityMembers = false;
+    std::size_t m_rootObjectDepth = 1U;
 };
 
 /// @brief Opaque JSONのUTF-8、構文、重複Member、Root形状を検証する
 [[nodiscard]] bool validate_opaque_json(
     std::string_view a_json, bool a_requireObject,
-    bool a_rejectIdentityMembers,
+    bool a_rejectIdentityMembers, std::size_t a_embeddingDepth,
     const cue::AssertContext &a_assertContext) noexcept
 {
     if (!is_valid_utf8(a_json))
@@ -501,7 +526,8 @@ class JsonSyntaxValidator final
     try
     {
         JsonSyntaxValidator validator(a_json);
-        return validator.validate(a_requireObject, a_rejectIdentityMembers);
+        return validator.validate(a_requireObject, a_rejectIdentityMembers,
+                                  a_embeddingDepth);
     }
     catch (...)
     {
@@ -725,7 +751,7 @@ Result<OpaqueFieldData> OpaqueFieldData::create(
     const AssertContext &a_assertContext) noexcept
 {
     if (a_rawJson.empty() ||
-        !validate_opaque_json(a_rawJson, false, false, a_assertContext))
+        !validate_opaque_json(a_rawJson, false, false, 7U, a_assertContext))
     {
         return Result<OpaqueFieldData>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidOpaqueData,
@@ -973,7 +999,7 @@ Result<OpaqueComponentData> OpaqueComponentData::create(
     const AssertContext &a_assertContext) noexcept
 {
     if (a_rawJson.empty() ||
-        !validate_opaque_json(a_rawJson, true, true, a_assertContext))
+        !validate_opaque_json(a_rawJson, true, true, 5U, a_assertContext))
     {
         return Result<OpaqueComponentData>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidOpaqueData,
@@ -1009,7 +1035,7 @@ Result<OpaqueComponentData> OpaqueComponentData::create_complete_entry(
     const AssertContext &a_assertContext) noexcept
 {
     if (a_rawJson.empty() ||
-        !validate_opaque_json(a_rawJson, true, false, a_assertContext))
+        !validate_opaque_json(a_rawJson, true, false, 4U, a_assertContext))
     {
         return Result<OpaqueComponentData>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidOpaqueData,
@@ -1180,6 +1206,14 @@ Result<KnownComponentData> create_known_component(
     const ComponentValueSchemaRegistry &a_valueSchemaRegistry,
     const AssertContext &a_assertContext) noexcept
 {
+    if (a_knownFields.size() > k_maximumSceneContainerElements ||
+        a_unknownFields.size() >
+            k_maximumSceneContainerElements - a_knownFields.size())
+    {
+        return Result<KnownComponentData>::failure(make_scene_error(
+            a_assertContext, SceneError::InvalidComponentData,
+            "Scene component field count exceeds the 4096 element limit"));
+    }
     if (!a_valueSchemaRegistry.is_bound_to(a_schemaRegistry))
     {
         return Result<KnownComponentData>::failure(make_scene_error(
@@ -1244,7 +1278,7 @@ Result<KnownComponentData> create_known_component(
         const auto id = a_unknownFields[index].id();
         if (a_unknownFields[index].raw_json().empty() ||
             !validate_opaque_json(a_unknownFields[index].raw_json(), false,
-                                  false, a_assertContext))
+                                  false, 7U, a_assertContext))
         {
             return Result<KnownComponentData>::failure(make_scene_error(
                 a_assertContext, SceneError::InvalidOpaqueData,

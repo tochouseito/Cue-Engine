@@ -304,6 +304,12 @@ Result<void> SceneDocument::remove_component(const ObjectId &a_objectId,
 
 Result<void> SceneDocument::validate() const noexcept
 {
+    if (m_objects.size() > k_maximumSceneContainerElements)
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::InvalidFormat,
+            "Scene object count exceeds the 4096 element limit"));
+    }
     if (m_objectIndex.size() != m_objects.size())
     {
         return Result<void>::failure(make_scene_error(*m_assertContext, SceneError::DuplicateObjectId,
@@ -314,6 +320,12 @@ Result<void> SceneDocument::validate() const noexcept
     {
         for (const auto &object : m_objects)
         {
+            if (object.m_components.size() > k_maximumSceneContainerElements)
+            {
+                return Result<void>::failure(make_scene_error(
+                    *m_assertContext, SceneError::InvalidFormat,
+                    "Scene component count exceeds the 4096 element limit"));
+            }
             for (const auto &component : object.m_components)
             {
                 if (!component.is_valid())

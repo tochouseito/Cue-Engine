@@ -238,6 +238,17 @@ void test_component_data() noexcept
     const auto duplicateMemberField = cue::scene::OpaqueFieldData::create(
         unknownField, "{\"same\":1,\"same\":2}", assertContext);
     require(!duplicateMemberField.has_value());
+    const std::string oversizedOpaqueString =
+        std::string("\"") +
+        std::string(cue::scene::k_maximumSceneStringBytes + 1U, 's') + "\"";
+    require(!cue::scene::OpaqueFieldData::create(
+                 unknownField, oversizedOpaqueString, assertContext)
+                 .has_value());
+    const std::string overNestedOpaqueValue =
+        std::string(58U, '[') + "0" + std::string(58U, ']');
+    require(!cue::scene::OpaqueFieldData::create(
+                 unknownField, overNestedOpaqueValue, assertContext)
+                 .has_value());
 
     std::vector<cue::scene::KnownFieldData> repeatedFields;
     repeatedFields.push_back(take_value(cue::scene::create_known_field(
