@@ -1,7 +1,7 @@
 # Rebuild ECS Baseline Environment
 
 - Date: 2026-09-03
-- Rebuild benchmark commit: `5a032e330ca5e51bce6d96e5ee0ae0a3a0feb541`
+- Rebuild benchmark commit: `a3323147d08427becb52c10e23f30bfc7232021c`
 - Host: Windows x64
 - OS: Microsoft Windows 11 Home 10.0.26200、Build 26200.9168
 - CPU: AMD Ryzen 7 3700X 8-Core Processor
