@@ -17,6 +17,8 @@ class SceneDocumentSerializationAccess;
 
 /// @brief Scene File内の復号済み一String Valueが所有できる最大Byte数
 inline constexpr std::size_t k_maximumSceneStringBytes = 256U * 1024U;
+/// @brief Scene File全体または一つのOpaque JSONが所有できる最大Byte数
+inline constexpr std::size_t k_maximumSceneBytes = 16U * 1024U * 1024U;
 /// @brief Scene File内の一ObjectまたはArrayが所有できる最大要素数
 inline constexpr std::size_t k_maximumSceneContainerElements = 4096U;
 /// @brief Scene File内のRootから数えるJSON Container最大Nesting Depth

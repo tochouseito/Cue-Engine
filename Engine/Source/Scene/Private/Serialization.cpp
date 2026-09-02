@@ -20,7 +20,7 @@
 
 namespace
 {
-constexpr std::size_t k_maximumSceneBytes = 16U * 1024U * 1024U;
+using cue::scene::k_maximumSceneBytes;
 using cue::scene_private::JsonType;
 using cue::scene_private::JsonValue;
 

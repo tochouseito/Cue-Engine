@@ -527,7 +527,8 @@ class JsonSyntaxValidator final
     bool a_rejectIdentityMembers, std::size_t a_embeddingDepth,
     const cue::AssertContext &a_assertContext) noexcept
 {
-    if (!is_valid_utf8(a_json))
+    if (a_json.size() > cue::scene::k_maximumSceneBytes ||
+        !is_valid_utf8(a_json))
     {
         return false;
     }
