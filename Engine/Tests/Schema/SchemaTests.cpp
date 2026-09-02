@@ -18,7 +18,7 @@
 
 namespace
 {
-static_assert(std::is_move_constructible_v<cue::schema::SchemaRegistry>);
+static_assert(!std::is_move_constructible_v<cue::schema::SchemaRegistry>);
 static_assert(!std::is_move_assignable_v<cue::schema::SchemaRegistry>);
 
 class TestFatalHandler final : public cue::FatalHandler
@@ -227,9 +227,15 @@ template <typename T>
         make_type(firstId, "Cue.Test.First", a_assertContext));
     auto otherRegistryResult = otherBuilder.seal();
 
-    const auto *firstRegistry = firstRegistryResult.try_value();
-    const auto *secondRegistry = secondRegistryResult.try_value();
-    const auto *otherRegistry = otherRegistryResult.try_value();
+    const auto *firstRegistryOwner = firstRegistryResult.try_value();
+    const auto *secondRegistryOwner = secondRegistryResult.try_value();
+    const auto *otherRegistryOwner = otherRegistryResult.try_value();
+    const auto *firstRegistry =
+        firstRegistryOwner == nullptr ? nullptr : firstRegistryOwner->get();
+    const auto *secondRegistry =
+        secondRegistryOwner == nullptr ? nullptr : secondRegistryOwner->get();
+    const auto *otherRegistry =
+        otherRegistryOwner == nullptr ? nullptr : otherRegistryOwner->get();
 
     if (!firstAddSecond || !firstAddFirst || !secondAddFirst || !secondAddSecond ||
         !otherAddFirst || firstRegistry == nullptr || secondRegistry == nullptr ||
@@ -364,7 +370,9 @@ template <typename T>
         make_type(activeIdText, "Cue.Test.Active", a_assertContext));
     auto addTombstone = builder.add_tombstone(tombstoneId, "Cue.Test.Module");
     auto registryResult = builder.seal();
-    const auto *registry = registryResult.try_value();
+    const auto *registryOwner = registryResult.try_value();
+    const auto *registry =
+        registryOwner == nullptr ? nullptr : registryOwner->get();
 
     if (!addType || !addTombstone || registry == nullptr)
     {

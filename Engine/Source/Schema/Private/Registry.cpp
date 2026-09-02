@@ -402,21 +402,21 @@ Result<void> SchemaRegistryBuilder::add_tombstone(
     return Result<void>::success();
 }
 
-Result<SchemaRegistry> SchemaRegistryBuilder::seal() noexcept
+Result<std::unique_ptr<SchemaRegistry>> SchemaRegistryBuilder::seal() noexcept
 {
     CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_ownerThread,
                "SchemaRegistryBuilder must be sealed on its owner thread");
 
     if (m_isSealed)
     {
-        return Result<SchemaRegistry>::failure(make_schema_error(
+        return Result<std::unique_ptr<SchemaRegistry>>::failure(make_schema_error(
             *m_assertContext, SchemaError::BuilderSealed,
             "Schema registry builder can be sealed only once"));
     }
 
     if (m_hasFailed)
     {
-        return Result<SchemaRegistry>::failure(make_schema_error(
+        return Result<std::unique_ptr<SchemaRegistry>>::failure(make_schema_error(
             *m_assertContext, SchemaError::BuilderFailed,
             "Schema registry builder previously rejected a registration and cannot seal"));
     }
@@ -427,7 +427,7 @@ Result<SchemaRegistry> SchemaRegistryBuilder::seal() noexcept
     if (m_descriptors.size() > maximumTypeCount)
     {
         m_hasFailed = true;
-        return Result<SchemaRegistry>::failure(make_schema_error(
+        return Result<std::unique_ptr<SchemaRegistry>>::failure(make_schema_error(
             *m_assertContext, SchemaError::CapacityExceeded,
             "Schema registry exceeds the DenseTypeIndex capacity"));
     }
@@ -437,7 +437,7 @@ Result<SchemaRegistry> SchemaRegistryBuilder::seal() noexcept
     if (!generation.has_value())
     {
         m_hasFailed = true;
-        return Result<SchemaRegistry>::failure(make_schema_error(
+        return Result<std::unique_ptr<SchemaRegistry>>::failure(make_schema_error(
             *m_assertContext, SchemaError::CapacityExceeded,
             "Schema registry generation capacity is exhausted"));
     }
@@ -449,9 +449,24 @@ Result<SchemaRegistry> SchemaRegistryBuilder::seal() noexcept
                   return a_left.id() < a_right.id();
               });
     std::sort(m_tombstones.begin(), m_tombstones.end());
+    std::unique_ptr<SchemaRegistry> registry;
+
+    try
+    {
+        registry.reset(new SchemaRegistry(std::move(m_descriptors),
+                                          std::move(m_tombstones),
+                                          *m_identitySource, *generation));
+    }
+    catch (const std::bad_alloc &)
+    {
+        terminate_registry_allocation(*m_assertContext);
+    }
+    catch (...)
+    {
+        terminate_registry_exception(*m_assertContext);
+    }
+
     m_isSealed = true;
-    return Result<SchemaRegistry>::success(
-        SchemaRegistry(std::move(m_descriptors), std::move(m_tombstones),
-                       *m_identitySource, *generation));
+    return Result<std::unique_ptr<SchemaRegistry>>::success(std::move(registry));
 }
 } // namespace cue::schema

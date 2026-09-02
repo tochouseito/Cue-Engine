@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -49,8 +50,8 @@ class SchemaRegistry final
     SchemaRegistry(const SchemaRegistry &) = delete;
     /// @brief 所有Descriptorの暗黙Allocationを避けるためCopy代入を禁止する
     SchemaRegistry &operator=(const SchemaRegistry &) = delete;
-    /// @brief Immutable Registryの所有権を移動する
-    SchemaRegistry(SchemaRegistry &&) noexcept = default;
+    /// @brief 発行済み参照の寿命をObjectへ固定するためMove構築を禁止する
+    SchemaRegistry(SchemaRegistry &&) noexcept = delete;
     /// @brief 発行済み参照とIndexを保護するためRegistryの置換を禁止する
     SchemaRegistry &operator=(SchemaRegistry &&) noexcept = delete;
     /// @brief Registryが所有するDescriptorとTombstoneを破棄する
@@ -108,7 +109,7 @@ class SchemaRegistryBuilder final
     [[nodiscard]] Result<void> add_tombstone(TypeId a_id,
                                             std::string_view a_sourceName) noexcept;
     /// @brief 全衝突を検証しTypeId順のImmutable Registryへ所有権を移す
-    [[nodiscard]] Result<SchemaRegistry> seal() noexcept;
+    [[nodiscard]] Result<std::unique_ptr<SchemaRegistry>> seal() noexcept;
 
   private:
     const AssertContext *m_assertContext;
