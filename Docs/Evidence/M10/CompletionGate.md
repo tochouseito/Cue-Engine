@@ -37,13 +37,13 @@ GameCore SourceとBenchmarkに`Cue.Project`、`Cue.Platform`、`Cue.RHI`、`Cue.
 
 | Workload | Legacy median | Rebuild median | Observation |
 |---|---:|---:|---|
-| `entity_generate` | 10.0870 | 2.72970 | 次の計測で再現性を確認する候補 |
-| `entity_destroy_reuse` | 29.5668 | 435.184 | 大規模Free List／全Storage走査の調査候補 |
-| `component_add` | 66.3325 | 447.828 | Sparse拡張とCapability検証の調査候補 |
-| `component_get_sequential` | 1.31070 | 3.90740 | 検証CostとCache挙動の調査候補 |
-| `component_remove` | 8.02720 | 5.73860 | 次の計測で再現性を確認する候補 |
-| `query_two_components` | 7.58990 | 1.04255 | Storage交差方法の比較候補 |
-| `deferred_component_remove` | 8.53485 | 23.0776 | Command Result生成を含むSafe Point Costの調査候補 |
+| `entity_generate` | 10.0870 | 2.98110 | 次の計測で再現性を確認する候補 |
+| `entity_destroy_reuse` | 29.5668 | 456.758 | 大規模Free List／全Storage走査の調査候補 |
+| `component_add` | 66.3325 | 442.552 | Sparse拡張とCapability検証の調査候補 |
+| `component_get_sequential` | 1.31070 | 4.00800 | 検証CostとCache挙動の調査候補 |
+| `component_remove` | 8.02720 | 5.73235 | 次の計測で再現性を確認する候補 |
+| `query_two_components` | 7.58990 | 1.01040 | Storage交差方法の比較候補 |
+| `deferred_component_remove` | 8.53485 | 21.4369 | Command Result生成を含むSafe Point Costの調査候補 |
 
 この表は単一Machineの初期観測であり、性能改善またはRegressionの確定判定ではない。
 両実装は同じ意味のWorkloadを実行するが、Entity検証、Capability、System dispatch、Deferred CommandのSafety契約が異なる。
@@ -61,6 +61,7 @@ GameCore SourceとBenchmarkに`Cue.Project`、`Cue.Platform`、`Cue.RHI`、`Cue.
 - `CueGameCoreBenchmark.exe --entities 10000 --warmup 3 --iterations 10 ...`
 - `CueGameCoreBenchmark.exe --entities 100000 --warmup 3 --iterations 10 ...`
 - JSON parse、Workload順序、Commit Identity、`git diff --check`、依存Include検査
+- Build直前のCommit不一致拒否と測定対象Source未Commit変更拒否
 
 ## Not Run
 
