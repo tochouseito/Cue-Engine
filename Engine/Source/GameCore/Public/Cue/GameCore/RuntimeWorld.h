@@ -54,7 +54,7 @@ class RuntimeWorld final
     };
 
     /// @brief 呼び出し Thread を Owner とする初期化前の Headless Runtime World 所有者を生成する
-    /// @param a_identitySource Process 全体で共有し全 RuntimeWorld と発行済み EntityHandle より長く生存する発行元
+    /// @param a_identitySource Process 全体で共有し全 RuntimeWorld、発行済み EntityHandle、ComponentType より長く生存する発行元
     /// @param a_schemaRegistry RuntimeWorld より長く生存する Seal 済み Schema Registry
     /// @param a_transformTypeId Core Transform を識別する登録済み Schema Type
     /// @param a_assertContext RuntimeWorld より長く生存する非所有診断 Context
