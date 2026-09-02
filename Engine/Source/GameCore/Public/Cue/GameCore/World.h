@@ -173,6 +173,7 @@ class World final
 
         assert_owner_thread();
         assert_active();
+        StructuralMutationScope mutationScope(*this);
         auto denseResult = m_schemaRegistry->dense_index(a_typeId, *m_assertContext);
         auto *denseIndex = denseResult.try_value();
 
@@ -210,6 +211,7 @@ class World final
 
         assert_owner_thread();
         assert_active();
+        StructuralMutationScope mutationScope(*this);
 
         if (!validate_entity(a_entity))
         {
@@ -343,6 +345,7 @@ class World final
     {
         assert_owner_thread();
         assert_active();
+        StructuralMutationScope mutationScope(*this);
 
         if (!validate_entity(a_entity))
         {
@@ -380,6 +383,35 @@ class World final
         Active,
         ShuttingDown,
         Destroyed
+    };
+
+    class StructuralMutationScope final
+    {
+      public:
+        /// @brief World の Structural Mutation 排他区間を開始する
+        explicit StructuralMutationScope(World &a_world) noexcept
+            : m_world(&a_world)
+        {
+            m_world->begin_structural_mutation();
+        }
+
+        /// @brief Structural Mutation 排他区間の複製を禁止する
+        StructuralMutationScope(const StructuralMutationScope &) = delete;
+        /// @brief Structural Mutation 排他区間の複製代入を禁止する
+        StructuralMutationScope &operator=(const StructuralMutationScope &) = delete;
+        /// @brief Structural Mutation 排他区間の移動を禁止する
+        StructuralMutationScope(StructuralMutationScope &&) = delete;
+        /// @brief Structural Mutation 排他区間の移動代入を禁止する
+        StructuralMutationScope &operator=(StructuralMutationScope &&) = delete;
+
+        /// @brief Scope 終了時に World の Structural Mutation 排他を解放する
+        ~StructuralMutationScope() noexcept
+        {
+            m_world->end_structural_mutation();
+        }
+
+      private:
+        World *m_world;
     };
 
     struct EntitySlot final
@@ -610,6 +642,10 @@ class World final
     void assert_owner_thread() const noexcept;
     /// @brief World が Public 操作を受け付ける Active 状態であることを検証する
     void assert_active() const noexcept;
+    /// @brief Structural Mutation の再入を拒否して排他区間を開始する
+    void begin_structural_mutation() noexcept;
+    /// @brief 現在の Structural Mutation 排他区間を終了する
+    void end_structural_mutation() noexcept;
     /// @brief Handle の World、Slot、Generation、Token が現在状態と一致するか検証する
     [[nodiscard]] bool validate_entity(EntityHandle a_entity) const noexcept;
     /// @brief World と Slot 状態から Handle 改変検出 Token を生成する
@@ -626,6 +662,7 @@ class World final
     const AssertContext *m_assertContext;
     std::thread::id m_ownerThread;
     State m_state = State::Active;
+    bool m_isStructuralMutationActive = false;
     std::vector<EntitySlot> m_slots;
     std::vector<std::uint32_t> m_freeIndices;
     std::vector<ComponentBinding> m_componentBindings;

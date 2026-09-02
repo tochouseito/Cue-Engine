@@ -120,6 +120,7 @@ Result<EntityHandle> World::create_entity() noexcept
 {
     assert_owner_thread();
     assert_active();
+    StructuralMutationScope mutationScope(*this);
     std::uint32_t index = 0U;
 
     if (!m_freeIndices.empty())
@@ -166,6 +167,7 @@ Result<void> World::destroy_entity(EntityHandle a_entity) noexcept
 {
     assert_owner_thread();
     assert_active();
+    StructuralMutationScope mutationScope(*this);
 
     if (!validate_entity(a_entity))
     {
@@ -255,6 +257,27 @@ void World::assert_active() const noexcept
         m_assertContext->fatal_handler().terminate(
             "Cue.GameCore World API requires an active world");
     }
+}
+
+void World::begin_structural_mutation() noexcept
+{
+    CUE_ASSERT(*m_assertContext, !m_isStructuralMutationActive,
+               "Cue.GameCore structural mutation must not be re-entered");
+
+    if (m_isStructuralMutationActive)
+    {
+        m_assertContext->fatal_handler().terminate(
+            "Cue.GameCore structural mutation must not be re-entered");
+    }
+
+    m_isStructuralMutationActive = true;
+}
+
+void World::end_structural_mutation() noexcept
+{
+    CUE_ASSERT(*m_assertContext, m_isStructuralMutationActive,
+               "Cue.GameCore structural mutation scope is not active");
+    m_isStructuralMutationActive = false;
 }
 
 bool World::validate_entity(EntityHandle a_entity) const noexcept
