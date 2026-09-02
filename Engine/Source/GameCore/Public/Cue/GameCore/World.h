@@ -756,26 +756,27 @@ class World final
     {
         assert_owner_thread();
         assert_active();
-        QueryScope queryScope(*this);
-
-        if (!validate_component_type(a_type))
-        {
-            return Result<std::size_t>::failure(make_game_core_error(
-                *m_assertContext, GameCoreError::InvalidQuery,
-                "Query requires a registered component type"));
-        }
-
-        const auto storageIndex =
-            static_cast<std::size_t>(a_type.m_denseIndex.value());
-        auto *baseStorage = m_componentStorages[storageIndex].get();
-
-        if (baseStorage == nullptr)
-        {
-            return Result<std::size_t>::success(0U);
-        }
 
         try
         {
+            QueryScope queryScope(*this);
+
+            if (!validate_component_type(a_type))
+            {
+                return Result<std::size_t>::failure(make_game_core_error(
+                    *m_assertContext, GameCoreError::InvalidQuery,
+                    "Query requires a registered component type"));
+            }
+
+            const auto storageIndex =
+                static_cast<std::size_t>(a_type.m_denseIndex.value());
+            auto *baseStorage = m_componentStorages[storageIndex].get();
+
+            if (baseStorage == nullptr)
+            {
+                return Result<std::size_t>::success(0U);
+            }
+
             auto *storage = static_cast<ComponentStorage<T> *>(baseStorage);
             const std::size_t count = storage->size();
 
@@ -814,31 +815,32 @@ class World final
     {
         assert_owner_thread();
         assert_active();
-        QueryScope queryScope(*this);
-
-        if (a_firstType.m_denseIndex == a_secondType.m_denseIndex ||
-            !validate_component_type(a_firstType) ||
-            !validate_component_type(a_secondType))
-        {
-            return Result<std::size_t>::failure(make_game_core_error(
-                *m_assertContext, GameCoreError::InvalidQuery,
-                "Query requires distinct registered component types"));
-        }
-
-        const auto firstIndex =
-            static_cast<std::size_t>(a_firstType.m_denseIndex.value());
-        const auto secondIndex =
-            static_cast<std::size_t>(a_secondType.m_denseIndex.value());
-        auto *firstBase = m_componentStorages[firstIndex].get();
-        auto *secondBase = m_componentStorages[secondIndex].get();
-
-        if (firstBase == nullptr || secondBase == nullptr)
-        {
-            return Result<std::size_t>::success(0U);
-        }
 
         try
         {
+            QueryScope queryScope(*this);
+
+            if (a_firstType.m_denseIndex == a_secondType.m_denseIndex ||
+                !validate_component_type(a_firstType) ||
+                !validate_component_type(a_secondType))
+            {
+                return Result<std::size_t>::failure(make_game_core_error(
+                    *m_assertContext, GameCoreError::InvalidQuery,
+                    "Query requires distinct registered component types"));
+            }
+
+            const auto firstIndex =
+                static_cast<std::size_t>(a_firstType.m_denseIndex.value());
+            const auto secondIndex =
+                static_cast<std::size_t>(a_secondType.m_denseIndex.value());
+            auto *firstBase = m_componentStorages[firstIndex].get();
+            auto *secondBase = m_componentStorages[secondIndex].get();
+
+            if (firstBase == nullptr || secondBase == nullptr)
+            {
+                return Result<std::size_t>::success(0U);
+            }
+
             auto *firstStorage = static_cast<ComponentStorage<T> *>(firstBase);
             auto *secondStorage = static_cast<ComponentStorage<U> *>(secondBase);
             const ComponentStorageBase *driver = firstBase;

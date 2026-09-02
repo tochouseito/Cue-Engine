@@ -105,6 +105,16 @@ World::~World() noexcept
 {
     assert_owner_thread();
     assert_active();
+    CUE_ASSERT(*m_assertContext,
+               !m_isQueryActive && !m_isStructuralMutationActive,
+               "Cue.GameCore world destruction requires a safe point");
+
+    if (m_isQueryActive || m_isStructuralMutationActive)
+    {
+        m_assertContext->fatal_handler().terminate(
+            "Cue.GameCore world destruction requires a safe point");
+    }
+
     m_state = State::ShuttingDown;
 
     for (auto iterator = m_storageCreationOrder.rbegin();

@@ -245,6 +245,34 @@ struct EmptyComponent final
         return 0;
     }
 
+    if (a_mode == "QueryDestruction")
+    {
+        /// @brief Query Callback 中の World 破棄が Storage 解放前に拒否されることを検証する
+        auto callback = [&world](cue::game_core::EntityHandle,
+                                 const ReentrantDestructorComponent &) noexcept
+        {
+            (*world.try_value()).reset();
+        };
+        auto query = (*world.try_value())->query_read(
+            *componentType.try_value(), callback);
+        static_cast<void>(query);
+        return 0;
+    }
+
+    if (a_mode == "QueryException")
+    {
+        /// @brief Query Callback 例外が Guard の Stack Unwind 後に Fatal へ移ることを検証する
+        auto callback = [](cue::game_core::EntityHandle,
+                           const ReentrantDestructorComponent &)
+        {
+            throw 1;
+        };
+        auto query = (*world.try_value())->query_read(
+            *componentType.try_value(), callback);
+        static_cast<void>(query);
+        return 0;
+    }
+
     if (a_mode == "WrongThread")
     {
         /// @brief World Owner以外のThreadからStructural APIを呼び出す
