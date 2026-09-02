@@ -172,6 +172,7 @@ class World final
         static_assert(std::is_nothrow_move_constructible_v<T>);
 
         assert_owner_thread();
+        assert_active();
         auto denseResult = m_schemaRegistry->dense_index(a_typeId, *m_assertContext);
         auto *denseIndex = denseResult.try_value();
 
@@ -208,6 +209,7 @@ class World final
         static_assert(std::is_nothrow_constructible_v<T, Args...>);
 
         assert_owner_thread();
+        assert_active();
 
         if (!validate_entity(a_entity))
         {
@@ -272,6 +274,7 @@ class World final
         ComponentType<T> a_type, EntityHandle a_entity) const noexcept
     {
         assert_owner_thread();
+        assert_active();
 
         if (!validate_entity(a_entity))
         {
@@ -301,6 +304,7 @@ class World final
         ComponentType<T> a_type, EntityHandle a_entity) noexcept
     {
         assert_owner_thread();
+        assert_active();
 
         if (!validate_entity(a_entity))
         {
@@ -338,6 +342,7 @@ class World final
         ComponentType<T> a_type, EntityHandle a_entity) noexcept
     {
         assert_owner_thread();
+        assert_active();
 
         if (!validate_entity(a_entity))
         {
@@ -370,6 +375,13 @@ class World final
     }
 
   private:
+    enum class State : std::uint8_t
+    {
+        Active,
+        ShuttingDown,
+        Destroyed
+    };
+
     struct EntitySlot final
     {
         std::uint32_t generation = 1U;
@@ -596,6 +608,8 @@ class World final
 
     /// @brief 現在 Thread が World Owner Thread であることを検証する
     void assert_owner_thread() const noexcept;
+    /// @brief World が Public 操作を受け付ける Active 状態であることを検証する
+    void assert_active() const noexcept;
     /// @brief Handle の World、Slot、Generation、Token が現在状態と一致するか検証する
     [[nodiscard]] bool validate_entity(EntityHandle a_entity) const noexcept;
     /// @brief World と Slot 状態から Handle 改変検出 Token を生成する
@@ -611,6 +625,7 @@ class World final
     const schema::SchemaRegistry *m_schemaRegistry;
     const AssertContext *m_assertContext;
     std::thread::id m_ownerThread;
+    State m_state = State::Active;
     std::vector<EntitySlot> m_slots;
     std::vector<std::uint32_t> m_freeIndices;
     std::vector<ComponentBinding> m_componentBindings;

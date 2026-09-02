@@ -104,17 +104,22 @@ World::World(ConstructionKey, std::uint64_t a_worldId,
 World::~World() noexcept
 {
     assert_owner_thread();
+    assert_active();
+    m_state = State::ShuttingDown;
 
     for (auto iterator = m_storageCreationOrder.rbegin();
          iterator != m_storageCreationOrder.rend(); ++iterator)
     {
         m_componentStorages[*iterator].reset();
     }
+
+    m_state = State::Destroyed;
 }
 
 Result<EntityHandle> World::create_entity() noexcept
 {
     assert_owner_thread();
+    assert_active();
     std::uint32_t index = 0U;
 
     if (!m_freeIndices.empty())
@@ -160,6 +165,7 @@ Result<EntityHandle> World::create_entity() noexcept
 Result<void> World::destroy_entity(EntityHandle a_entity) noexcept
 {
     assert_owner_thread();
+    assert_active();
 
     if (!validate_entity(a_entity))
     {
@@ -215,17 +221,21 @@ Result<void> World::destroy_entity(EntityHandle a_entity) noexcept
 bool World::is_alive(EntityHandle a_entity) const noexcept
 {
     assert_owner_thread();
+    assert_active();
     return validate_entity(a_entity);
 }
 
 std::size_t World::entity_count() const noexcept
 {
     assert_owner_thread();
+    assert_active();
     return m_entityCount;
 }
 
 std::uint64_t World::id() const noexcept
 {
+    assert_owner_thread();
+    assert_active();
     return m_worldId;
 }
 
@@ -233,6 +243,18 @@ void World::assert_owner_thread() const noexcept
 {
     CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_ownerThread,
                "Cue.GameCore World API requires its owner thread");
+}
+
+void World::assert_active() const noexcept
+{
+    CUE_ASSERT(*m_assertContext, m_state == State::Active,
+               "Cue.GameCore World API requires an active world");
+
+    if (m_state != State::Active)
+    {
+        m_assertContext->fatal_handler().terminate(
+            "Cue.GameCore World API requires an active world");
+    }
 }
 
 bool World::validate_entity(EntityHandle a_entity) const noexcept
