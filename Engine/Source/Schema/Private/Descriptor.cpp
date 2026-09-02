@@ -340,18 +340,28 @@ Result<void> validate_type_descriptor(
 
     const auto fields = a_descriptor.fields();
 
+    for (std::size_t left = 0U; left < fields.size(); ++left)
+    {
+        for (std::size_t right = left + 1U; right < fields.size(); ++right)
+        {
+            if (fields[left].id() == fields[right].id())
+            {
+                return Result<void>::failure(make_field_collision_error(
+                    a_assertContext, SchemaError::DuplicateFieldId,
+                    "DuplicateFieldId", a_descriptor.id(), a_descriptor.name(),
+                    fields[left].id().value(), fields[left].name(),
+                    fields[right].id().value(), fields[right].name()));
+            }
+        }
+    }
+
     for (std::size_t index = 1U; index < fields.size(); ++index)
     {
-        if (fields[index - 1U].id() >= fields[index].id())
+        if (fields[index - 1U].id() > fields[index].id())
         {
-            const bool isDuplicate =
-                fields[index - 1U].id() == fields[index].id();
-            const auto code = isDuplicate ? SchemaError::DuplicateFieldId
-                                          : SchemaError::InvalidFieldId;
-            const auto rule = isDuplicate ? "DuplicateFieldId"
-                                          : "InvalidFieldOrder";
             return Result<void>::failure(make_field_collision_error(
-                a_assertContext, code, rule, a_descriptor.id(),
+                a_assertContext, SchemaError::InvalidFieldId,
+                "InvalidFieldOrder", a_descriptor.id(),
                 a_descriptor.name(), fields[index - 1U].id().value(),
                 fields[index - 1U].name(), fields[index].id().value(),
                 fields[index].name()));
@@ -375,15 +385,28 @@ Result<void> validate_type_descriptor(
 
     const auto reservedIds = a_descriptor.reserved_field_ids();
 
+    for (std::size_t left = 0U; left < reservedIds.size(); ++left)
+    {
+        for (std::size_t right = left + 1U; right < reservedIds.size(); ++right)
+        {
+            if (reservedIds[left] == reservedIds[right])
+            {
+                return Result<void>::failure(make_field_collision_error(
+                    a_assertContext, SchemaError::ReservedFieldId,
+                    "DuplicateReservedFieldId", a_descriptor.id(),
+                    a_descriptor.name(), reservedIds[left].value(), "<reserved>",
+                    reservedIds[right].value(), "<reserved>"));
+            }
+        }
+    }
+
     for (std::size_t index = 1U; index < reservedIds.size(); ++index)
     {
-        if (reservedIds[index - 1U] >= reservedIds[index])
+        if (reservedIds[index - 1U] > reservedIds[index])
         {
-            const auto rule = reservedIds[index - 1U] == reservedIds[index]
-                                  ? "DuplicateReservedFieldId"
-                                  : "InvalidReservedFieldOrder";
             return Result<void>::failure(make_field_collision_error(
-                a_assertContext, SchemaError::ReservedFieldId, rule,
+                a_assertContext, SchemaError::ReservedFieldId,
+                "InvalidReservedFieldOrder",
                 a_descriptor.id(), a_descriptor.name(),
                 reservedIds[index - 1U].value(), "<reserved>",
                 reservedIds[index].value(), "<reserved>"));

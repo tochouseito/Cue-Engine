@@ -202,6 +202,7 @@ void invalidate_for_test(cue::schema::SchemaVersion &a_version) noexcept
     std::vector<cue::schema::FieldDescriptor> forgedFields;
     forgedFields.push_back(make_field(10U, "first", a_assertContext));
     forgedFields.push_back(make_field(11U, "second", a_assertContext));
+    forgedFields.push_back(make_field(12U, "third", a_assertContext));
     std::vector<cue::schema::FieldId> forgedReservedIds;
     auto forgedFieldsResult = cue::schema::create_type_descriptor(
         make_type_id("c0000000-0000-4000-8000-00000000000c", a_assertContext),
@@ -215,10 +216,10 @@ void invalidate_for_test(cue::schema::SchemaVersion &a_version) noexcept
     }
 
     auto descriptorFields = forgedFieldsDescriptor->fields();
-    auto *secondField = const_cast<cue::schema::FieldDescriptor *>(
-        &descriptorFields[1U]);
-    auto *secondFieldId = reinterpret_cast<cue::schema::FieldId *>(secondField);
-    *secondFieldId = make_field_id(10U, a_assertContext);
+    auto *thirdField = const_cast<cue::schema::FieldDescriptor *>(
+        &descriptorFields[2U]);
+    auto *thirdFieldId = reinterpret_cast<cue::schema::FieldId *>(thirdField);
+    *thirdFieldId = make_field_id(10U, a_assertContext);
     cue::schema::SchemaRegistryBuilder fieldBuilder(identitySource,
                                                     a_assertContext);
     auto invalidFieldCollection =
@@ -235,6 +236,8 @@ void invalidate_for_test(cue::schema::SchemaVersion &a_version) noexcept
         make_field_id(12U, a_assertContext));
     forgedReservedIdsForRegistration.push_back(
         make_field_id(13U, a_assertContext));
+    forgedReservedIdsForRegistration.push_back(
+        make_field_id(14U, a_assertContext));
     auto forgedReservedResult = cue::schema::create_type_descriptor(
         make_type_id("d0000000-0000-4000-8000-00000000000d", a_assertContext),
         "Cue.Test.ForgedReserved", make_version(a_assertContext),
@@ -251,7 +254,7 @@ void invalidate_for_test(cue::schema::SchemaVersion &a_version) noexcept
         forgedReservedDescriptor->reserved_field_ids();
     auto *mutableReservedIds =
         const_cast<cue::schema::FieldId *>(descriptorReservedIds.data());
-    mutableReservedIds[1U] = make_field_id(12U, a_assertContext);
+    mutableReservedIds[2U] = make_field_id(12U, a_assertContext);
     cue::schema::SchemaRegistryBuilder reservedBuilder(identitySource,
                                                        a_assertContext);
     auto invalidReservedCollection =
