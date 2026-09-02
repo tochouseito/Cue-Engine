@@ -318,6 +318,32 @@ template <typename Value> Value take_value(cue::Result<Value> &&a_result) noexce
         cue::scene::ComponentValueSchemaRegistry::create(std::move(schemas), a_registry, a_assertContext));
 }
 
+/// @brief 各Container上限内の小さい値を多数持つJSON Array Fixtureを生成する
+[[nodiscard]] std::string make_dense_json_array(std::size_t a_outerCount)
+{
+    std::string result("[");
+    for (std::size_t outer = 0U; outer < a_outerCount; ++outer)
+    {
+        if (outer > 0U)
+        {
+            result.push_back(',');
+        }
+        result.push_back('[');
+        for (std::size_t inner = 0U;
+             inner < cue::scene::k_maximumSceneContainerElements; ++inner)
+        {
+            if (inner > 0U)
+            {
+                result.push_back(',');
+            }
+            result.push_back('0');
+        }
+        result.push_back(']');
+    }
+    result.push_back(']');
+    return result;
+}
+
 /// @brief JSON内Format Versionを一回だけ次Versionへ置換する
 [[nodiscard]] cue::Result<std::string> migrate_version(std::string_view a_json, std::string_view a_before,
                                                        std::string_view a_after,
@@ -420,29 +446,50 @@ void test_serialization() noexcept
     auto parsed = cue::scene::parse_scene_document(k_sceneJson, *registry, valueRegistry, migrations,
                                                    componentMigrations, assertContext);
     require(parsed.has_value());
-    std::string excessiveNodeJson("[");
-    for (std::size_t outer = 0U; outer < 64U; ++outer)
-    {
-        if (outer > 0U)
-        {
-            excessiveNodeJson.push_back(',');
-        }
-        excessiveNodeJson.push_back('[');
-        for (std::size_t inner = 0U;
-             inner < cue::scene::k_maximumSceneContainerElements; ++inner)
-        {
-            if (inner > 0U)
-            {
-                excessiveNodeJson.push_back(',');
-            }
-            excessiveNodeJson.push_back('0');
-        }
-        excessiveNodeJson.push_back(']');
-    }
-    excessiveNodeJson.push_back(']');
+    const std::string excessiveNodeJson = make_dense_json_array(64U);
     require(!cue::scene::parse_scene_document(
                  excessiveNodeJson, *registry, valueRegistry, migrations,
                  componentMigrations, assertContext)
+                 .has_value());
+    require(!cue::scene::OpaqueFieldData::create(
+                 make_field_id(99U, assertContext), excessiveNodeJson,
+                 assertContext)
+                 .has_value());
+
+    const std::string densePayload =
+        std::string("{\"dense\":") + make_dense_json_array(32U) + "}";
+    auto aggregateDocument = cue::scene::SceneDocument::create(
+        take_value(cue::scene::SceneAssetId::parse(
+            "00000000-0000-4000-8000-000000000031", assertContext)),
+        assertContext);
+    const auto aggregateObjectId = take_value(cue::scene::ObjectId::parse(
+        "00000000-0000-4000-8000-000000000032", assertContext));
+    require(aggregateDocument
+                .add_object(aggregateObjectId, "Dense", true, std::nullopt,
+                            cue::math::Transform{})
+                .has_value());
+    const auto opaqueTypeId = take_value(cue::schema::TypeId::parse(
+        "20000000-0000-4000-8000-000000000001", assertContext));
+    const auto opaqueVersion = make_version(1U, assertContext);
+    for (std::uint32_t index = 1U; index <= 2U; ++index)
+    {
+        const auto componentId =
+            take_value(cue::scene::ComponentInstanceId::parse(
+                index == 1U
+                    ? "00000000-0000-4000-8000-000000000033"
+                    : "00000000-0000-4000-8000-000000000034",
+                assertContext));
+        auto opaque = take_value(cue::scene::OpaqueComponentData::create(
+            componentId, opaqueTypeId, opaqueVersion, densePayload, *registry,
+            assertContext));
+        require(aggregateDocument
+                    .add_component(
+                        aggregateObjectId,
+                        cue::scene::SceneComponent::opaque(std::move(opaque)))
+                    .has_value());
+    }
+    require(!cue::scene::serialize_scene_document(aggregateDocument,
+                                                   assertContext)
                  .has_value());
     cue::schema::SchemaRegistryIdentitySource mismatchedIdentitySource;
     auto mismatchedRegistry = make_registry(mismatchedIdentitySource, 1U, assertContext);

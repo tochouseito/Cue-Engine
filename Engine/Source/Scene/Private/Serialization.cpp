@@ -786,6 +786,15 @@ Result<std::string> serialize_scene_document(const SceneDocument &a_document,
             return Result<std::string>::failure(
                 format_error(a_assertContext, SceneError::InvalidFormat, "Serialized scene exceeds 16 MiB"));
         }
+        JsonValue verificationTree;
+        std::string_view verificationError;
+        if (!cue::scene_private::parse_json_document(
+                output, verificationTree, verificationError))
+        {
+            return Result<std::string>::failure(format_error(
+                a_assertContext, SceneError::InvalidFormat,
+                "Serialized scene exceeds JSON parser resource limits"));
+        }
         return Result<std::string>::success(std::move(output));
     }
     catch (...)

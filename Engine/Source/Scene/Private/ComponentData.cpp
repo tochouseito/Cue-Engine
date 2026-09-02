@@ -149,6 +149,10 @@ class JsonSyntaxValidator final
         {
             return false;
         }
+        if (!consume_node())
+        {
+            return false;
+        }
         skip_whitespace();
         switch (peek())
         {
@@ -186,6 +190,10 @@ class JsonSyntaxValidator final
         }
         while (names.size() < cue::scene::k_maximumSceneContainerElements)
         {
+            if (!consume_node())
+            {
+                return false;
+            }
             std::string name;
             if (!parse_string(&name) ||
                 std::find(names.begin(), names.end(), name) != names.end())
@@ -515,8 +523,20 @@ class JsonSyntaxValidator final
         return true;
     }
 
+    /// @brief JSON ValueまたはObject Member一つを文書全体Budgetから消費する
+    [[nodiscard]] bool consume_node() noexcept
+    {
+        if (m_nodeCount >= cue::scene::k_maximumSceneJsonNodes)
+        {
+            return false;
+        }
+        ++m_nodeCount;
+        return true;
+    }
+
     std::string_view m_input;
     std::size_t m_position = 0U;
+    std::size_t m_nodeCount = 0U;
     bool m_rejectIdentityMembers = false;
     std::size_t m_rootObjectDepth = 1U;
 };
