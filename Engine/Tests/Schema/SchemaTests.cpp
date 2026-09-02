@@ -201,26 +201,36 @@ template <typename T>
         "10000000-0000-4000-8000-000000000001";
     constexpr std::string_view secondId =
         "20000000-0000-4000-8000-000000000002";
+    cue::schema::SchemaRegistryIdentitySource identitySource;
 
-    cue::schema::SchemaRegistryBuilder firstBuilder(a_assertContext);
+    cue::schema::SchemaRegistryBuilder firstBuilder(identitySource, a_assertContext);
     auto firstAddSecond = firstBuilder.add_type(
         make_type(secondId, "Cue.Test.Second", a_assertContext));
     auto firstAddFirst = firstBuilder.add_type(
         make_type(firstId, "Cue.Test.First", a_assertContext));
     auto firstRegistryResult = firstBuilder.seal();
 
-    cue::schema::SchemaRegistryBuilder secondBuilder(a_assertContext);
+    cue::schema::SchemaRegistryBuilder secondBuilder(identitySource, a_assertContext);
     auto secondAddFirst = secondBuilder.add_type(
         make_type(firstId, "Cue.Test.First", a_assertContext));
     auto secondAddSecond = secondBuilder.add_type(
         make_type(secondId, "Cue.Test.Second", a_assertContext));
     auto secondRegistryResult = secondBuilder.seal();
 
+    cue::schema::SchemaRegistryIdentitySource otherIdentitySource;
+    cue::schema::SchemaRegistryBuilder otherBuilder(otherIdentitySource,
+                                                    a_assertContext);
+    auto otherAddFirst = otherBuilder.add_type(
+        make_type(firstId, "Cue.Test.First", a_assertContext));
+    auto otherRegistryResult = otherBuilder.seal();
+
     const auto *firstRegistry = firstRegistryResult.try_value();
     const auto *secondRegistry = secondRegistryResult.try_value();
+    const auto *otherRegistry = otherRegistryResult.try_value();
 
     if (!firstAddSecond || !firstAddFirst || !secondAddFirst || !secondAddSecond ||
-        firstRegistry == nullptr || secondRegistry == nullptr)
+        !otherAddFirst || firstRegistry == nullptr || secondRegistry == nullptr ||
+        otherRegistry == nullptr)
     {
         return false;
     }
@@ -238,7 +248,8 @@ template <typename T>
            secondIndex->value() == mirroredSecondIndex->value() &&
            firstIndex->value() == 1U && secondIndex->value() == 2U &&
            firstRegistry->find(*firstIndex)->id() == firstTypeId &&
-           secondRegistry->find(*firstIndex) == nullptr;
+           secondRegistry->find(*firstIndex) == nullptr &&
+           otherRegistry->find(*firstIndex) == nullptr;
 }
 
 /// @brief RegistryがType・名前・Tombstoneの衝突を診断付きで拒否することを検証する
@@ -249,8 +260,10 @@ template <typename T>
         "10000000-0000-4000-8000-000000000001";
     constexpr std::string_view secondId =
         "20000000-0000-4000-8000-000000000002";
+    cue::schema::SchemaRegistryIdentitySource identitySource;
 
-    cue::schema::SchemaRegistryBuilder duplicateTypeBuilder(a_assertContext);
+    cue::schema::SchemaRegistryBuilder duplicateTypeBuilder(identitySource,
+                                                            a_assertContext);
     auto firstType = duplicateTypeBuilder.add_type(
         make_type(firstId, "Cue.Test.First", a_assertContext));
     auto duplicateType = duplicateTypeBuilder.add_type(
@@ -259,20 +272,23 @@ template <typename T>
         make_type_id(secondId, a_assertContext), "Cue.Test.ModuleB");
     auto sealAfterFailure = duplicateTypeBuilder.seal();
 
-    cue::schema::SchemaRegistryBuilder duplicateNameBuilder(a_assertContext);
+    cue::schema::SchemaRegistryBuilder duplicateNameBuilder(identitySource,
+                                                            a_assertContext);
     auto firstName = duplicateNameBuilder.add_type(
         make_type(firstId, "Cue.Test.Shared", a_assertContext));
     auto duplicateName = duplicateNameBuilder.add_type(
         make_type(secondId, "Cue.Test.Shared", a_assertContext));
 
-    cue::schema::SchemaRegistryBuilder tombstoneBuilder(a_assertContext);
+    cue::schema::SchemaRegistryBuilder tombstoneBuilder(identitySource,
+                                                        a_assertContext);
     const auto tombstoneId = make_type_id(secondId, a_assertContext);
     auto firstTombstone = tombstoneBuilder.add_tombstone(
         tombstoneId, "Cue.Test.ModuleA");
     auto duplicateTombstone = tombstoneBuilder.add_tombstone(
         tombstoneId, "Cue.Test.ModuleB");
 
-    cue::schema::SchemaRegistryBuilder tombstoneConflictBuilder(a_assertContext);
+    cue::schema::SchemaRegistryBuilder tombstoneConflictBuilder(identitySource,
+                                                                a_assertContext);
     auto conflictTombstone = tombstoneConflictBuilder.add_tombstone(
         tombstoneId, "Cue.Test.ModuleA");
     auto tombstonedType = tombstoneConflictBuilder.add_type(
@@ -315,7 +331,8 @@ template <typename T>
         "10000000-0000-4000-8000-000000000001";
     constexpr std::string_view secondId =
         "20000000-0000-4000-8000-000000000002";
-    cue::schema::SchemaRegistryBuilder builder(a_assertContext);
+    cue::schema::SchemaRegistryIdentitySource identitySource;
+    cue::schema::SchemaRegistryBuilder builder(identitySource, a_assertContext);
     auto addType = builder.add_type(
         make_type(firstId, "Cue.Test.First", a_assertContext));
     auto registry = builder.seal();
@@ -338,7 +355,8 @@ template <typename T>
         "30000000-0000-4000-8000-000000000003";
     const auto activeId = make_type_id(activeIdText, a_assertContext);
     const auto tombstoneId = make_type_id(tombstoneIdText, a_assertContext);
-    cue::schema::SchemaRegistryBuilder builder(a_assertContext);
+    cue::schema::SchemaRegistryIdentitySource identitySource;
+    cue::schema::SchemaRegistryBuilder builder(identitySource, a_assertContext);
     auto addType = builder.add_type(
         make_type(activeIdText, "Cue.Test.Active", a_assertContext));
     auto addTombstone = builder.add_tombstone(tombstoneId, "Cue.Test.Module");
@@ -385,6 +403,7 @@ template <typename T>
 
 static_assert(!std::is_copy_constructible_v<cue::schema::SchemaRegistry>);
 static_assert(!std::is_copy_constructible_v<cue::schema::TypeDescriptor>);
+static_assert(!std::is_move_constructible_v<cue::schema::SchemaRegistryIdentitySource>);
 static_assert(std::is_same_v<
               decltype(std::declval<const cue::schema::SchemaRegistry &>().find(
                   std::declval<cue::schema::TypeId>())),

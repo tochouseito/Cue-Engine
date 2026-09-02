@@ -145,8 +145,10 @@ std::uint32_t SchemaVersion::value() const noexcept
 }
 
 DenseTypeIndex::DenseTypeIndex(std::uint32_t a_value,
+                               const SchemaRegistryIdentitySource &a_identitySource,
                                std::uint64_t a_registryGeneration) noexcept
-    : m_value(a_value), m_registryGeneration(a_registryGeneration)
+    : m_value(a_value), m_identitySource(&a_identitySource),
+      m_registryGeneration(a_registryGeneration)
 {
 }
 

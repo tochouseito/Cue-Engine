@@ -4,15 +4,12 @@
 #include <Cue/Schema/Error.h>
 
 #include <algorithm>
-#include <atomic>
 #include <limits>
 #include <new>
 #include <string>
 
 namespace
 {
-std::atomic_uint64_t g_nextRegistryGeneration = 1U;
-
 /// @brief Registry構築中のAllocation失敗をEmergency終了へ変換する
 [[noreturn]] void terminate_registry_allocation(
     const cue::AssertContext &a_assertContext) noexcept
@@ -153,15 +150,18 @@ void append_type_id(std::string &a_destination, cue::schema::TypeId a_id)
     return true;
 }
 
-/// @brief Process内で再利用しないRegistry Generationを予約する
-[[nodiscard]] std::optional<std::uint64_t> acquire_registry_generation() noexcept
+} // namespace
+
+namespace cue::schema
 {
-    auto current = g_nextRegistryGeneration.load(std::memory_order_relaxed);
+std::optional<std::uint64_t> SchemaRegistryIdentitySource::acquire_generation() noexcept
+{
+    auto current = m_nextGeneration.load(std::memory_order_relaxed);
     constexpr auto maximum = std::numeric_limits<std::uint64_t>::max();
 
     while (current != maximum)
     {
-        if (g_nextRegistryGeneration.compare_exchange_weak(
+        if (m_nextGeneration.compare_exchange_weak(
                 current, current + 1U, std::memory_order_relaxed,
                 std::memory_order_relaxed))
         {
@@ -171,15 +171,13 @@ void append_type_id(std::string &a_destination, cue::schema::TypeId a_id)
 
     return std::nullopt;
 }
-} // namespace
 
-namespace cue::schema
-{
 SchemaRegistry::SchemaRegistry(std::vector<TypeDescriptor> &&a_descriptors,
                                std::vector<TypeId> &&a_tombstones,
+                               const SchemaRegistryIdentitySource &a_identitySource,
                                std::uint64_t a_generation) noexcept
     : m_descriptors(std::move(a_descriptors)), m_tombstones(std::move(a_tombstones)),
-      m_generation(a_generation)
+      m_identitySource(&a_identitySource), m_generation(a_generation)
 {
 }
 
@@ -206,7 +204,8 @@ const TypeDescriptor *SchemaRegistry::find(DenseTypeIndex a_index) const noexcep
 {
     const auto value = a_index.value();
 
-    if (a_index.m_registryGeneration != m_generation || value == 0U ||
+    if (a_index.m_identitySource != m_identitySource ||
+        a_index.m_registryGeneration != m_generation || value == 0U ||
         value > m_descriptors.size())
     {
         return nullptr;
@@ -231,7 +230,8 @@ std::optional<DenseTypeIndex> SchemaRegistry::dense_index(TypeId a_id) const noe
     }
 
     const auto offset = static_cast<std::size_t>(iterator - m_descriptors.begin());
-    return DenseTypeIndex(static_cast<std::uint32_t>(offset + 1U), m_generation);
+    return DenseTypeIndex(static_cast<std::uint32_t>(offset + 1U),
+                          *m_identitySource, m_generation);
 }
 
 bool SchemaRegistry::is_tombstoned(TypeId a_id) const noexcept
@@ -240,8 +240,10 @@ bool SchemaRegistry::is_tombstoned(TypeId a_id) const noexcept
 }
 
 SchemaRegistryBuilder::SchemaRegistryBuilder(
+    SchemaRegistryIdentitySource &a_identitySource,
     const AssertContext &a_assertContext) noexcept
-    : m_assertContext(&a_assertContext), m_ownerThread(std::this_thread::get_id())
+    : m_assertContext(&a_assertContext), m_identitySource(&a_identitySource),
+      m_ownerThread(std::this_thread::get_id())
 {
 }
 
@@ -430,7 +432,7 @@ Result<SchemaRegistry> SchemaRegistryBuilder::seal() noexcept
             "Schema registry exceeds the DenseTypeIndex capacity"));
     }
 
-    const auto generation = acquire_registry_generation();
+    const auto generation = m_identitySource->acquire_generation();
 
     if (!generation.has_value())
     {
@@ -450,6 +452,6 @@ Result<SchemaRegistry> SchemaRegistryBuilder::seal() noexcept
     m_isSealed = true;
     return Result<SchemaRegistry>::success(
         SchemaRegistry(std::move(m_descriptors), std::move(m_tombstones),
-                       *generation));
+                       *m_identitySource, *generation));
 }
 } // namespace cue::schema

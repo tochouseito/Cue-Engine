@@ -2,6 +2,7 @@
 
 #include <Cue/Schema/Descriptor.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -12,6 +13,32 @@
 
 namespace cue::schema
 {
+/// @brief DLL境界を含むProcess全体でRegistry Generationを一意発行する明示所有Source
+class SchemaRegistryIdentitySource final
+{
+  public:
+    /// @brief 未発行のGeneration 1からProcess-local Identity Sourceを開始する
+    SchemaRegistryIdentitySource() noexcept = default;
+    /// @brief 発行状態を一意所有するためCopy構築を禁止する
+    SchemaRegistryIdentitySource(const SchemaRegistryIdentitySource &) = delete;
+    /// @brief 発行状態を一意所有するためCopy代入を禁止する
+    SchemaRegistryIdentitySource &operator=(const SchemaRegistryIdentitySource &) = delete;
+    /// @brief 発行元Addressを安定させるためMove構築を禁止する
+    SchemaRegistryIdentitySource(SchemaRegistryIdentitySource &&) = delete;
+    /// @brief 発行元Addressを安定させるためMove代入を禁止する
+    SchemaRegistryIdentitySource &operator=(SchemaRegistryIdentitySource &&) = delete;
+    /// @brief 全RegistryとDense Indexの破棄後に発行状態を破棄する
+    ~SchemaRegistryIdentitySource() = default;
+
+  private:
+    friend class SchemaRegistryBuilder;
+
+    /// @brief Wrapせず次のProcess-local Registry Generationを予約する
+    [[nodiscard]] std::optional<std::uint64_t> acquire_generation() noexcept;
+
+    std::atomic_uint64_t m_nextGeneration = 1U;
+};
+
 /// @brief Stable TypeId順でSealされるImmutable Schema Registry
 class SchemaRegistry final
 {
@@ -46,10 +73,12 @@ class SchemaRegistry final
     /// @brief Stable ID順へ検証済みのDescriptorとTombstoneを所有する
     SchemaRegistry(std::vector<TypeDescriptor> &&a_descriptors,
                    std::vector<TypeId> &&a_tombstones,
+                   const SchemaRegistryIdentitySource &a_identitySource,
                    std::uint64_t a_generation) noexcept;
 
     std::vector<TypeDescriptor> m_descriptors;
     std::vector<TypeId> m_tombstones;
+    const SchemaRegistryIdentitySource *m_identitySource;
     std::uint64_t m_generation;
 };
 
@@ -57,9 +86,11 @@ class SchemaRegistry final
 class SchemaRegistryBuilder final
 {
   public:
-    /// @brief 診断依存と現在Owner Threadを記録して空Builderを構築する
+    /// @brief Process共有Identity Source、診断依存、現在Owner Threadを記録する
+    /// @param a_identitySource 全Moduleで共有し全RegistryとDense Indexより長く生存する発行元
     /// @param a_assertContext Builderより長く生存する非所有診断Context
-    explicit SchemaRegistryBuilder(const AssertContext &a_assertContext) noexcept;
+    SchemaRegistryBuilder(SchemaRegistryIdentitySource &a_identitySource,
+                          const AssertContext &a_assertContext) noexcept;
     /// @brief Builderの一意所有を保つためCopy構築を禁止する
     SchemaRegistryBuilder(const SchemaRegistryBuilder &) = delete;
     /// @brief Builderの一意所有を保つためCopy代入を禁止する
@@ -81,6 +112,7 @@ class SchemaRegistryBuilder final
 
   private:
     const AssertContext *m_assertContext;
+    SchemaRegistryIdentitySource *m_identitySource;
     std::thread::id m_ownerThread;
     std::vector<TypeDescriptor> m_descriptors;
     std::vector<TypeId> m_tombstones;
