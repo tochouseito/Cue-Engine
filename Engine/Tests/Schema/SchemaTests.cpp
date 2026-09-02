@@ -512,6 +512,8 @@ static_assert(!std::is_copy_constructible_v<cue::schema::TypeDescriptor>);
 static_assert(!std::is_move_constructible_v<cue::schema::SchemaRegistryIdentitySource>);
 static_assert(!std::is_default_constructible_v<
               cue::schema::SchemaRegistry::ConstructionKey>);
+static_assert(!std::is_trivially_copyable_v<
+              cue::schema::SchemaRegistry::ConstructionKey>);
 static_assert(std::is_same_v<
               decltype(std::declval<const cue::schema::SchemaRegistry &>().find(
                   std::declval<cue::schema::TypeId>(),

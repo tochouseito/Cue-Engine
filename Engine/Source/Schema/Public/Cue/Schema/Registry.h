@@ -56,8 +56,10 @@ class SchemaRegistry final
         ConstructionKey(ConstructionKey &&) noexcept = default;
         /// @brief 生成権限を値として移動代入する
         ConstructionKey &operator=(ConstructionKey &&) noexcept = default;
-        /// @brief 生成権限を破棄する
-        ~ConstructionKey() = default;
+        /// @brief bit_cast による権限生成を防ぐ non-trivial な破棄を行う
+        ~ConstructionKey() noexcept
+        {
+        }
 
       private:
         friend class SchemaRegistryBuilder;
