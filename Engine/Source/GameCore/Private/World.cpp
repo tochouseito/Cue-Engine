@@ -101,7 +101,14 @@ World::World(ConstructionKey, std::uint64_t a_worldId,
 {
 }
 
-World::~World() noexcept = default;
+World::~World() noexcept
+{
+    for (auto iterator = m_storageCreationOrder.rbegin();
+         iterator != m_storageCreationOrder.rend(); ++iterator)
+    {
+        m_componentStorages[*iterator].reset();
+    }
+}
 
 Result<EntityHandle> World::create_entity() noexcept
 {

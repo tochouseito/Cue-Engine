@@ -81,19 +81,16 @@ template <typename T> class ComponentType final
 
     /// @brief World が検証済み Schema Index と Runtime Binding を結び付ける
     ComponentType(const World &a_world, schema::DenseTypeIndex a_denseIndex,
-                  const void *a_binding, const void *a_typeToken,
-                  std::uint64_t a_worldId,
+                  const void *a_binding, std::uint64_t a_worldId,
                   const void *a_identitySource) noexcept
         : m_world(&a_world), m_denseIndex(a_denseIndex), m_binding(a_binding),
-          m_typeToken(a_typeToken), m_worldId(a_worldId),
-          m_identitySource(a_identitySource)
+          m_worldId(a_worldId), m_identitySource(a_identitySource)
     {
     }
 
     const World *m_world;
     schema::DenseTypeIndex m_denseIndex;
     const void *m_binding;
-    const void *m_typeToken;
     std::uint64_t m_worldId;
     const void *m_identitySource;
 };
@@ -186,19 +183,17 @@ class World final
 
         const auto slot = static_cast<std::size_t>(denseIndex->value());
         auto &binding = m_componentBindings[slot];
-        const void *typeToken = component_type_token<T>();
 
-        if (binding.typeToken != nullptr && binding.typeToken != typeToken)
+        if (binding.isRegistered)
         {
             return Result<ComponentType<T>>::failure(make_game_core_error(
                 *m_assertContext, GameCoreError::ComponentTypeConflict,
-                "Schema type is already bound to a different C++ component type"));
+                "Schema type already has a C++ component capability"));
         }
 
-        binding.typeToken = typeToken;
+        binding.isRegistered = true;
         return Result<ComponentType<T>>::success(ComponentType<T>(
-            *this, *denseIndex, &binding, typeToken, m_worldId,
-            m_identitySource));
+            *this, *denseIndex, &binding, m_worldId, m_identitySource));
     }
 
     /// @brief Entity へ Component を構築して World 所有 Storage に追加する
@@ -245,11 +240,14 @@ class World final
         {
             if (baseStorage == nullptr)
             {
-                auto storage = std::make_unique<ComponentStorage<T>>(
-                    a_type.m_typeToken);
+                m_storageCreationOrder.reserve(
+                    m_storageCreationOrder.size() + 1U);
+                auto storage = std::make_unique<ComponentStorage<T>>();
                 T *component = storage->add(a_entity.index(),
                                             std::move(pendingComponent));
                 m_componentStorages[storageIndex] = std::move(storage);
+                m_storageCreationOrder.push_back(
+                    static_cast<std::uint32_t>(storageIndex));
                 return Result<T *>::success(std::move(component));
             }
 
@@ -381,7 +379,7 @@ class World final
 
     struct ComponentBinding final
     {
-        const void *typeToken = nullptr;
+        bool isRegistered = false;
     };
 
     class ComponentStorageBase
@@ -393,8 +391,6 @@ class World final
         [[nodiscard]] virtual bool has(std::uint32_t a_entityIndex) const noexcept = 0;
         /// @brief Entity が持つ Component があれば一度だけ破棄する
         virtual void remove_entity(std::uint32_t a_entityIndex) noexcept = 0;
-        /// @brief C++ Component 型を識別する Runtime Token を返す
-        [[nodiscard]] virtual const void *type_token() const noexcept = 0;
     };
 
     template <typename T> class PackedArray final
@@ -504,11 +500,8 @@ class World final
     template <typename T> class ComponentStorage final : public ComponentStorageBase
     {
       public:
-        /// @brief C++ Component 型 Token と空の Sparse Set を結び付ける
-        explicit ComponentStorage(const void *a_typeToken) noexcept
-            : m_typeToken(a_typeToken)
-        {
-        }
+        /// @brief Allocation を持たない空の型付き Sparse Set を開始する
+        ComponentStorage() noexcept = default;
 
         /// @brief 所有 Component を Packed Array の規則で破棄する
         ~ComponentStorage() override = default;
@@ -527,12 +520,6 @@ class World final
             {
                 remove(a_entityIndex);
             }
-        }
-
-        /// @brief この Storage の C++ Component 型 Token を返す
-        [[nodiscard]] const void *type_token() const noexcept override
-        {
-            return m_typeToken;
         }
 
         /// @brief Entity と Component を Dense 末尾へ整合性を保って追加する
@@ -584,18 +571,10 @@ class World final
         }
 
       private:
-        const void *m_typeToken;
         std::vector<std::uint32_t> m_denseEntities;
         PackedArray<T> m_components;
         std::vector<std::uint32_t> m_sparse;
     };
-
-    /// @brief C++ 型ごとに Process 内で比較可能な非永続 Token を返す
-    template <typename T> [[nodiscard]] static const void *component_type_token() noexcept
-    {
-        static const std::byte token{0};
-        return &token;
-    }
 
     /// @brief Component Type Token がこの World の Binding と一致するか検証する
     template <typename T>
@@ -603,8 +582,7 @@ class World final
         const ComponentType<T> &a_type) const noexcept
     {
         if (a_type.m_world != this || a_type.m_worldId != m_worldId ||
-            a_type.m_identitySource != m_identitySource ||
-            a_type.m_typeToken != component_type_token<T>())
+            a_type.m_identitySource != m_identitySource)
         {
             return false;
         }
@@ -613,9 +591,7 @@ class World final
         return index > 0U && index < m_componentBindings.size() &&
                m_schemaRegistry->find(a_type.m_denseIndex) != nullptr &&
                a_type.m_binding == &m_componentBindings[index] &&
-               m_componentBindings[index].typeToken == a_type.m_typeToken &&
-               (m_componentStorages[index] == nullptr ||
-                m_componentStorages[index]->type_token() == a_type.m_typeToken);
+               m_componentBindings[index].isRegistered;
     }
 
     /// @brief 現在 Thread が World Owner Thread であることを検証する
@@ -639,6 +615,7 @@ class World final
     std::vector<std::uint32_t> m_freeIndices;
     std::vector<ComponentBinding> m_componentBindings;
     std::vector<std::unique_ptr<ComponentStorageBase>> m_componentStorages;
+    std::vector<std::uint32_t> m_storageCreationOrder;
     std::size_t m_entityCount = 0U;
 };
 } // namespace cue::game_core

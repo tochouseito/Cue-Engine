@@ -89,6 +89,51 @@ class LifetimeComponent final
     bool m_ownsCounter;
 };
 
+struct DestructionOrderState final
+{
+    int values[2] = {0, 0};
+    std::size_t count = 0U;
+};
+
+template <int Identifier> class OrderedComponent final
+{
+  public:
+    /// @brief Storage 破棄順を記録する Component 所有権を開始する
+    explicit OrderedComponent(DestructionOrderState &a_state) noexcept
+        : m_state(&a_state), m_isOwner(true)
+    {
+    }
+
+    /// @brief 破棄順記録の複製を禁止する
+    OrderedComponent(const OrderedComponent &) = delete;
+    /// @brief 破棄順記録の複製代入を禁止する
+    OrderedComponent &operator=(const OrderedComponent &) = delete;
+
+    /// @brief Packed Storage 再配置時に記録責任を一度だけ移す
+    OrderedComponent(OrderedComponent &&a_other) noexcept
+        : m_state(a_other.m_state), m_isOwner(a_other.m_isOwner)
+    {
+        a_other.m_isOwner = false;
+    }
+
+    /// @brief Component が Move 代入を要求されないことを固定する
+    OrderedComponent &operator=(OrderedComponent &&) = delete;
+
+    /// @brief Storage が Logical Component を破棄した順序を記録する
+    ~OrderedComponent() noexcept
+    {
+        if (m_isOwner)
+        {
+            m_state->values[m_state->count] = Identifier;
+            ++m_state->count;
+        }
+    }
+
+  private:
+    DestructionOrderState *m_state;
+    bool m_isOwner;
+};
+
 static_assert(std::is_nothrow_move_constructible_v<LifetimeComponent>);
 static_assert(!std::is_move_assignable_v<LifetimeComponent>);
 static_assert(!std::is_default_constructible_v<cue::game_core::EntityHandle>);
@@ -369,7 +414,80 @@ template <typename T>
         }
     }
 
-    return world->entity_count() == entityCount / 2U;
+    std::vector<cue::game_core::EntityHandle> reusedEntities;
+    reusedEntities.reserve(entityCount / 2U);
+
+    for (std::size_t index = 0U; index < entityCount / 2U; ++index)
+    {
+        auto entityResult = world->create_entity();
+        const auto *entity = entityResult.try_value();
+
+        if (entity == nullptr || entities[entity->index()].generation() ==
+                                     entity->generation())
+        {
+            return false;
+        }
+
+        reusedEntities.push_back(*entity);
+        auto component = world->add_component(
+            *positionType, *entity, -static_cast<int>(index),
+            -static_cast<int>(index + 1U));
+
+        if (!component || world->is_alive(entities[entity->index()]))
+        {
+            return false;
+        }
+    }
+
+    for (const auto entity : reusedEntities)
+    {
+        auto component = world->get_component(*positionType, entity);
+
+        if (!component)
+        {
+            return false;
+        }
+    }
+
+    return world->entity_count() == entityCount;
+}
+
+/// @brief World 破棄時に Component Storage が逆作成順で解放されることを検証する
+[[nodiscard]] bool test_reverse_storage_destruction(
+    const cue::schema::SchemaRegistry &a_registry,
+    const cue::AssertContext &a_assertContext)
+{
+    DestructionOrderState state;
+    cue::game_core::WorldIdentitySource identitySource;
+
+    {
+        auto world = make_world(identitySource, a_registry, a_assertContext);
+        auto firstTypeResult = world->register_component<OrderedComponent<1>>(
+            make_type_id("10000000-0000-4000-8000-000000000001",
+                         a_assertContext));
+        auto secondTypeResult = world->register_component<OrderedComponent<2>>(
+            make_type_id("20000000-0000-4000-8000-000000000002",
+                         a_assertContext));
+        auto entityResult = world->create_entity();
+        const auto *firstType = firstTypeResult.try_value();
+        const auto *secondType = secondTypeResult.try_value();
+        const auto *entity = entityResult.try_value();
+
+        if (firstType == nullptr || secondType == nullptr || entity == nullptr)
+        {
+            return false;
+        }
+
+        auto first = world->add_component(*firstType, *entity, state);
+        auto second = world->add_component(*secondType, *entity, state);
+
+        if (!first || !second)
+        {
+            return false;
+        }
+    }
+
+    return state.count == 2U && state.values[0] == 2 && state.values[1] == 1;
 }
 } // namespace
 
@@ -396,6 +514,11 @@ int main()
     if (!test_storage_stress(*registry, assertContext))
     {
         return 3;
+    }
+
+    if (!test_reverse_storage_destruction(*registry, assertContext))
+    {
+        return 4;
     }
 
     return 0;
