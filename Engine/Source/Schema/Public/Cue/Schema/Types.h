@@ -16,6 +16,7 @@ class AssertContext;
 namespace cue::schema
 {
 class SchemaRegistryIdentitySource;
+class TypeDescriptor;
 
 /// @brief Compiler 型名や登録順から独立した UUID Version 4 の Schema Type Identity
 class TypeId final
@@ -156,10 +157,13 @@ class DenseTypeIndex final
     /// @brief Seal 済み Registry が割り当てた世代付き non-zero 値から Index を構築する
     DenseTypeIndex(std::uint32_t a_value,
                    const SchemaRegistryIdentitySource &a_identitySource,
-                   std::uint64_t a_registryGeneration) noexcept;
+                   std::uint64_t a_registryGeneration,
+                   const TypeDescriptor &a_descriptor) noexcept;
 
     std::uint32_t m_value;
     const SchemaRegistryIdentitySource *m_identitySource;
     std::uint64_t m_registryGeneration;
+    const TypeDescriptor *m_descriptor;
 };
+
 } // namespace cue::schema

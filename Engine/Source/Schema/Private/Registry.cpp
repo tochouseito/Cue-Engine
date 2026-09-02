@@ -1,5 +1,7 @@
 #include <Cue/Schema/Registry.h>
 
+#include "TypesInternal.h"
+
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Schema/Error.h>
 
@@ -213,7 +215,8 @@ const TypeDescriptor *SchemaRegistry::find(DenseTypeIndex a_index) const noexcep
 
     if (a_index.m_identitySource != m_identitySource ||
         a_index.m_registryGeneration != m_generation || value == 0U ||
-        value > m_descriptors.size())
+        value > m_descriptors.size() ||
+        a_index.m_descriptor != &m_descriptors[value - 1U])
     {
         return nullptr;
     }
@@ -242,7 +245,7 @@ Result<DenseTypeIndex> SchemaRegistry::dense_index(
     const auto offset = static_cast<std::size_t>(iterator - m_descriptors.begin());
     return Result<DenseTypeIndex>::success(
         DenseTypeIndex(static_cast<std::uint32_t>(offset + 1U),
-                       *m_identitySource, m_generation));
+                       *m_identitySource, m_generation, *iterator));
 }
 
 bool SchemaRegistry::is_tombstoned(TypeId a_id) const noexcept
@@ -365,6 +368,14 @@ Result<void> SchemaRegistryBuilder::add_tombstone(
         return Result<void>::failure(make_schema_error(
             *m_assertContext, SchemaError::BuilderFailed,
             "Schema registry builder previously rejected a registration"));
+    }
+
+    if (!is_valid_type_id(a_id))
+    {
+        m_hasFailed = true;
+        return Result<void>::failure(make_schema_error(
+            *m_assertContext, SchemaError::InvalidTypeId,
+            "Tombstone TypeId must be a non-nil RFC 4122 UUID Version 4"));
     }
 
     if (!is_valid_registration_source(a_sourceName))

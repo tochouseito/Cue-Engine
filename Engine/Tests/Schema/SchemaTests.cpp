@@ -189,12 +189,49 @@ void invalidate_for_test(cue::schema::SchemaVersion &a_version) noexcept
     cue::schema::SchemaRegistryBuilder builder(identitySource, a_assertContext);
     auto invalidRegistration = builder.add_type(std::move(forgedDescriptor));
 
+    auto forgedTombstoneId = make_type_id(
+        "b0000000-0000-4000-8000-00000000000b", a_assertContext);
+    invalidate_for_test(forgedTombstoneId);
+    cue::schema::SchemaRegistryBuilder tombstoneBuilder(identitySource,
+                                                        a_assertContext);
+    auto invalidTombstone = tombstoneBuilder.add_tombstone(
+        forgedTombstoneId, "Cue.Test.ForgedTombstone");
+
+    std::vector<cue::schema::FieldDescriptor> forgedFields;
+    forgedFields.push_back(make_field(10U, "first", a_assertContext));
+    forgedFields.push_back(make_field(11U, "second", a_assertContext));
+    std::vector<cue::schema::FieldId> forgedReservedIds;
+    auto forgedFieldsResult = cue::schema::create_type_descriptor(
+        make_type_id("c0000000-0000-4000-8000-00000000000c", a_assertContext),
+        "Cue.Test.ForgedFields", make_version(a_assertContext),
+        std::move(forgedFields), std::move(forgedReservedIds), a_assertContext);
+    auto *forgedFieldsDescriptor = forgedFieldsResult.try_value();
+
+    if (forgedFieldsDescriptor == nullptr)
+    {
+        return false;
+    }
+
+    auto descriptorFields = forgedFieldsDescriptor->fields();
+    auto *secondField = const_cast<cue::schema::FieldDescriptor *>(
+        &descriptorFields[1U]);
+    auto *secondFieldId = reinterpret_cast<cue::schema::FieldId *>(secondField);
+    *secondFieldId = make_field_id(10U, a_assertContext);
+    cue::schema::SchemaRegistryBuilder fieldBuilder(identitySource,
+                                                    a_assertContext);
+    auto invalidFieldCollection =
+        fieldBuilder.add_type(std::move(*forgedFieldsDescriptor));
+
     return has_schema_error(invalidTypeId, cue::schema::SchemaError::InvalidTypeId) &&
            has_schema_error(invalidVersion,
                             cue::schema::SchemaError::InvalidSchemaVersion) &&
            has_schema_error(invalidField, cue::schema::SchemaError::InvalidFieldId) &&
            has_schema_error(invalidRegistration,
-                            cue::schema::SchemaError::InvalidTypeId);
+                            cue::schema::SchemaError::InvalidTypeId) &&
+           has_schema_error(invalidTombstone,
+                            cue::schema::SchemaError::InvalidTypeId) &&
+           has_schema_error(invalidFieldCollection,
+                            cue::schema::SchemaError::DuplicateFieldId);
 }
 
 /// @brief Stable Identity Value が不正入力を拒否することを検証する
@@ -382,12 +419,21 @@ void invalidate_for_test(cue::schema::SchemaVersion &a_version) noexcept
     const auto *secondIndex = secondIndexResult.try_value();
     const auto *mirroredSecondIndex = mirroredSecondIndexResult.try_value();
 
-    return firstIndex != nullptr && mirroredFirstIndex != nullptr &&
+    if (firstIndex == nullptr)
+    {
+        return false;
+    }
+
+    auto tamperedIndex = *firstIndex;
+    *reinterpret_cast<std::uint32_t *>(&tamperedIndex) = 2U;
+
+    return mirroredFirstIndex != nullptr &&
            secondIndex != nullptr && mirroredSecondIndex != nullptr &&
            firstIndex->value() == mirroredFirstIndex->value() &&
            secondIndex->value() == mirroredSecondIndex->value() &&
            firstIndex->value() == 1U && secondIndex->value() == 2U &&
            firstRegistry->find(*firstIndex)->id() == firstTypeId &&
+           firstRegistry->find(tamperedIndex) == nullptr &&
            secondRegistry->find(*firstIndex) == nullptr &&
            otherRegistry->find(*firstIndex) == nullptr;
 }

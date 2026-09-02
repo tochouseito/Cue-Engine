@@ -1,5 +1,7 @@
 #include <Cue/Schema/Descriptor.h>
 
+#include "TypesInternal.h"
+
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Schema/Error.h>
 
@@ -100,20 +102,6 @@ namespace
     }
 
     return true;
-}
-
-/// @brief TypeId の Byte 列が non-nil RFC 4122 UUID Version 4 か判定する
-[[nodiscard]] bool is_valid_type_id(cue::schema::TypeId a_id) noexcept
-{
-    const auto bytes = a_id.bytes();
-    const bool isNil = std::all_of(bytes.begin(), bytes.end(),
-                                   /// @brief UUID の全 Byte が 0 か判定する
-                                   [](std::uint8_t a_value) noexcept
-                                   {
-                                       return a_value == 0U;
-                                   });
-    return !isNil && (bytes[6] & 0xF0U) == 0x40U &&
-           (bytes[8] & 0xC0U) == 0x80U;
 }
 
 /// @brief Schema 所有値の Allocation 失敗を Emergency 終了へ変換する
@@ -347,6 +335,62 @@ Result<void> validate_type_descriptor(
             return Result<void>::failure(make_schema_error(
                 a_assertContext, SchemaError::InvalidFieldId,
                 "Reserved FieldId zero is invalid"));
+        }
+    }
+
+    const auto fields = a_descriptor.fields();
+
+    for (std::size_t index = 1U; index < fields.size(); ++index)
+    {
+        if (fields[index - 1U].id() >= fields[index].id())
+        {
+            const auto code = fields[index - 1U].id() == fields[index].id()
+                                  ? SchemaError::DuplicateFieldId
+                                  : SchemaError::InvalidFieldId;
+            return Result<void>::failure(make_field_collision_error(
+                a_assertContext, code, "InvalidFieldOrder", a_descriptor.id(),
+                a_descriptor.name(), fields[index - 1U].id().value(),
+                fields[index - 1U].name(), fields[index].id().value(),
+                fields[index].name()));
+        }
+    }
+
+    for (std::size_t left = 0U; left < fields.size(); ++left)
+    {
+        for (std::size_t right = left + 1U; right < fields.size(); ++right)
+        {
+            if (fields[left].name() == fields[right].name())
+            {
+                return Result<void>::failure(make_field_collision_error(
+                    a_assertContext, SchemaError::DuplicateFieldName,
+                    "DuplicateFieldName", a_descriptor.id(), a_descriptor.name(),
+                    fields[left].id().value(), fields[left].name(),
+                    fields[right].id().value(), fields[right].name()));
+            }
+        }
+    }
+
+    const auto reservedIds = a_descriptor.reserved_field_ids();
+
+    for (std::size_t index = 1U; index < reservedIds.size(); ++index)
+    {
+        if (reservedIds[index - 1U] >= reservedIds[index])
+        {
+            return Result<void>::failure(make_schema_error(
+                a_assertContext, SchemaError::ReservedFieldId,
+                "Reserved FieldId values must remain unique and sorted"));
+        }
+    }
+
+    for (const auto &field : fields)
+    {
+        if (std::binary_search(reservedIds.begin(), reservedIds.end(), field.id()))
+        {
+            return Result<void>::failure(make_field_collision_error(
+                a_assertContext, SchemaError::ReservedFieldId,
+                "ActiveFieldIdReusesReservedFieldId", a_descriptor.id(),
+                a_descriptor.name(), field.id().value(), "<reserved>",
+                field.id().value(), field.name()));
         }
     }
 

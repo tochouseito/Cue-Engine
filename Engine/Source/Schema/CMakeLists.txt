@@ -7,6 +7,7 @@ target_sources(
         Private/Error.cpp
         Private/Registry.cpp
         Private/Types.cpp
+        Private/TypesInternal.h
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS Public

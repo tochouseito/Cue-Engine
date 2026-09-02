@@ -1,5 +1,7 @@
 #include <Cue/Schema/Types.h>
 
+#include "TypesInternal.h"
+
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Schema/Error.h>
 
@@ -106,6 +108,19 @@ FieldId::FieldId(std::uint32_t a_value) noexcept : m_value(a_value)
 {
 }
 
+bool is_valid_type_id(TypeId a_id) noexcept
+{
+    const auto bytes = a_id.bytes();
+    const bool isNil = std::all_of(bytes.begin(), bytes.end(),
+                                   /// @brief UUID の全 Byte が 0 か判定する
+                                   [](std::uint8_t a_value) noexcept
+                                   {
+                                       return a_value == 0U;
+                                   });
+    return !isNil && (bytes[6] & 0xF0U) == 0x40U &&
+           (bytes[8] & 0xC0U) == 0x80U;
+}
+
 FieldId::~FieldId() noexcept = default;
 
 Result<FieldId> FieldId::create(std::uint32_t a_value,
@@ -152,9 +167,10 @@ std::uint32_t SchemaVersion::value() const noexcept
 
 DenseTypeIndex::DenseTypeIndex(std::uint32_t a_value,
                                const SchemaRegistryIdentitySource &a_identitySource,
-                               std::uint64_t a_registryGeneration) noexcept
+                               std::uint64_t a_registryGeneration,
+                               const TypeDescriptor &a_descriptor) noexcept
     : m_value(a_value), m_identitySource(&a_identitySource),
-      m_registryGeneration(a_registryGeneration)
+      m_registryGeneration(a_registryGeneration), m_descriptor(&a_descriptor)
 {
 }
 
