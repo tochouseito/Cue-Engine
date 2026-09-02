@@ -183,7 +183,6 @@ Slot Generation、Free List、`StructuralEpoch`を含むWorld内部状態が呼�
 成功時に返す`SceneInstance`は次だけを保持する。
 
 - 元`SceneAssetId`
-- Instance-local Identity
 - 実体化先Runtime `WorldId`
 - `ObjectId`からRuntime `EntityHandle`へのMapping
 - そのInstanceが生成したEntityの順序付き集合
