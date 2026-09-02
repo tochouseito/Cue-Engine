@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Cue/Math/Transform.h>
-#include <Cue/Scene/Identity.h>
+#include <Cue/Scene/ComponentData.h>
 
 #include <map>
 #include <optional>
@@ -36,6 +36,8 @@ class SceneObject final
     [[nodiscard]] const ObjectId *try_parent_id() const noexcept;
     /// @brief Core Transform Dataを返す
     [[nodiscard]] const math::Transform &transform() const noexcept;
+    /// @brief Stable ComponentInstanceId順のAuthoring Component Dataを返す
+    [[nodiscard]] std::span<const SceneComponent> components() const noexcept;
 
   private:
     friend class SceneDocument;
@@ -43,13 +45,15 @@ class SceneObject final
     /// @brief 検証済みObject Authoring Dataを構築する
     SceneObject(ObjectId a_id, std::string a_name, bool a_isActive,
                 std::optional<ObjectId> a_parentId,
-                math::Transform a_transform) noexcept;
+                math::Transform a_transform,
+                std::vector<SceneComponent> a_components) noexcept;
 
     ObjectId m_id;
     std::string m_name;
     bool m_isActive;
     std::optional<ObjectId> m_parentId;
     math::Transform m_transform;
+    std::vector<SceneComponent> m_components;
 };
 
 /// @brief RuntimeとEditor一時状態を含まないAuthoring Sceneの編集・保存正本
@@ -112,6 +116,14 @@ class SceneDocument final
     [[nodiscard]] Result<void> set_transform(
         const ObjectId &a_id,
         math::Transform a_transform) noexcept;
+    /// @brief Stable Instance IDが重複しないComponent DataをObjectへ追加する
+    [[nodiscard]] Result<void> add_component(
+        const ObjectId &a_objectId,
+        SceneComponent a_component) noexcept;
+    /// @brief Stable Instance IDに対応するComponent DataをObjectから削除する
+    [[nodiscard]] Result<void> remove_component(
+        const ObjectId &a_objectId,
+        const ComponentInstanceId &a_componentId) noexcept;
 
     /// @brief Stable ID IndexとHierarchy Invariantを再検証する
     [[nodiscard]] Result<void> validate() const noexcept;

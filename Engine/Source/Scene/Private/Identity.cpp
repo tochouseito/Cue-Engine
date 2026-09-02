@@ -202,4 +202,50 @@ IdentityText ObjectId::canonical_text() const noexcept
 {
     return format_identity(m_bytes);
 }
+
+ComponentInstanceId::ComponentInstanceId(IdentityBytes a_bytes) noexcept
+    : m_bytes(a_bytes)
+{
+}
+
+ComponentInstanceId::~ComponentInstanceId() noexcept = default;
+
+Result<ComponentInstanceId> ComponentInstanceId::generate(
+    SceneIdentitySource &a_source,
+    const AssertContext &a_assertContext) noexcept
+{
+    auto bytes = a_source.next_identity();
+    if (!is_valid_uuid_v4(bytes))
+    {
+        return Result<ComponentInstanceId>::failure(make_scene_error(
+            a_assertContext, SceneError::InvalidIdentity,
+            "SceneIdentitySource returned an invalid UUID Version 4"));
+    }
+    return Result<ComponentInstanceId>::success(
+        ComponentInstanceId(std::move(bytes)));
+}
+
+Result<ComponentInstanceId> ComponentInstanceId::parse(
+    std::string_view a_text,
+    const AssertContext &a_assertContext) noexcept
+{
+    auto parsed = parse_identity(a_text, a_assertContext);
+    if (!parsed)
+    {
+        return Result<ComponentInstanceId>::failure(
+            std::move(*parsed.try_error()));
+    }
+    return Result<ComponentInstanceId>::success(
+        ComponentInstanceId(std::move(*parsed.try_value())));
+}
+
+std::span<const std::uint8_t, 16> ComponentInstanceId::bytes() const noexcept
+{
+    return std::span<const std::uint8_t, 16>(m_bytes);
+}
+
+IdentityText ComponentInstanceId::canonical_text() const noexcept
+{
+    return format_identity(m_bytes);
+}
 } // namespace cue::scene

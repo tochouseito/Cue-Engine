@@ -138,6 +138,16 @@ SceneDocument APIの正しさをContainer順へ依存させない。
 - Autosave Path、Recovery Path、Last Saved Timestamp
 - Renderer、Physics、Audio、Scriptの実行状態
 
+Componentの既知Field Value Domainは、`Boolean`、signed 64-bit integer、unsigned 64-bit integer、finite
+double-precision floating point、UTF-8 string、`AssetReferenceValue`の6種類に固定する。`AssetReferenceValue`は
+Asset Databaseの具体的なID形式を先に決めない、空でないUTF-8 Opaque Stable Tokenとして保持する。Fieldの意味Identityと
+VersionはM10 `SchemaRegistry`が所有し、SceneでのValue Kindは同じRegistry Generationへ結び付いたImmutable
+`ComponentValueSchemaRegistry`が所有する。呼び出しごとの入力からValue Kindを推測せず、Registry Generation変更後に旧Value
+Schemaを再利用しない。
+
+このValue DomainはMemory LayoutやC++ ABIの永続化ではない。Format Version 1のSerializerは各Kindを明示的なJSON Valueへ
+変換し、整数幅を狭めず、非有限浮動小数点を拒否し、Asset参照Tokenを解決済みRuntime Pointerへ置換しない。
+
 Document mutationは生成Threadで直列実行し、M11ではThread-safeにしない。公開操作は入力と全Invariantを検証してから
 状態を変更し、失敗時はDocumentを変更しない。外部から直接Containerを書き換えるMutable参照を返さない。
 

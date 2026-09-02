@@ -156,6 +156,13 @@ void append_type_id(std::string &a_destination, cue::schema::TypeId a_id)
 
 namespace cue::schema
 {
+SchemaRegistryGenerationToken::SchemaRegistryGenerationToken(
+    const SchemaRegistryIdentitySource &a_source,
+    std::uint64_t a_generation) noexcept
+    : m_source(&a_source), m_generation(a_generation)
+{
+}
+
 std::optional<std::uint64_t> SchemaRegistryIdentitySource::acquire_generation() noexcept
 {
     auto current = m_nextGeneration.load(std::memory_order_relaxed);
@@ -251,6 +258,11 @@ Result<DenseTypeIndex> SchemaRegistry::dense_index(
 bool SchemaRegistry::is_tombstoned(TypeId a_id) const noexcept
 {
     return std::binary_search(m_tombstones.begin(), m_tombstones.end(), a_id);
+}
+
+SchemaRegistryGenerationToken SchemaRegistry::generation_token() const noexcept
+{
+    return SchemaRegistryGenerationToken(*m_identitySource, m_generation);
 }
 
 SchemaRegistryBuilder::SchemaRegistryBuilder(

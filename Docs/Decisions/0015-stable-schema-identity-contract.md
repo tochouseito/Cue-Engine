@@ -118,6 +118,11 @@ Migrationは`TypeId`ごとに`N -> N + 1`の明示変換として所有し、途
 Seal後はDescriptor追加、削除、置換を拒否する。Hot ReloadまたはModule集合変更時は新しいRegistry Generationを構築してSealし、
 古い`DenseTypeIndex`を新Registryへ持ち越さない。ECS StorageとQueryは同じSeal済みRegistryのLifetime内だけでIndexを使用する。
 
+Registry外のAdapterやAuthoring Schemaが特定Generationへ結び付く場合は、`SchemaRegistryGenerationToken`を値で保持する。
+Tokenは発行元`SchemaRegistryIdentitySource`のIdentityとnon-zero Generationを組み合わせ、生の`SchemaRegistry` Addressだけで
+世代を識別しない。Composition RootはIdentity Sourceを、そのSourceから発行された全Registry、Dense Index、Generation Token、
+およびTokenを保持するAdapterより長く生存させる。Hot Reload後は現在RegistryのTokenと一致しないAdapterを再利用しない。
+
 ### Minimum Metadata
 
 M10のSchema Registryが所有する最小Metadataを次に限定する。
