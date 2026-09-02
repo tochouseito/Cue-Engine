@@ -3,12 +3,14 @@ add_library(Cue.GameCore STATIC)
 target_sources(
     Cue.GameCore
     PRIVATE
+        Private/CommandBuffer.cpp
         Private/Error.cpp
         Private/World.cpp
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS Public
         FILES
+            Public/Cue/GameCore/CommandBuffer.h
             Public/Cue/GameCore/Entity.h
             Public/Cue/GameCore/Error.h
             Public/Cue/GameCore/World.h

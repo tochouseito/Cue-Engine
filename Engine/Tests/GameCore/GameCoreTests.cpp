@@ -1,6 +1,7 @@
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Fatal.h>
 #include <Cue/Foundation/Log.h>
+#include <Cue/GameCore/CommandBuffer.h>
 #include <Cue/GameCore/Error.h>
 #include <Cue/GameCore/World.h>
 #include <Cue/Schema/Descriptor.h>
@@ -39,6 +40,17 @@ struct Position final
 
     /// @brief Test 用の座標値を構築する
     Position(int a_x, int a_y) noexcept : x(a_x), y(a_y)
+    {
+    }
+};
+
+struct Velocity final
+{
+    int x;
+    int y;
+
+    /// @brief Test用の速度値を構築する
+    Velocity(int a_x, int a_y) noexcept : x(a_x), y(a_y)
     {
     }
 };
@@ -195,7 +207,7 @@ template <typename T>
     return std::move(*result.try_value());
 }
 
-/// @brief Position と Lifetime Component を登録した Schema Registry を生成する
+/// @brief Position、Lifetime、Velocity Componentを登録したSchema Registryを生成する
 [[nodiscard]] std::unique_ptr<cue::schema::SchemaRegistry> make_registry(
     cue::schema::SchemaRegistryIdentitySource &a_identitySource,
     const cue::AssertContext &a_assertContext)
@@ -208,14 +220,226 @@ template <typename T>
     auto lifetime = builder.add_type(make_type(
         "20000000-0000-4000-8000-000000000002", "Cue.Test.Lifetime",
         a_assertContext));
+    auto velocity = builder.add_type(make_type(
+        "30000000-0000-4000-8000-000000000003", "Cue.Test.Velocity",
+        a_assertContext));
     auto registryResult = builder.seal();
 
-    if (!position || !lifetime || !registryResult)
+    if (!position || !lifetime || !velocity || !registryResult)
     {
         std::abort();
     }
 
     return std::move(*registryResult.try_value());
+}
+
+/// @brief 後続Testで使用するWorld Factory Helperを宣言する
+[[nodiscard]] std::unique_ptr<cue::game_core::World> make_world(
+    cue::game_core::WorldIdentitySource &a_identitySource,
+    const cue::schema::SchemaRegistry &a_registry,
+    const cue::AssertContext &a_assertContext);
+
+/// @brief Callback QueryのRead／Write、最小集合、0件、Invalid Query契約を検証する
+[[nodiscard]] bool test_queries(
+    const cue::schema::SchemaRegistry &a_registry,
+    const cue::AssertContext &a_assertContext)
+{
+    cue::game_core::WorldIdentitySource identitySource;
+    auto world = make_world(identitySource, a_registry, a_assertContext);
+    const auto positionId = make_type_id(
+        "10000000-0000-4000-8000-000000000001", a_assertContext);
+    const auto velocityId = make_type_id(
+        "30000000-0000-4000-8000-000000000003", a_assertContext);
+    auto positionType = world->register_component<Position>(positionId);
+    auto velocityType = world->register_component<Velocity>(velocityId);
+    auto first = world->create_entity();
+    auto second = world->create_entity();
+
+    if (!positionType || !velocityType || !first || !second)
+    {
+        return false;
+    }
+
+    auto firstPosition = world->add_component(
+        *positionType.try_value(), *first.try_value(), 1, 2);
+    auto firstVelocity = world->add_component(
+        *velocityType.try_value(), *first.try_value(), 3, 4);
+    auto secondPosition = world->add_component(
+        *positionType.try_value(), *second.try_value(), 5, 6);
+    int readSum = 0;
+    /// @brief 二つのConst Componentが同じEntityとして渡されることを検証する
+    auto readCallback = [&readSum](cue::game_core::EntityHandle,
+                                   const Position &a_position,
+                                   const Velocity &a_velocity) noexcept
+    {
+        readSum += a_position.x + a_velocity.x;
+    };
+    auto readResult = world->query_read(
+        *positionType.try_value(), *velocityType.try_value(), readCallback);
+    /// @brief Query Callback内の非StructuralなComponent値更新を検証する
+    auto writeCallback = [](cue::game_core::EntityHandle,
+                            Position &a_position,
+                            Velocity &a_velocity) noexcept
+    {
+        a_position.x += a_velocity.x;
+        a_position.y += a_velocity.y;
+    };
+    auto writeResult = world->query_write(
+        *positionType.try_value(), *velocityType.try_value(), writeCallback);
+    int positionSum = 0;
+    /// @brief 単一Component Queryが全Positionを走査することを検証する
+    auto positionCallback = [&positionSum](cue::game_core::EntityHandle,
+                                           const Position &a_position) noexcept
+    {
+        positionSum += a_position.x;
+    };
+    auto positionResult = world->query_read(
+        *positionType.try_value(), positionCallback);
+    /// @brief Duplicate Type QueryがCallbackを呼ばないことを検証する
+    auto duplicateCallback = [](cue::game_core::EntityHandle,
+                                const Position &, const Position &) noexcept
+    {
+    };
+    auto duplicateResult = world->query_read(
+        *positionType.try_value(), *positionType.try_value(),
+        duplicateCallback);
+
+    auto emptyWorld = make_world(identitySource, a_registry, a_assertContext);
+    auto emptyPositionType = emptyWorld->register_component<Position>(positionId);
+    auto emptyVelocityType = emptyWorld->register_component<Velocity>(velocityId);
+    /// @brief Storage未生成Queryが0件で完了することを検証する
+    auto emptyCallback = [](cue::game_core::EntityHandle,
+                            const Position &, const Velocity &) noexcept
+    {
+    };
+
+    if (!emptyPositionType || !emptyVelocityType)
+    {
+        return false;
+    }
+
+    auto emptyResult = emptyWorld->query_read(
+        *emptyPositionType.try_value(), *emptyVelocityType.try_value(),
+        emptyCallback);
+    const auto *readCount = readResult.try_value();
+    const auto *writeCount = writeResult.try_value();
+    const auto *positionCount = positionResult.try_value();
+    const auto *emptyCount = emptyResult.try_value();
+    cue::game_core::StructuralCommandBuffer queryCommands(*world);
+    bool recordedCommands = true;
+    /// @brief Query CallbackからDeferred Createを安全に記録できることを検証する
+    auto recordCallback = [&queryCommands, &recordedCommands](
+                              cue::game_core::EntityHandle,
+                              const Position &) noexcept
+    {
+        auto pending = queryCommands.create_entity();
+        recordedCommands = recordedCommands && pending.has_value();
+    };
+    auto recordQuery = world->query_read(
+        *positionType.try_value(), recordCallback);
+    auto queryCommandReport = world->flush_commands(queryCommands);
+    const auto queryCommandResults = queryCommandReport.results();
+    return firstPosition && firstVelocity && secondPosition &&
+           readCount != nullptr && *readCount == 1U && readSum == 4 &&
+           writeCount != nullptr && *writeCount == 1U &&
+           positionCount != nullptr && *positionCount == 2U &&
+           positionSum == 9 &&
+           has_game_core_error(duplicateResult,
+                               cue::game_core::GameCoreError::InvalidQuery) &&
+           emptyCount != nullptr && *emptyCount == 0U && recordedCommands &&
+           recordQuery.has_value() && queryCommandResults.size() == 2U &&
+           queryCommandResults[0].succeeded() &&
+           queryCommandResults[1].succeeded() && world->entity_count() == 4U;
+}
+
+/// @brief FIFO Command適用、Pending解決、失敗後継続、再利用不可契約を検証する
+[[nodiscard]] bool test_structural_command_buffer(
+    const cue::schema::SchemaRegistry &a_registry,
+    const cue::AssertContext &a_assertContext)
+{
+    cue::game_core::WorldIdentitySource identitySource;
+    auto world = make_world(identitySource, a_registry, a_assertContext);
+    const auto positionId = make_type_id(
+        "10000000-0000-4000-8000-000000000001", a_assertContext);
+    const auto velocityId = make_type_id(
+        "30000000-0000-4000-8000-000000000003", a_assertContext);
+    auto positionType = world->register_component<Position>(positionId);
+    auto velocityType = world->register_component<Velocity>(velocityId);
+    auto existing = world->create_entity();
+    auto stale = world->create_entity();
+
+    if (!positionType || !velocityType || !existing || !stale)
+    {
+        return false;
+    }
+
+    auto existingPosition = world->add_component(
+        *positionType.try_value(), *existing.try_value(), 1, 2);
+    auto destroyStale = world->destroy_entity(*stale.try_value());
+    cue::game_core::StructuralCommandBuffer commands(*world);
+    auto pending = commands.create_entity();
+
+    if (!existingPosition || !destroyStale || !pending)
+    {
+        return false;
+    }
+
+    auto addPendingPosition = commands.add_component(
+        *positionType.try_value(), *pending.try_value(), 10, 20);
+    auto addPendingVelocity = commands.add_component(
+        *velocityType.try_value(), *pending.try_value(), 1, 2);
+    auto removeExisting = commands.remove_component(
+        *positionType.try_value(), *existing.try_value());
+    auto addExisting = commands.add_component(
+        *positionType.try_value(), *existing.try_value(), 5, 6);
+    auto invalidDestroy = commands.destroy_entity(*stale.try_value());
+    auto addExistingVelocity = commands.add_component(
+        *velocityType.try_value(), *existing.try_value(), 7, 8);
+
+    if (!addPendingPosition || !addPendingVelocity || !removeExisting ||
+        !addExisting || !invalidDestroy || !addExistingVelocity)
+    {
+        return false;
+    }
+
+    const std::uint64_t epochBeforeFlush = world->structural_epoch();
+    auto report = world->flush_commands(commands);
+    const std::uint64_t epochAfterFlush = world->structural_epoch();
+    const auto results = report.results();
+
+    if (results.size() != 7U || !results[0].succeeded() ||
+        results[0].try_created_entity() == nullptr ||
+        !results[1].succeeded() || !results[2].succeeded() ||
+        !results[3].succeeded() || !results[4].succeeded() ||
+        results[5].succeeded() || !results[6].succeeded())
+    {
+        return false;
+    }
+
+    const auto *invalidError = results[5].try_error();
+    auto stalePendingAdd = commands.add_component(
+        *positionType.try_value(), *pending.try_value(), 30, 40);
+    int pairCount = 0;
+    /// @brief Flush後のQueryが成功Commandだけを観測することを検証する
+    auto queryCallback = [&pairCount](cue::game_core::EntityHandle,
+                                      const Position &,
+                                      const Velocity &) noexcept
+    {
+        ++pairCount;
+    };
+    auto queryResult = world->query_read(
+        *positionType.try_value(), *velocityType.try_value(), queryCallback);
+    const auto *queryCount = queryResult.try_value();
+    return invalidError != nullptr &&
+           invalidError->code().value() ==
+               static_cast<std::int64_t>(
+                   cue::game_core::GameCoreError::InvalidEntity) &&
+           has_game_core_error(
+               stalePendingAdd,
+               cue::game_core::GameCoreError::InvalidCommandBuffer) &&
+           commands.size() == 0U && queryCount != nullptr &&
+           *queryCount == 2U && pairCount == 2 &&
+           epochAfterFlush - epochBeforeFlush == 6U;
 }
 
 /// @brief World Factory の成功 Value を Test 用 Owner へ移す
@@ -521,6 +745,16 @@ int main()
     if (!test_reverse_storage_destruction(*registry, assertContext))
     {
         return 4;
+    }
+
+    if (!test_queries(*registry, assertContext))
+    {
+        return 5;
+    }
+
+    if (!test_structural_command_buffer(*registry, assertContext))
+    {
+        return 6;
     }
 
     return 0;

@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <new>
@@ -23,6 +24,8 @@
 namespace cue::game_core
 {
 class World;
+class StructuralCommandBuffer;
+class StructuralCommandReport;
 
 /// @brief Process 全体で World Incarnation ID を一意発行する明示所有 Source
 ///
@@ -161,6 +164,47 @@ class World final
     [[nodiscard]] std::size_t entity_count() const noexcept;
     /// @brief World Incarnation を識別する non-zero ID を返す
     [[nodiscard]] std::uint64_t id() const noexcept;
+    /// @brief 成功したStructural Mutationごとに増えるnon-zero Epochを返す
+    [[nodiscard]] std::uint64_t structural_epoch() const noexcept;
+    /// @brief Command BufferをSafe PointでFIFO適用し順序付き結果を返す
+    [[nodiscard]] StructuralCommandReport flush_commands(
+        StructuralCommandBuffer &a_commandBuffer) noexcept;
+
+    /// @brief 一つのComponentを持つEntityをCallback内限定のConst参照で走査する
+    template <typename T, typename Callback>
+    [[nodiscard]] Result<std::size_t> query_read(
+        ComponentType<T> a_type, Callback &&a_callback) noexcept
+    {
+        return query_one<false>(a_type, std::forward<Callback>(a_callback));
+    }
+
+    /// @brief 一つのComponentを持つEntityをCallback内限定のMutable参照で走査する
+    template <typename T, typename Callback>
+    [[nodiscard]] Result<std::size_t> query_write(
+        ComponentType<T> a_type, Callback &&a_callback) noexcept
+    {
+        return query_one<true>(a_type, std::forward<Callback>(a_callback));
+    }
+
+    /// @brief 二つのComponentを持つEntityをCallback内限定のConst参照で走査する
+    template <typename T, typename U, typename Callback>
+    [[nodiscard]] Result<std::size_t> query_read(
+        ComponentType<T> a_firstType, ComponentType<U> a_secondType,
+        Callback &&a_callback) noexcept
+    {
+        return query_two<false>(a_firstType, a_secondType,
+                                std::forward<Callback>(a_callback));
+    }
+
+    /// @brief 二つのComponentを持つEntityをCallback内限定のMutable参照で走査する
+    template <typename T, typename U, typename Callback>
+    [[nodiscard]] Result<std::size_t> query_write(
+        ComponentType<T> a_firstType, ComponentType<U> a_secondType,
+        Callback &&a_callback) noexcept
+    {
+        return query_two<true>(a_firstType, a_secondType,
+                               std::forward<Callback>(a_callback));
+    }
 
     /// @brief Schema Type と C++ Component 型をこの World へ一意登録する
     template <typename T>
@@ -193,7 +237,15 @@ class World final
                 "Schema type already has a C++ component capability"));
         }
 
+        if (!has_structural_capacity())
+        {
+            return Result<ComponentType<T>>::failure(make_game_core_error(
+                *m_assertContext, GameCoreError::CapacityExceeded,
+                "World structural epoch is exhausted"));
+        }
+
         binding.isRegistered = true;
+        advance_structural_epoch();
         return Result<ComponentType<T>>::success(ComponentType<T>(
             *this, *denseIndex, &binding, m_worldId, m_identitySource));
     }
@@ -238,6 +290,13 @@ class World final
                 "Entity already owns this component type"));
         }
 
+        if (!has_structural_capacity())
+        {
+            return Result<T *>::failure(make_game_core_error(
+                *m_assertContext, GameCoreError::CapacityExceeded,
+                "World structural epoch is exhausted"));
+        }
+
         T pendingComponent(std::forward<Args>(a_arguments)...);
 
         try
@@ -252,12 +311,14 @@ class World final
                 m_componentStorages[storageIndex] = std::move(storage);
                 m_storageCreationOrder.push_back(
                     static_cast<std::uint32_t>(storageIndex));
+                advance_structural_epoch();
                 return Result<T *>::success(std::move(component));
             }
 
             auto *storage = static_cast<ComponentStorage<T> *>(baseStorage);
             T *component = storage->add(a_entity.index(),
                                         std::move(pendingComponent));
+            advance_structural_epoch();
             return Result<T *>::success(std::move(component));
         }
         catch (const std::bad_alloc &)
@@ -372,12 +433,22 @@ class World final
                 "Entity does not own this component type"));
         }
 
+        if (!has_structural_capacity())
+        {
+            return Result<void>::failure(make_game_core_error(
+                *m_assertContext, GameCoreError::CapacityExceeded,
+                "World structural epoch is exhausted"));
+        }
+
         auto *storage = static_cast<ComponentStorage<T> *>(baseStorage);
         storage->remove(a_entity.index());
+        advance_structural_epoch();
         return Result<void>::success();
     }
 
   private:
+    friend class StructuralCommandBuffer;
+
     enum class State : std::uint8_t
     {
         Active,
@@ -414,6 +485,34 @@ class World final
         World *m_world;
     };
 
+    class QueryScope final
+    {
+      public:
+        /// @brief WorldのQuery排他区間を開始する
+        explicit QueryScope(World &a_world) noexcept : m_world(&a_world)
+        {
+            m_world->begin_query();
+        }
+
+        /// @brief Query排他区間の複製を禁止する
+        QueryScope(const QueryScope &) = delete;
+        /// @brief Query排他区間の複製代入を禁止する
+        QueryScope &operator=(const QueryScope &) = delete;
+        /// @brief Query排他区間の移動を禁止する
+        QueryScope(QueryScope &&) = delete;
+        /// @brief Query排他区間の移動代入を禁止する
+        QueryScope &operator=(QueryScope &&) = delete;
+
+        /// @brief Scope終了時にWorldのQuery排他を解放する
+        ~QueryScope() noexcept
+        {
+            m_world->end_query();
+        }
+
+      private:
+        World *m_world;
+    };
+
     struct EntitySlot final
     {
         std::uint32_t generation = 1U;
@@ -433,6 +532,10 @@ class World final
         virtual ~ComponentStorageBase() = default;
         /// @brief Entity がこの Storage の Component を持つか返す
         [[nodiscard]] virtual bool has(std::uint32_t a_entityIndex) const noexcept = 0;
+        /// @brief Dense Storageが保持するComponent数を返す
+        [[nodiscard]] virtual std::size_t size() const noexcept = 0;
+        /// @brief Dense位置に対応するEntity Indexを返す
+        [[nodiscard]] virtual std::uint32_t entity_at(std::size_t a_index) const noexcept = 0;
         /// @brief Entity が持つ Component があれば一度だけ破棄する
         virtual void remove_entity(std::uint32_t a_entityIndex) noexcept = 0;
     };
@@ -534,6 +637,12 @@ class World final
             return m_data + a_index;
         }
 
+        /// @brief 指定位置のComponentへ非所有Const Pointerを返す
+        [[nodiscard]] const T *at(std::size_t a_index) const noexcept
+        {
+            return m_data + a_index;
+        }
+
       private:
         std::allocator<T> m_allocator;
         T *m_data = nullptr;
@@ -555,6 +664,18 @@ class World final
         {
             return static_cast<std::size_t>(a_entityIndex) < m_sparse.size() &&
                    m_sparse[a_entityIndex] != 0U;
+        }
+
+        /// @brief Dense Storageが保持するComponent数を返す
+        [[nodiscard]] std::size_t size() const noexcept override
+        {
+            return m_denseEntities.size();
+        }
+
+        /// @brief Dense位置に対応するEntity Indexを返す
+        [[nodiscard]] std::uint32_t entity_at(std::size_t a_index) const noexcept override
+        {
+            return m_denseEntities[a_index];
         }
 
         /// @brief Entity の Component があれば Swap-remove で破棄する
@@ -594,6 +715,14 @@ class World final
             return m_components.at(densePosition);
         }
 
+        /// @brief Entityに対応するDense ComponentのConst Pointerを返す
+        [[nodiscard]] const T *get(std::uint32_t a_entityIndex) const noexcept
+        {
+            const auto densePosition =
+                static_cast<std::size_t>(m_sparse[a_entityIndex] - 1U);
+            return m_components.at(densePosition);
+        }
+
         /// @brief Entity の Component を破棄し Dense 穴を末尾要素で埋める
         void remove(std::uint32_t a_entityIndex) noexcept
         {
@@ -619,6 +748,145 @@ class World final
         PackedArray<T> m_components;
         std::vector<std::uint32_t> m_sparse;
     };
+
+    /// @brief 一つの型付きStorageをCallbackのAccess契約に従って走査する
+    template <bool IsMutable, typename T, typename Callback>
+    [[nodiscard]] Result<std::size_t> query_one(
+        ComponentType<T> a_type, Callback &&a_callback) noexcept
+    {
+        assert_owner_thread();
+        assert_active();
+
+        if (!validate_component_type(a_type))
+        {
+            return Result<std::size_t>::failure(make_game_core_error(
+                *m_assertContext, GameCoreError::InvalidQuery,
+                "Query requires a registered component type"));
+        }
+
+        const auto storageIndex =
+            static_cast<std::size_t>(a_type.m_denseIndex.value());
+        auto *baseStorage = m_componentStorages[storageIndex].get();
+
+        if (baseStorage == nullptr)
+        {
+            return Result<std::size_t>::success(0U);
+        }
+
+        try
+        {
+            QueryScope queryScope(*this);
+            auto *storage = static_cast<ComponentStorage<T> *>(baseStorage);
+            const std::size_t count = storage->size();
+
+            for (std::size_t index = 0U; index < count; ++index)
+            {
+                const std::uint32_t entityIndex = storage->entity_at(index);
+                auto entity = make_entity_handle(entityIndex);
+
+                if constexpr (IsMutable)
+                {
+                    std::invoke(a_callback, entity,
+                                *storage->get(entityIndex));
+                }
+                else
+                {
+                    const auto *constStorage = storage;
+                    std::invoke(a_callback, entity,
+                                *constStorage->get(entityIndex));
+                }
+            }
+
+            auto resultCount = count;
+            return Result<std::size_t>::success(std::move(resultCount));
+        }
+        catch (...)
+        {
+            terminate_exception();
+        }
+    }
+
+    /// @brief 二つの型付きStorageを最小Dense集合からSparse照合して走査する
+    template <bool IsMutable, typename T, typename U, typename Callback>
+    [[nodiscard]] Result<std::size_t> query_two(
+        ComponentType<T> a_firstType, ComponentType<U> a_secondType,
+        Callback &&a_callback) noexcept
+    {
+        assert_owner_thread();
+        assert_active();
+
+        if (a_firstType.m_denseIndex == a_secondType.m_denseIndex ||
+            !validate_component_type(a_firstType) ||
+            !validate_component_type(a_secondType))
+        {
+            return Result<std::size_t>::failure(make_game_core_error(
+                *m_assertContext, GameCoreError::InvalidQuery,
+                "Query requires distinct registered component types"));
+        }
+
+        const auto firstIndex =
+            static_cast<std::size_t>(a_firstType.m_denseIndex.value());
+        const auto secondIndex =
+            static_cast<std::size_t>(a_secondType.m_denseIndex.value());
+        auto *firstBase = m_componentStorages[firstIndex].get();
+        auto *secondBase = m_componentStorages[secondIndex].get();
+
+        if (firstBase == nullptr || secondBase == nullptr)
+        {
+            return Result<std::size_t>::success(0U);
+        }
+
+        try
+        {
+            QueryScope queryScope(*this);
+            auto *firstStorage = static_cast<ComponentStorage<T> *>(firstBase);
+            auto *secondStorage = static_cast<ComponentStorage<U> *>(secondBase);
+            const ComponentStorageBase *driver = firstBase;
+
+            if (secondBase->size() < firstBase->size())
+            {
+                driver = secondBase;
+            }
+
+            std::size_t matchCount = 0U;
+
+            for (std::size_t index = 0U; index < driver->size(); ++index)
+            {
+                const std::uint32_t entityIndex = driver->entity_at(index);
+
+                if (!firstStorage->has(entityIndex) ||
+                    !secondStorage->has(entityIndex))
+                {
+                    continue;
+                }
+
+                auto entity = make_entity_handle(entityIndex);
+
+                if constexpr (IsMutable)
+                {
+                    std::invoke(a_callback, entity,
+                                *firstStorage->get(entityIndex),
+                                *secondStorage->get(entityIndex));
+                }
+                else
+                {
+                    const auto *constFirst = firstStorage;
+                    const auto *constSecond = secondStorage;
+                    std::invoke(a_callback, entity,
+                                *constFirst->get(entityIndex),
+                                *constSecond->get(entityIndex));
+                }
+
+                ++matchCount;
+            }
+
+            return Result<std::size_t>::success(std::move(matchCount));
+        }
+        catch (...)
+        {
+            terminate_exception();
+        }
+    }
 
     /// @brief Component Type Token がこの World の Binding と一致するか検証する
     template <typename T>
@@ -646,8 +914,19 @@ class World final
     void begin_structural_mutation() noexcept;
     /// @brief 現在の Structural Mutation 排他区間を終了する
     void end_structural_mutation() noexcept;
+    /// @brief Structural Epochを進められる場合にtrueを返す
+    [[nodiscard]] bool has_structural_capacity() const noexcept;
+    /// @brief 成功したStructural Mutationに対応してEpochを一つ進める
+    void advance_structural_epoch() noexcept;
+    /// @brief Nested Queryを拒否してQuery排他区間を開始する
+    void begin_query() noexcept;
+    /// @brief 現在のQuery排他区間を終了する
+    void end_query() noexcept;
     /// @brief Handle の World、Slot、Generation、Token が現在状態と一致するか検証する
     [[nodiscard]] bool validate_entity(EntityHandle a_entity) const noexcept;
+    /// @brief 生存Slotの現在GenerationからCallback用Entity Handleを生成する
+    [[nodiscard]] EntityHandle make_entity_handle(
+        std::uint32_t a_index) const noexcept;
     /// @brief World と Slot 状態から Handle 改変検出 Token を生成する
     [[nodiscard]] std::uint64_t make_validation_token(
         std::uint32_t a_index, std::uint32_t a_generation) const noexcept;
@@ -663,11 +942,13 @@ class World final
     std::thread::id m_ownerThread;
     State m_state = State::Active;
     bool m_isStructuralMutationActive = false;
+    bool m_isQueryActive = false;
     std::vector<EntitySlot> m_slots;
     std::vector<std::uint32_t> m_freeIndices;
     std::vector<ComponentBinding> m_componentBindings;
     std::vector<std::unique_ptr<ComponentStorageBase>> m_componentStorages;
     std::vector<std::uint32_t> m_storageCreationOrder;
     std::size_t m_entityCount = 0U;
+    std::uint64_t m_structuralEpoch = 1U;
 };
 } // namespace cue::game_core

@@ -123,6 +123,13 @@ Result<EntityHandle> World::create_entity() noexcept
     StructuralMutationScope mutationScope(*this);
     std::uint32_t index = 0U;
 
+    if (!has_structural_capacity())
+    {
+        return Result<EntityHandle>::failure(make_game_core_error(
+            *m_assertContext, GameCoreError::CapacityExceeded,
+            "World structural epoch is exhausted"));
+    }
+
     if (!m_freeIndices.empty())
     {
         index = m_freeIndices.back();
@@ -157,6 +164,7 @@ Result<EntityHandle> World::create_entity() noexcept
     }
 
     ++m_entityCount;
+    advance_structural_epoch();
     const auto generation = m_slots[index].generation;
     return Result<EntityHandle>::success(EntityHandle(
         m_worldId, index, generation,
@@ -174,6 +182,13 @@ Result<void> World::destroy_entity(EntityHandle a_entity) noexcept
         return Result<void>::failure(make_game_core_error(
             *m_assertContext, GameCoreError::InvalidEntity,
             "Entity destruction requires a live handle from this world"));
+    }
+
+    if (!has_structural_capacity())
+    {
+        return Result<void>::failure(make_game_core_error(
+            *m_assertContext, GameCoreError::CapacityExceeded,
+            "World structural epoch is exhausted"));
     }
 
     auto &slot = m_slots[a_entity.index()];
@@ -217,6 +232,8 @@ Result<void> World::destroy_entity(EntityHandle a_entity) noexcept
         m_freeIndices.push_back(a_entity.index());
     }
 
+    advance_structural_epoch();
+
     return Result<void>::success();
 }
 
@@ -241,6 +258,13 @@ std::uint64_t World::id() const noexcept
     return m_worldId;
 }
 
+std::uint64_t World::structural_epoch() const noexcept
+{
+    assert_owner_thread();
+    assert_active();
+    return m_structuralEpoch;
+}
+
 void World::assert_owner_thread() const noexcept
 {
     CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_ownerThread,
@@ -261,13 +285,14 @@ void World::assert_active() const noexcept
 
 void World::begin_structural_mutation() noexcept
 {
-    CUE_ASSERT(*m_assertContext, !m_isStructuralMutationActive,
-               "Cue.GameCore structural mutation must not be re-entered");
+    CUE_ASSERT(*m_assertContext,
+               !m_isStructuralMutationActive && !m_isQueryActive,
+               "Cue.GameCore structural mutation requires a safe point");
 
-    if (m_isStructuralMutationActive)
+    if (m_isStructuralMutationActive || m_isQueryActive)
     {
         m_assertContext->fatal_handler().terminate(
-            "Cue.GameCore structural mutation must not be re-entered");
+            "Cue.GameCore structural mutation requires a safe point");
     }
 
     m_isStructuralMutationActive = true;
@@ -278,6 +303,40 @@ void World::end_structural_mutation() noexcept
     CUE_ASSERT(*m_assertContext, m_isStructuralMutationActive,
                "Cue.GameCore structural mutation scope is not active");
     m_isStructuralMutationActive = false;
+}
+
+bool World::has_structural_capacity() const noexcept
+{
+    return m_structuralEpoch < std::numeric_limits<std::uint64_t>::max();
+}
+
+void World::advance_structural_epoch() noexcept
+{
+    CUE_ASSERT(*m_assertContext, has_structural_capacity(),
+               "Cue.GameCore structural epoch must not wrap");
+    ++m_structuralEpoch;
+}
+
+void World::begin_query() noexcept
+{
+    CUE_ASSERT(*m_assertContext,
+               !m_isQueryActive && !m_isStructuralMutationActive,
+               "Cue.GameCore query must not be nested or enter mutation");
+
+    if (m_isQueryActive || m_isStructuralMutationActive)
+    {
+        m_assertContext->fatal_handler().terminate(
+            "Cue.GameCore query must not be nested or enter mutation");
+    }
+
+    m_isQueryActive = true;
+}
+
+void World::end_query() noexcept
+{
+    CUE_ASSERT(*m_assertContext, m_isQueryActive,
+               "Cue.GameCore query scope is not active");
+    m_isQueryActive = false;
 }
 
 bool World::validate_entity(EntityHandle a_entity) const noexcept
@@ -294,6 +353,14 @@ bool World::validate_entity(EntityHandle a_entity) const noexcept
            slot.generation == a_entity.generation() &&
            a_entity.m_validationToken == make_validation_token(
                a_entity.index(), a_entity.generation());
+}
+
+EntityHandle World::make_entity_handle(std::uint32_t a_index) const noexcept
+{
+    const auto generation = m_slots[a_index].generation;
+    return EntityHandle(m_worldId, a_index, generation,
+                        make_validation_token(a_index, generation),
+                        m_identitySource);
 }
 
 std::uint64_t World::make_validation_token(
