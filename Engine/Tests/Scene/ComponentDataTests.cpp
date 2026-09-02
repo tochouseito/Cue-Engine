@@ -207,6 +207,14 @@ void test_component_data() noexcept
     const auto invalidString = cue::scene::FieldValue::string(invalidUtf8,
                                                               assertContext);
     require(!invalidString.has_value());
+    const std::string oversizedWireString(
+        cue::scene::k_maximumSceneStringBytes + 1U, 's');
+    require(!cue::scene::FieldValue::string(oversizedWireString,
+                                            assertContext)
+                 .has_value());
+    require(!cue::scene::AssetReferenceValue::create(oversizedWireString,
+                                                      assertContext)
+                 .has_value());
     const std::string longAssetToken(256U, 'a');
     const auto validLongAssetToken = cue::scene::AssetReferenceValue::create(
         longAssetToken, assertContext);
@@ -230,6 +238,41 @@ void test_component_data() noexcept
     const auto duplicateMemberField = cue::scene::OpaqueFieldData::create(
         unknownField, "{\"same\":1,\"same\":2}", assertContext);
     require(!duplicateMemberField.has_value());
+    const std::string oversizedOpaqueString =
+        std::string("\"") +
+        std::string(cue::scene::k_maximumSceneStringBytes + 1U, 's') + "\"";
+    require(!cue::scene::OpaqueFieldData::create(
+                 unknownField, oversizedOpaqueString, assertContext)
+                 .has_value());
+    const std::string overNestedOpaqueValue =
+        std::string(58U, '[') + "0" + std::string(58U, ']');
+    require(!cue::scene::OpaqueFieldData::create(
+                 unknownField, overNestedOpaqueValue, assertContext)
+                 .has_value());
+    const std::string overNestedEmptyOpaqueValue =
+        std::string(58U, '[') + std::string(58U, ']');
+    require(!cue::scene::OpaqueFieldData::create(
+                 unknownField, overNestedEmptyOpaqueValue, assertContext)
+                 .has_value());
+    std::string oversizedOpaqueDocument("[");
+    const std::string maximumOpaqueString(
+        cue::scene::k_maximumSceneStringBytes, 's');
+    for (std::size_t index = 0U; index < 65U; ++index)
+    {
+        if (index > 0U)
+        {
+            oversizedOpaqueDocument.push_back(',');
+        }
+        oversizedOpaqueDocument.push_back('"');
+        oversizedOpaqueDocument.append(maximumOpaqueString);
+        oversizedOpaqueDocument.push_back('"');
+    }
+    oversizedOpaqueDocument.push_back(']');
+    require(oversizedOpaqueDocument.size() >
+            cue::scene::k_maximumSceneBytes);
+    require(!cue::scene::OpaqueFieldData::create(
+                 unknownField, oversizedOpaqueDocument, assertContext)
+                 .has_value());
 
     std::vector<cue::scene::KnownFieldData> repeatedFields;
     repeatedFields.push_back(take_value(cue::scene::create_known_field(

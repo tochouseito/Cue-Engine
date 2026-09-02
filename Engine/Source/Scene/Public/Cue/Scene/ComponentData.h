@@ -3,6 +3,7 @@
 #include <Cue/Scene/Identity.h>
 #include <Cue/Schema/Registry.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -12,6 +13,19 @@
 
 namespace cue::scene
 {
+class SceneDocumentSerializationAccess;
+
+/// @brief Scene File内の復号済み一String Valueが所有できる最大Byte数
+inline constexpr std::size_t k_maximumSceneStringBytes = 256U * 1024U;
+/// @brief Scene File全体または一つのOpaque JSONが所有できる最大Byte数
+inline constexpr std::size_t k_maximumSceneBytes = 16U * 1024U * 1024U;
+/// @brief Scene File内の一ObjectまたはArrayが所有できる最大要素数
+inline constexpr std::size_t k_maximumSceneContainerElements = 4096U;
+/// @brief Scene File内のRootから数えるJSON Container最大Nesting Depth
+inline constexpr std::size_t k_maximumSceneNestingDepth = 64U;
+/// @brief JSON Tree全体が所有できるValueとObject Memberの合計上限
+inline constexpr std::size_t k_maximumSceneJsonNodes = 256U * 1024U;
+
 /// @brief Scene Wire Dataで解釈可能なField Valueの意味Kind
 enum class FieldValueKind : std::uint8_t
 {
@@ -291,21 +305,29 @@ class OpaqueComponentData final
     [[nodiscard]] schema::TypeId type_id() const noexcept;
     /// @brief Opaque Entry内のSchema Versionを返す
     [[nodiscard]] schema::SchemaVersion schema_version() const noexcept;
-    /// @brief SerializerがIdentity Metadataと組み合わせるOpaque Payload JSON Textを返す
+    /// @brief Serializerが再出力するOpaque Payloadまたは完全Entry JSON Textを返す
     [[nodiscard]] std::string_view raw_json() const noexcept;
+    /// @brief Raw JSONがIdentity Metadataを含む完全Entryならtrueを返す
+    [[nodiscard]] bool is_complete_entry() const noexcept;
 
   private:
     friend class SceneComponent;
+    friend class SceneDocumentSerializationAccess;
+    /// @brief Serializerが検証済みの完全な未知Component EntryをLossless所有する
+    [[nodiscard]] static Result<OpaqueComponentData> create_complete_entry(
+        ComponentInstanceId a_instanceId, schema::TypeId a_typeId, schema::SchemaVersion a_schemaVersion,
+        std::string_view a_rawJson, const schema::SchemaRegistry &a_schemaRegistry,
+        const AssertContext &a_assertContext) noexcept;
     /// @brief 検証済みOpaque Component Entryを所有する
-    OpaqueComponentData(ComponentInstanceId a_instanceId,
-                        schema::TypeId a_typeId,
-                        schema::SchemaVersion a_schemaVersion,
-                        std::string a_rawJson) noexcept;
+    OpaqueComponentData(ComponentInstanceId a_instanceId, schema::TypeId a_typeId,
+                        schema::SchemaVersion a_schemaVersion, std::string a_rawJson,
+                        bool a_isCompleteEntry) noexcept;
 
     ComponentInstanceId m_instanceId;
     schema::TypeId m_typeId;
     schema::SchemaVersion m_schemaVersion;
     std::string m_rawJson;
+    bool m_isCompleteEntry = false;
     bool m_isValid = true;
 };
 

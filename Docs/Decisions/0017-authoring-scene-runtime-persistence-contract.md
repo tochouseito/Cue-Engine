@@ -271,6 +271,16 @@ Schema Version、CueEngine Versionとは別に扱う。未来の未対応Version
 Migrationは`N -> N + 1`の連続変換だけを登録し、途中Versionを飛ばさない。Parseした元DataをMemory上で段階変換し、
 各段階と現行Documentを検証する。Migration失敗時は元Fileと既存SceneDocumentを変更しない。Downgrade保存は行わない。
 
+Component Migrationは`TypeId`と変換元`SchemaVersion`をKeyにし、`fields` JSON Arrayだけを`N -> N + 1`へ変換する。
+各Stepの出力がResource上限内のJSON Arrayであることを確認し、登録済みTypeの現在Versionへ到達してから現在の
+`ComponentValueSchemaRegistry`でFieldを解釈する。Identity Metadata、`TypeId`、`ComponentInstanceId`はMigration関数へ渡さず、
+Schema変換によるIdentity変更を許可しない。Step欠落、変換失敗、現在Schemaとの不一致はScene全体のLoad失敗とする。
+
+Scene／Component Migration Registryの`add_step`を行う構築期間は単一Threadまたは呼び出し側の外部同期で直列化する。
+登録完了後は`add_step`を呼ばないImmutable状態として共有し、その間だけ複数ThreadからMigration、Parse、Saveに利用できる。
+並行利用する場合は登録CallbackとCallbackが参照する状態も再入可能にするか、呼び出し側が外部同期する。
+登録した関数の参照先はRegistryを利用する全処理の完了まで有効に保つ。
+
 Sceneを開いただけでSource Fileを暗黙更新しない。Migration済みDocumentは呼び出し側へ`MigrationRequired`状態と元Versionを返し、
 明示Save時だけ現行Versionとして保存する。元FileのBackup／Recovery PolicyはIssue #152でADR-0014に従って実装する。
 
@@ -281,10 +291,22 @@ LoadはFileを上限内で読み、完全にParse、Migration、検証した新D
 部分適用しない。
 
 SaveはDocumentからMemory上にCandidate Byte列を生成し、同じParserでParse-backして同値性を確認してから
-ADR-0014のAtomic File Replaceで公開する。結果は`Committed`、`NotPublished`、`PublishedButDurabilityUnknown`を区別してそのまま返す。
+ADR-0014のAtomic File Replaceで公開する。結果は`Committed`、`NotPublished`、`PublishedButDurabilityUnknown`、
+`PublishedButVerificationFailed`を区別してそのまま返す。`PublishedButVerificationFailed`はAtomic Write自体はCommit済みだが、
+その後の再読込または同値比較だけが失敗した状態であり、Durability不明として扱わない。
 Publish前失敗の`NotPublished`では元Fileを維持してTemporary FileをCleanupする。Publish後の
 `PublishedButDurabilityUnknown`では新Fileが既に可視化されているため元Fileへ戻さず、呼び出し側へ再読込と診断を要求する。
 Cleanup失敗はPrimary Errorを置換せずSecondary診断へ追加する。
+
+明示Saveで既存のRegular Fileを置換する場合は、本文公開前に同じRoot内の`<Scene Path>.backup`へ旧Byte列をAtomic Writeする。
+Backup作成に失敗した場合は本文を公開せず`NotPublished`を返す。本文公開失敗時はBackupと元本文を維持し、自動復元は行わない。
+本文公開成功後もBackupをRecovery Sourceとして残し、削除時期はM12のEditor Recovery Policyで決定する。新規File、Directory、
+その他の非Regular Entryを暗黙にBackupまたは置換しない。
+
+`save_scene_document`の呼び出し側は、Entry確認、旧Byte列読込、Backup公開、本文公開、再読込比較が完了するまで、本文Pathと
+`.backup` Pathへの排他的な書込み所有権を保持する。同じ`FilesystemRoot`の別Threadだけでなく、同じ実Fileへ到達する別Rootや
+別ProcessのWriterもProject／Editor層の保存Coordinatorで直列化する。この前提なしに、Backupが実際に置換した直前Byte列と
+一致することは保証しない。
 
 ## Rejected Alternatives
 
@@ -339,7 +361,7 @@ Authoring上存在するGame LogicまたはDataの欠落を成功として実行
 - 未知Component、未知Field、ExtensionをLoad／SaveでLosslessに保持する
 - 同じDocumentからByte単位で安定した出力を生成する
 - Migrationの連続適用、欠落Step、未来Version、失敗時元File維持を検証する
-- Parse-back失敗と`NotPublished`で元Fileと既存Documentを維持し、`PublishedButDurabilityUnknown`では新Fileの再読込を要求する
+- Parse-back失敗と`NotPublished`で元Fileと既存Documentを維持し、Publish後失敗をDurability不明と再読込検証失敗へ分離する
 - Snapshot作成後のDocument変更がSnapshotへ影響しないことを検証する
 - Runtime実体化成功時のObjectId／EntityHandle Mappingと、途中失敗時にOperation由来の生存Entityを残さないことを検証する
 - SceneInstance終了で先に破棄されたEntityを飛ばし、他の生存Entityを処理し、破棄失敗後の所有集合を維持する
