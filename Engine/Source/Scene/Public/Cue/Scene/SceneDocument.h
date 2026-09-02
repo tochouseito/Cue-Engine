@@ -42,6 +42,7 @@ class SceneObject final
 
   private:
     friend class SceneDocument;
+    friend class SceneDocumentSerializationAccess;
 
     /// @brief 検証済みObject Authoring Dataを構築する
     SceneObject(ObjectId a_id, std::string a_name, bool a_isActive, std::optional<ObjectId> a_parentId,

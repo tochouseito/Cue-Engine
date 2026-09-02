@@ -13,7 +13,9 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <map>
 #include <ranges>
+#include <set>
 #include <span>
 #include <type_traits>
 #include <utility>
@@ -428,6 +430,25 @@ namespace cue::scene
 class SceneDocumentSerializationAccess final
 {
   public:
+    /// @brief Parse済みObject Dataを公開Mutationの反復なしで所有値へ変換する
+    [[nodiscard]] static SceneObject create_object(
+        ObjectId a_id, std::string a_name, bool a_isActive,
+        std::optional<ObjectId> a_parentId, math::Transform a_transform,
+        std::vector<SceneComponent> a_components) noexcept
+    {
+        return SceneObject(std::move(a_id), std::move(a_name), a_isActive,
+                           std::move(a_parentId), std::move(a_transform),
+                           std::move(a_components));
+    }
+
+    /// @brief 一括検証済みObject集合をDocumentへ移しStable ID Indexを一度だけ構築する
+    static void set_objects(SceneDocument &a_document,
+                            std::vector<SceneObject> a_objects) noexcept
+    {
+        a_document.m_objects = std::move(a_objects);
+        a_document.rebuild_index();
+    }
+
     /// @brief Parse済みExtension JSONをSceneDocumentへ所有させる
     static void set_extensions(SceneDocument &a_document, std::string a_json) noexcept
     {
@@ -807,6 +828,76 @@ Result<std::string> serialize_scene_document(const SceneDocument &a_document,
 
 namespace
 {
+/// @brief Parse済みParent Graphを一回走査して参照、Cycle、Depthを検証する
+[[nodiscard]] cue::Result<void> validate_scene_hierarchy(
+    std::span<const cue::scene::SceneObject> a_objects,
+    const std::map<cue::scene::ObjectId, std::size_t> &a_objectIndex,
+    const cue::AssertContext &a_assertContext) noexcept
+{
+    try
+    {
+        std::vector<std::uint8_t> states(a_objects.size(), 0U);
+        std::vector<std::size_t> depths(a_objects.size(), 0U);
+        std::vector<std::size_t> chain;
+        chain.reserve(a_objects.size());
+        for (std::size_t start = 0U; start < a_objects.size(); ++start)
+        {
+            if (states[start] == 2U)
+            {
+                continue;
+            }
+            chain.clear();
+            std::size_t current = start;
+            bool reachedRoot = false;
+            while (states[current] == 0U)
+            {
+                states[current] = 1U;
+                chain.push_back(current);
+                const auto *parentId = a_objects[current].try_parent_id();
+                if (parentId == nullptr)
+                {
+                    reachedRoot = true;
+                    break;
+                }
+                const auto parent = a_objectIndex.find(*parentId);
+                if (parent == a_objectIndex.end())
+                {
+                    return cue::Result<void>::failure(format_error(
+                        a_assertContext, cue::scene::SceneError::DanglingParent,
+                        "Scene object has a dangling parent identity"));
+                }
+                current = parent->second;
+            }
+            if (!reachedRoot && states[current] == 1U)
+            {
+                return cue::Result<void>::failure(format_error(
+                    a_assertContext, cue::scene::SceneError::HierarchyCycle,
+                    "Scene object hierarchy contains a cycle"));
+            }
+            std::size_t depth = reachedRoot ? 0U : depths[current];
+            for (auto iterator = chain.rbegin(); iterator != chain.rend();
+                 ++iterator)
+            {
+                ++depth;
+                if (depth > cue::scene::SceneDocument::maximum_hierarchy_depth())
+                {
+                    return cue::Result<void>::failure(format_error(
+                        a_assertContext,
+                        cue::scene::SceneError::HierarchyDepthExceeded,
+                        "Scene object hierarchy exceeds the supported depth"));
+                }
+                depths[*iterator] = depth;
+                states[*iterator] = 2U;
+            }
+        }
+        return cue::Result<void>::success();
+    }
+    catch (...)
+    {
+        terminate_serialization_exception(a_assertContext);
+    }
+}
+
 /// @brief Value Schema内のFieldId対応Kindを検索する
 [[nodiscard]] const cue::scene::FieldKindBinding *find_field_binding(const cue::scene::ComponentValueSchema &a_schema,
                                                                      cue::schema::FieldId a_id) noexcept
@@ -1000,10 +1091,13 @@ namespace
         return cue::Result<cue::scene::SceneDocument>::failure(std::move(*sceneId.try_error()));
     }
     auto document = cue::scene::SceneDocument::create(std::move(*sceneId.try_value()), a_assertContext);
-    std::vector<std::pair<cue::scene::ObjectId, std::optional<cue::scene::ObjectId>>> parents;
+    std::vector<cue::scene::SceneObject> parsedObjects;
+    std::map<cue::scene::ObjectId, std::size_t> objectIndex;
+    std::set<cue::scene::ComponentInstanceId> componentIds;
     std::size_t retainedComponentBytes = 0U;
     try
     {
+        parsedObjects.reserve(objectsMember->elements.size());
         for (const auto &object : objectsMember->elements)
         {
             constexpr std::array objectNames = {std::string_view("objectId"),  std::string_view("name"),
@@ -1047,14 +1141,22 @@ namespace
                     format_error(a_assertContext, cue::scene::SceneError::InvalidFormat,
                                  "Scene object identity or transform is invalid"));
             }
-            const auto stableObjectId = *objectId.try_value();
-            auto added = document.add_object(stableObjectId, nameMember->text, activeMember->boolean, std::nullopt,
-                                             std::move(*transform.try_value()));
-            if (!added)
+            if (nameMember->text.empty())
             {
-                return cue::Result<cue::scene::SceneDocument>::failure(std::move(*added.try_error()));
+                return cue::Result<cue::scene::SceneDocument>::failure(
+                    format_error(a_assertContext, cue::scene::SceneError::InvalidName,
+                                 "Scene object name must not be empty"));
             }
-            parents.emplace_back(stableObjectId, std::move(parentId));
+            const auto stableObjectId = *objectId.try_value();
+            if (objectIndex.contains(stableObjectId))
+            {
+                return cue::Result<cue::scene::SceneDocument>::failure(
+                    format_error(a_assertContext,
+                                 cue::scene::SceneError::DuplicateObjectId,
+                                 "Scene object identity must be unique within a document"));
+            }
+            std::vector<cue::scene::SceneComponent> parsedComponents;
+            parsedComponents.reserve(componentsMember->elements.size());
             for (const auto &component : componentsMember->elements)
             {
                 auto parsedComponent = parse_component(a_json, component, a_schemaRegistry, a_valueSchemaRegistry,
@@ -1078,24 +1180,42 @@ namespace
                                      "Migrated component data exceeds the scene size limit"));
                 }
                 retainedComponentBytes += retainedComponent.size();
-                auto componentAdded = document.add_component(stableObjectId, std::move(*parsedComponent.try_value()));
-                if (!componentAdded)
+                if (!componentIds
+                         .emplace(parsedComponent.try_value()->instance_id())
+                         .second)
                 {
-                    return cue::Result<cue::scene::SceneDocument>::failure(std::move(*componentAdded.try_error()));
+                    return cue::Result<cue::scene::SceneDocument>::failure(
+                        format_error(a_assertContext,
+                                     cue::scene::SceneError::DuplicateComponentId,
+                                     "Component instance identity must be unique within a document"));
                 }
+                parsedComponents.push_back(
+                    std::move(*parsedComponent.try_value()));
             }
+            std::sort(
+                parsedComponents.begin(), parsedComponents.end(),
+                /// @brief Parse済みComponentをStable Instance Identity順へ並べる
+                [](const cue::scene::SceneComponent &a_left,
+                   const cue::scene::SceneComponent &a_right) noexcept
+                {
+                    return a_left.instance_id() < a_right.instance_id();
+                });
+            objectIndex.emplace(stableObjectId, parsedObjects.size());
+            parsedObjects.push_back(
+                cue::scene::SceneDocumentSerializationAccess::create_object(
+                    stableObjectId, nameMember->text, activeMember->boolean,
+                    std::move(parentId), std::move(*transform.try_value()),
+                    std::move(parsedComponents)));
         }
-        for (auto &entry : parents)
+        auto hierarchy = validate_scene_hierarchy(parsedObjects, objectIndex,
+                                                  a_assertContext);
+        if (!hierarchy)
         {
-            if (entry.second.has_value())
-            {
-                auto parentSet = document.set_parent(entry.first, entry.second);
-                if (!parentSet)
-                {
-                    return cue::Result<cue::scene::SceneDocument>::failure(std::move(*parentSet.try_error()));
-                }
-            }
+            return cue::Result<cue::scene::SceneDocument>::failure(
+                std::move(*hierarchy.try_error()));
         }
+        cue::scene::SceneDocumentSerializationAccess::set_objects(
+            document, std::move(parsedObjects));
         std::string extensions(a_json.substr(extensionsMember->begin, extensionsMember->end - extensionsMember->begin));
         cue::scene::SceneDocumentSerializationAccess::set_extensions(document, std::move(extensions));
     }

@@ -452,6 +452,46 @@ void test_serialization() noexcept
     auto parsed = cue::scene::parse_scene_document(k_sceneJson, *registry, valueRegistry, migrations,
                                                    componentMigrations, assertContext);
     require(parsed.has_value());
+    constexpr std::string_view k_parentMarker = "\"parentObjectId\": null";
+    std::string forwardParentScene(k_sceneJson);
+    const std::size_t firstParent = forwardParentScene.find(k_parentMarker);
+    require(firstParent != std::string::npos);
+    forwardParentScene.replace(
+        firstParent, k_parentMarker.size(),
+        "\"parentObjectId\": \"00000000-0000-4000-8000-000000000001\"");
+    require(cue::scene::parse_scene_document(
+                forwardParentScene, *registry, valueRegistry, migrations,
+                componentMigrations, assertContext)
+                .has_value());
+    std::string cycleScene(forwardParentScene);
+    const std::size_t secondParent = cycleScene.find(k_parentMarker);
+    require(secondParent != std::string::npos);
+    cycleScene.replace(
+        secondParent, k_parentMarker.size(),
+        "\"parentObjectId\": \"00000000-0000-4000-8000-000000000002\"");
+    require(!cue::scene::parse_scene_document(
+                 cycleScene, *registry, valueRegistry, migrations,
+                 componentMigrations, assertContext)
+                 .has_value());
+    std::string danglingParentScene(k_sceneJson);
+    danglingParentScene.replace(
+        danglingParentScene.find(k_parentMarker), k_parentMarker.size(),
+        "\"parentObjectId\": \"00000000-0000-4000-8000-000000000099\"");
+    require(!cue::scene::parse_scene_document(
+                 danglingParentScene, *registry, valueRegistry, migrations,
+                 componentMigrations, assertContext)
+                 .has_value());
+    std::string duplicateComponentScene(k_sceneJson);
+    const std::size_t duplicateComponentPosition = duplicateComponentScene.find(
+        "00000000-0000-4000-8000-000000000004");
+    require(duplicateComponentPosition != std::string::npos);
+    duplicateComponentScene.replace(
+        duplicateComponentPosition, 36U,
+        "00000000-0000-4000-8000-000000000003");
+    require(!cue::scene::parse_scene_document(
+                 duplicateComponentScene, *registry, valueRegistry,
+                 migrations, componentMigrations, assertContext)
+                 .has_value());
     const std::string excessiveNodeJson = make_dense_json_array(64U);
     require(!cue::scene::parse_scene_document(
                  excessiveNodeJson, *registry, valueRegistry, migrations,
