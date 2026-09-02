@@ -1,0 +1,18 @@
+{
+    "schemaVersion": 1,
+    "implementation": "legacy-release",
+    "legacyCommit": "c3727915060df333be61f4fd72c0b51970799cd5",
+    "clock": "std::chrono::steady_clock",
+    "entityCount": 100000,
+    "warmupCount": 3,
+    "iterationCount": 10,
+    "results": [
+        {"name": "entity_generate", "operationCount": 100000, "medianNanoseconds": 1.0087e+07, "p95Nanoseconds": 1.01954e+07, "operationsPerSecond": 9.9137e+06},
+        {"name": "entity_destroy_reuse", "operationCount": 200000, "medianNanoseconds": 2.95668e+07, "p95Nanoseconds": 3.00241e+07, "operationsPerSecond": 6.76433e+06},
+        {"name": "component_add", "operationCount": 100000, "medianNanoseconds": 6.63325e+07, "p95Nanoseconds": 7.02851e+07, "operationsPerSecond": 1.50756e+06},
+        {"name": "component_get_sequential", "operationCount": 100000, "medianNanoseconds": 1.3107e+06, "p95Nanoseconds": 1.4108e+06, "operationsPerSecond": 7.62951e+07},
+        {"name": "component_remove", "operationCount": 100000, "medianNanoseconds": 8.0272e+06, "p95Nanoseconds": 8.2424e+06, "operationsPerSecond": 1.24576e+07},
+        {"name": "query_two_components", "operationCount": 100000, "medianNanoseconds": 7.5899e+06, "p95Nanoseconds": 7.9913e+06, "operationsPerSecond": 1.31754e+07},
+        {"name": "deferred_component_remove", "operationCount": 100000, "medianNanoseconds": 8.53485e+06, "p95Nanoseconds": 8.8009e+06, "operationsPerSecond": 1.17167e+07}
+    ]
+}
