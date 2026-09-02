@@ -10,10 +10,12 @@ namespace cue::scene
 {
 SceneObject::SceneObject(ObjectId a_id, std::string a_name, bool a_isActive,
                          std::optional<ObjectId> a_parentId,
-                         math::Transform a_transform) noexcept
+                         math::Transform a_transform,
+                         std::vector<SceneComponent> a_components) noexcept
     : m_id(std::move(a_id)), m_name(std::move(a_name)),
       m_isActive(a_isActive), m_parentId(std::move(a_parentId)),
-      m_transform(std::move(a_transform))
+      m_transform(std::move(a_transform)),
+      m_components(std::move(a_components))
 {
 }
 
@@ -40,6 +42,11 @@ const ObjectId *SceneObject::try_parent_id() const noexcept
 const math::Transform &SceneObject::transform() const noexcept
 {
     return m_transform;
+}
+
+std::span<const SceneComponent> SceneObject::components() const noexcept
+{
+    return m_components;
 }
 
 SceneDocument::SceneDocument(SceneAssetId a_sceneAssetId,
@@ -124,7 +131,7 @@ Result<void> SceneDocument::add_object(
         const auto index = m_objects.size();
         m_objects.push_back(SceneObject(std::move(a_id), std::string(a_name),
                                         a_isActive, std::move(a_parentId),
-                                        std::move(a_transform)));
+                                        std::move(a_transform), {}));
         m_objectIndex.emplace(m_objects.back().id(), index);
     }
     catch (...)
@@ -259,6 +266,83 @@ Result<void> SceneDocument::set_transform(
     return Result<void>::success();
 }
 
+Result<void> SceneDocument::add_component(
+    const ObjectId &a_objectId,
+    SceneComponent a_component) noexcept
+{
+    auto *object = find_mutable_object(a_objectId);
+    if (object == nullptr)
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::ObjectNotFound,
+            "Scene component owner object was not found"));
+    }
+    const bool isDuplicate = std::any_of(
+        m_objects.begin(), m_objects.end(),
+        /// @brief Document内Objectが追加対象Component Identityを既に所有するか判定する
+        [&a_component](const SceneObject &a_existingObject) noexcept
+        {
+            return std::any_of(
+                a_existingObject.m_components.begin(),
+                a_existingObject.m_components.end(),
+                /// @brief Component Instance Identityが追加値と一致するか判定する
+                [&a_component](const SceneComponent &a_existing) noexcept
+                {
+                    return a_existing.instance_id() == a_component.instance_id();
+                });
+        });
+    if (isDuplicate)
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::DuplicateComponentId,
+            "Component instance identity must be unique within a document"));
+    }
+    try
+    {
+        object->m_components.push_back(std::move(a_component));
+        std::sort(object->m_components.begin(), object->m_components.end(),
+                  /// @brief ComponentをStable Instance Identity順へ並べる
+                  [](const SceneComponent &a_left,
+                     const SceneComponent &a_right) noexcept
+                  {
+                      return a_left.instance_id() < a_right.instance_id();
+                  });
+    }
+    catch (...)
+    {
+        terminate_exception();
+    }
+    return Result<void>::success();
+}
+
+Result<void> SceneDocument::remove_component(
+    const ObjectId &a_objectId,
+    const ComponentInstanceId &a_componentId) noexcept
+{
+    auto *object = find_mutable_object(a_objectId);
+    if (object == nullptr)
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::ObjectNotFound,
+            "Scene component owner object was not found"));
+    }
+    const auto found = std::find_if(
+        object->m_components.begin(), object->m_components.end(),
+        /// @brief Component Instance Identityが削除対象と一致するか判定する
+        [&a_componentId](const SceneComponent &a_component) noexcept
+        {
+            return a_component.instance_id() == a_componentId;
+        });
+    if (found == object->m_components.end())
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::ComponentNotFound,
+            "Scene component to remove was not found"));
+    }
+    object->m_components.erase(found);
+    return Result<void>::success();
+}
+
 Result<void> SceneDocument::validate() const noexcept
 {
     if (m_objectIndex.size() != m_objects.size())
@@ -267,6 +351,30 @@ Result<void> SceneDocument::validate() const noexcept
             *m_assertContext, SceneError::DuplicateObjectId,
             "Scene object index size does not match the object collection"));
     }
+    std::vector<ComponentInstanceId> componentIds;
+    try
+    {
+        for (const auto &object : m_objects)
+        {
+            for (const auto &component : object.m_components)
+            {
+                componentIds.push_back(component.instance_id());
+            }
+        }
+        std::sort(componentIds.begin(), componentIds.end());
+    }
+    catch (...)
+    {
+        terminate_exception();
+    }
+    if (std::adjacent_find(componentIds.begin(), componentIds.end()) !=
+        componentIds.end())
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::DuplicateComponentId,
+            "Component instance identity must be unique within a document"));
+    }
+
     for (std::size_t index = 0U; index < m_objects.size(); ++index)
     {
         const auto &object = m_objects[index];
@@ -298,6 +406,17 @@ Result<void> SceneDocument::validate() const noexcept
             return Result<void>::failure(make_scene_error(
                 *m_assertContext, SceneError::HierarchyDepthExceeded,
                 "Scene object hierarchy exceeds the supported depth"));
+        }
+        for (std::size_t componentIndex = 1U;
+             componentIndex < object.m_components.size(); ++componentIndex)
+        {
+            if (!(object.m_components[componentIndex - 1U].instance_id() <
+                  object.m_components[componentIndex].instance_id()))
+            {
+                return Result<void>::failure(make_scene_error(
+                    *m_assertContext, SceneError::DuplicateComponentId,
+                    "Scene component identities must be unique and stable ordered"));
+            }
         }
     }
     return Result<void>::success();

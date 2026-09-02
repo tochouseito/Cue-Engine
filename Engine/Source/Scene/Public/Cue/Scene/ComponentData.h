@@ -1,0 +1,252 @@
+#pragma once
+
+#include <Cue/Scene/Identity.h>
+#include <Cue/Schema/Registry.h>
+
+#include <cstdint>
+#include <span>
+#include <string>
+#include <string_view>
+#include <variant>
+#include <vector>
+
+namespace cue::scene
+{
+/// @brief Scene Wire Dataで解釈可能なField Valueの意味Kind
+enum class FieldValueKind : std::uint8_t
+{
+    Boolean,
+    SignedInteger,
+    UnsignedInteger,
+    FloatingPoint,
+    String,
+    AssetReference
+};
+
+/// @brief Asset DatabaseのIdentity表現を決めずStable参照Tokenを保持する値
+class AssetReferenceValue final
+{
+  public:
+    /// @brief 空でないStable Asset参照Tokenを検証して返す
+    [[nodiscard]] static Result<AssetReferenceValue> create(
+        std::string_view a_token,
+        const AssertContext &a_assertContext) noexcept;
+
+    /// @brief Asset Databaseが解決するOpaque Stable Tokenを返す
+    [[nodiscard]] std::string_view token() const noexcept;
+    /// @brief Asset参照Tokenが一致するか比較する
+    [[nodiscard]] bool operator==(const AssetReferenceValue &) const noexcept = default;
+
+  private:
+    /// @brief 検証済みAsset参照Tokenを所有する
+    explicit AssetReferenceValue(std::string a_token) noexcept;
+
+    std::string m_token;
+};
+
+/// @brief Memory Imageに依存しない一つの型付きAuthoring Field Value
+class FieldValue final
+{
+  public:
+    /// @brief Boolean Field Valueを生成する
+    [[nodiscard]] static FieldValue boolean(bool a_value) noexcept;
+    /// @brief Signed Integer Field Valueを生成する
+    [[nodiscard]] static FieldValue signed_integer(std::int64_t a_value) noexcept;
+    /// @brief Unsigned Integer Field Valueを生成する
+    [[nodiscard]] static FieldValue unsigned_integer(std::uint64_t a_value) noexcept;
+    /// @brief 有限Floating Point Field Valueを検証して生成する
+    [[nodiscard]] static Result<FieldValue> floating_point(
+        double a_value, const AssertContext &a_assertContext) noexcept;
+    /// @brief UTF-8 Wire Stringとして保持するField Valueを生成する
+    [[nodiscard]] static Result<FieldValue> string(
+        std::string_view a_value, const AssertContext &a_assertContext) noexcept;
+    /// @brief Asset参照Field Valueを生成する
+    [[nodiscard]] static FieldValue asset_reference(
+        AssetReferenceValue a_value) noexcept;
+
+    /// @brief Valueの明示Kindを返す
+    [[nodiscard]] FieldValueKind kind() const noexcept;
+    /// @brief Boolean Valueまたはnullptrを返す
+    [[nodiscard]] const bool *try_boolean() const noexcept;
+    /// @brief Signed Integer Valueまたはnullptrを返す
+    [[nodiscard]] const std::int64_t *try_signed_integer() const noexcept;
+    /// @brief Unsigned Integer Valueまたはnullptrを返す
+    [[nodiscard]] const std::uint64_t *try_unsigned_integer() const noexcept;
+    /// @brief Floating Point Valueまたはnullptrを返す
+    [[nodiscard]] const double *try_floating_point() const noexcept;
+    /// @brief String Valueまたはnullptrを返す
+    [[nodiscard]] const std::string *try_string() const noexcept;
+    /// @brief Asset Reference Valueまたはnullptrを返す
+    [[nodiscard]] const AssetReferenceValue *try_asset_reference() const noexcept;
+
+    /// @brief Field ValueのKindと内容が一致するか比較する
+    [[nodiscard]] bool operator==(const FieldValue &) const noexcept = default;
+
+  private:
+    using Storage = std::variant<bool, std::int64_t, std::uint64_t, double,
+                                 std::string, AssetReferenceValue>;
+
+    /// @brief 一つの検証済みValue Alternativeを所有する
+    explicit FieldValue(Storage a_storage) noexcept;
+
+    Storage m_storage;
+};
+
+/// @brief TypeごとのFieldIdへ期待するScene Value Kindを結び付ける
+struct FieldKindBinding final
+{
+    schema::FieldId id;
+    FieldValueKind kind;
+};
+
+/// @brief Stable FieldIdと型付きValueを所有する既知Field Data
+class KnownFieldData final
+{
+  public:
+    /// @brief Stable FieldIdを返す
+    [[nodiscard]] schema::FieldId id() const noexcept;
+    /// @brief 型付きAuthoring Valueを返す
+    [[nodiscard]] const FieldValue &value() const noexcept;
+
+  private:
+    friend Result<KnownFieldData> create_known_field(
+        schema::FieldId, FieldValue, FieldValueKind,
+        const AssertContext &) noexcept;
+
+    /// @brief 検証済みField IdentityとValueを所有する
+    KnownFieldData(schema::FieldId a_id, FieldValue a_value) noexcept;
+
+    schema::FieldId m_id;
+    FieldValue m_value;
+};
+
+/// @brief 未知FieldのStable IdentityとJSON Value TextをLosslessに所有する
+class OpaqueFieldData final
+{
+  public:
+    /// @brief 空でないRaw JSON Value Textから未知Fieldを生成する
+    [[nodiscard]] static Result<OpaqueFieldData> create(
+        schema::FieldId a_id, std::string_view a_rawJson,
+        const AssertContext &a_assertContext) noexcept;
+
+    /// @brief Stable FieldIdを返す
+    [[nodiscard]] schema::FieldId id() const noexcept;
+    /// @brief Serializerが再保存するRaw JSON Value Textを返す
+    [[nodiscard]] std::string_view raw_json() const noexcept;
+
+  private:
+    /// @brief 検証済み未知Field Payloadを所有する
+    OpaqueFieldData(schema::FieldId a_id, std::string a_rawJson) noexcept;
+
+    schema::FieldId m_id;
+    std::string m_rawJson;
+};
+
+/// @brief 既知Schemaで検証したComponent Authoring Data
+class KnownComponentData final
+{
+  public:
+    /// @brief Stable Component Instance Identityを返す
+    [[nodiscard]] const ComponentInstanceId &instance_id() const noexcept;
+    /// @brief Stable Component Type Identityを返す
+    [[nodiscard]] schema::TypeId type_id() const noexcept;
+    /// @brief 保存時のSchema Versionを返す
+    [[nodiscard]] schema::SchemaVersion schema_version() const noexcept;
+    /// @brief Stable FieldId順の既知Field Dataを返す
+    [[nodiscard]] std::span<const KnownFieldData> known_fields() const noexcept;
+    /// @brief Stable FieldId順の未知Field Dataを返す
+    [[nodiscard]] std::span<const OpaqueFieldData> unknown_fields() const noexcept;
+
+  private:
+    friend Result<KnownComponentData> create_known_component(
+        ComponentInstanceId, schema::TypeId, schema::SchemaVersion,
+        std::vector<KnownFieldData>, std::vector<OpaqueFieldData>,
+        const schema::SchemaRegistry &, std::span<const FieldKindBinding>,
+        const AssertContext &) noexcept;
+
+    /// @brief 検証済みComponent Identity、Schema、Field Dataを所有する
+    KnownComponentData(ComponentInstanceId a_instanceId,
+                       schema::TypeId a_typeId,
+                       schema::SchemaVersion a_schemaVersion,
+                       std::vector<KnownFieldData> a_knownFields,
+                       std::vector<OpaqueFieldData> a_unknownFields) noexcept;
+
+    ComponentInstanceId m_instanceId;
+    schema::TypeId m_typeId;
+    schema::SchemaVersion m_schemaVersion;
+    std::vector<KnownFieldData> m_knownFields;
+    std::vector<OpaqueFieldData> m_unknownFields;
+};
+
+/// @brief 未登録または未来Schema Component Entry全体をLosslessに所有する
+class OpaqueComponentData final
+{
+  public:
+    /// @brief 空でないRaw JSON Object Textから未知Componentを生成する
+    [[nodiscard]] static Result<OpaqueComponentData> create(
+        ComponentInstanceId a_instanceId, schema::TypeId a_typeId,
+        schema::SchemaVersion a_schemaVersion, std::string_view a_rawJson,
+        const AssertContext &a_assertContext) noexcept;
+
+    /// @brief Stable Component Instance Identityを返す
+    [[nodiscard]] const ComponentInstanceId &instance_id() const noexcept;
+    /// @brief Opaque Entry内のStable Type Identityを返す
+    [[nodiscard]] schema::TypeId type_id() const noexcept;
+    /// @brief Opaque Entry内のSchema Versionを返す
+    [[nodiscard]] schema::SchemaVersion schema_version() const noexcept;
+    /// @brief Serializerが再保存するComponent Entry全体のRaw JSON Textを返す
+    [[nodiscard]] std::string_view raw_json() const noexcept;
+
+  private:
+    /// @brief 検証済みOpaque Component Entryを所有する
+    OpaqueComponentData(ComponentInstanceId a_instanceId,
+                        schema::TypeId a_typeId,
+                        schema::SchemaVersion a_schemaVersion,
+                        std::string a_rawJson) noexcept;
+
+    ComponentInstanceId m_instanceId;
+    schema::TypeId m_typeId;
+    schema::SchemaVersion m_schemaVersion;
+    std::string m_rawJson;
+};
+
+/// @brief 既知またはOpaque Component Dataの正確に一方を所有する
+class SceneComponent final
+{
+  public:
+    /// @brief 検証済み既知Componentを所有する
+    [[nodiscard]] static SceneComponent known(KnownComponentData a_data) noexcept;
+    /// @brief Opaque Component Entryを所有する
+    [[nodiscard]] static SceneComponent opaque(OpaqueComponentData a_data) noexcept;
+
+    /// @brief Stable Component Instance Identityを返す
+    [[nodiscard]] const ComponentInstanceId &instance_id() const noexcept;
+    /// @brief 既知Component Dataまたはnullptrを返す
+    [[nodiscard]] const KnownComponentData *try_known() const noexcept;
+    /// @brief Opaque Component Dataまたはnullptrを返す
+    [[nodiscard]] const OpaqueComponentData *try_opaque() const noexcept;
+
+  private:
+    using Storage = std::variant<KnownComponentData, OpaqueComponentData>;
+
+    /// @brief 既知またはOpaque Componentの一方を所有する
+    explicit SceneComponent(Storage a_storage) noexcept;
+
+    Storage m_storage;
+};
+
+/// @brief Field ValueのKind一致を検証して既知Field Dataを生成する
+[[nodiscard]] Result<KnownFieldData> create_known_field(
+    schema::FieldId a_id, FieldValue a_value, FieldValueKind a_expectedKind,
+    const AssertContext &a_assertContext) noexcept;
+
+/// @brief M10 Schema IdentityとScene Value Kindを照合して既知Componentを生成する
+[[nodiscard]] Result<KnownComponentData> create_known_component(
+    ComponentInstanceId a_instanceId, schema::TypeId a_typeId,
+    schema::SchemaVersion a_schemaVersion,
+    std::vector<KnownFieldData> a_knownFields,
+    std::vector<OpaqueFieldData> a_unknownFields,
+    const schema::SchemaRegistry &a_schemaRegistry,
+    std::span<const FieldKindBinding> a_fieldKinds,
+    const AssertContext &a_assertContext) noexcept;
+} // namespace cue::scene

@@ -1,4 +1,5 @@
 #include <Cue/Scene/Error.h>
+#include <Cue/Scene/ComponentData.h>
 #include <Cue/Scene/Identity.h>
 #include <Cue/Scene/SceneDocument.h>
 

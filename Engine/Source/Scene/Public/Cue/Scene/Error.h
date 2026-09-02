@@ -22,7 +22,15 @@ enum class SceneError : std::int64_t
     HierarchyCycle = 5,
     ChildObjectsExist = 6,
     InvalidName = 7,
-    HierarchyDepthExceeded = 8
+    HierarchyDepthExceeded = 8,
+    DuplicateComponentId = 9,
+    ComponentNotFound = 10,
+    InvalidComponentData = 11,
+    DuplicateFieldId = 12,
+    UnknownSchemaType = 13,
+    UnknownSchemaField = 14,
+    FieldTypeMismatch = 15,
+    InvalidOpaqueData = 16
 };
 
 /// @brief Scene Errorを診断Summaryと共に生成する

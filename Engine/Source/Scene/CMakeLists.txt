@@ -4,6 +4,7 @@ target_sources(
     Cue.Scene
     PRIVATE
         Private/Error.cpp
+        Private/ComponentData.cpp
         Private/Identity.cpp
         Private/SceneDocument.cpp
     PUBLIC
@@ -11,12 +12,13 @@ target_sources(
         BASE_DIRS Public
         FILES
             Public/Cue/Scene/Error.h
+            Public/Cue/Scene/ComponentData.h
             Public/Cue/Scene/Identity.h
             Public/Cue/Scene/SceneDocument.h
 )
 
 target_compile_features(Cue.Scene PUBLIC cxx_std_20)
-target_link_libraries(Cue.Scene PUBLIC Cue.Foundation Cue.Math)
+target_link_libraries(Cue.Scene PUBLIC Cue.Foundation Cue.Math Cue.Schema)
 target_include_directories(Cue.Scene PUBLIC Public)
 
 set_target_properties(
@@ -44,10 +46,10 @@ endif()
 get_target_property(cueSceneLinks Cue.Scene LINK_LIBRARIES)
 get_target_property(cueSceneInterfaceLinks Cue.Scene INTERFACE_LINK_LIBRARIES)
 
-if(NOT "${cueSceneLinks}" STREQUAL "Cue.Foundation;Cue.Math")
-    message(FATAL_ERROR "Cue.Scene must directly link only Cue.Foundation and Cue.Math: ${cueSceneLinks}")
+if(NOT "${cueSceneLinks}" STREQUAL "Cue.Foundation;Cue.Math;Cue.Schema")
+    message(FATAL_ERROR "Cue.Scene must directly link only Cue.Foundation, Cue.Math, and Cue.Schema: ${cueSceneLinks}")
 endif()
 
-if(NOT "${cueSceneInterfaceLinks}" STREQUAL "Cue.Foundation;Cue.Math")
-    message(FATAL_ERROR "Cue.Scene must expose only Cue.Foundation and Cue.Math: ${cueSceneInterfaceLinks}")
+if(NOT "${cueSceneInterfaceLinks}" STREQUAL "Cue.Foundation;Cue.Math;Cue.Schema")
+    message(FATAL_ERROR "Cue.Scene must expose only Cue.Foundation, Cue.Math, and Cue.Schema: ${cueSceneInterfaceLinks}")
 endif()
