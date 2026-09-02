@@ -17,6 +17,19 @@ endif()
 
 add_executable(CueGameCoreBenchmark)
 
+add_custom_command(
+    TARGET CueGameCoreBenchmark
+    PRE_BUILD
+    COMMAND
+        "${CMAKE_COMMAND}"
+        "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
+        "-DREBUILD_ROOT=${CMAKE_SOURCE_DIR}"
+        "-DEXPECTED_COMMIT=${rebuildCommit}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyRebuildCheckout.cmake"
+    COMMENT "Verifying the Rebuild ECS benchmark inputs before compilation"
+    VERBATIM
+)
+
 target_sources(
     CueGameCoreBenchmark
     PRIVATE
