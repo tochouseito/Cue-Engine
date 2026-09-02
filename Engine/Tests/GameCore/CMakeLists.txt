@@ -40,7 +40,7 @@ add_custom_target(Cue.GameCore.Tests DEPENDS ${cueGameCoreTestTargets})
 
 add_test(NAME Cue.GameCore.Storage COMMAND CueGameCoreTests)
 add_test(NAME Cue.GameCore.PublicHeaders COMMAND CueGameCorePublicHeaderTest)
-foreach(processMode IN ITEMS StructuralReentry QueryMutation NestedQuery)
+foreach(processMode IN ITEMS StructuralReentry QueryMutation NestedQuery NestedEmptyQuery)
     add_test(
         NAME Cue.GameCore.Process.${processMode}
         COMMAND
@@ -68,6 +68,7 @@ set_tests_properties(
     Cue.GameCore.Process.StructuralReentry
     Cue.GameCore.Process.QueryMutation
     Cue.GameCore.Process.NestedQuery
+    Cue.GameCore.Process.NestedEmptyQuery
     Cue.GameCore.Process.WrongThread
     PROPERTIES
         LABELS GameCore

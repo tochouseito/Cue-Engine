@@ -74,6 +74,10 @@ class ReentrantDestructorComponent final
     bool m_reenterOnDestruction;
 };
 
+struct EmptyComponent final
+{
+};
+
 /// @brief Test用の検証済みTypeIdを生成する
 [[nodiscard]] cue::schema::TypeId make_type_id(
     std::string_view a_text, const cue::AssertContext &a_assertContext)
@@ -109,11 +113,32 @@ class ReentrantDestructorComponent final
     std::vector<cue::schema::FieldId> reservedFieldIds;
     const auto typeId = make_type_id(
         "30000000-0000-4000-8000-000000000003", assertContext);
+    const auto emptyTypeId = make_type_id(
+        "40000000-0000-4000-8000-000000000004", assertContext);
     auto descriptor = cue::schema::create_type_descriptor(
         typeId, "Cue.Test.ReentrantDestructor", std::move(*version.try_value()),
         std::move(fields), std::move(reservedFieldIds), assertContext);
 
     if (!descriptor || !builder.add_type(std::move(*descriptor.try_value())))
+    {
+        return 4;
+    }
+
+    auto emptyVersion = cue::schema::SchemaVersion::create(1U, assertContext);
+    std::vector<cue::schema::FieldDescriptor> emptyFields;
+    std::vector<cue::schema::FieldId> emptyReservedFieldIds;
+
+    if (!emptyVersion)
+    {
+        return 4;
+    }
+
+    auto emptyDescriptor = cue::schema::create_type_descriptor(
+        emptyTypeId, "Cue.Test.Empty", std::move(*emptyVersion.try_value()),
+        std::move(emptyFields), std::move(emptyReservedFieldIds), assertContext);
+
+    if (!emptyDescriptor ||
+        !builder.add_type(std::move(*emptyDescriptor.try_value())))
     {
         return 4;
     }
@@ -136,9 +161,11 @@ class ReentrantDestructorComponent final
 
     auto componentType = (*world.try_value())->register_component<
         ReentrantDestructorComponent>(typeId);
+    auto emptyComponentType =
+        (*world.try_value())->register_component<EmptyComponent>(emptyTypeId);
     auto entity = (*world.try_value())->create_entity();
 
-    if (!componentType || !entity)
+    if (!componentType || !emptyComponentType || !entity)
     {
         return 7;
     }
@@ -188,6 +215,28 @@ class ReentrantDestructorComponent final
         {
             auto nested = (*world.try_value())->query_read(
                 *componentType.try_value(), innerCallback);
+            static_cast<void>(nested);
+        };
+        auto query = (*world.try_value())->query_read(
+            *componentType.try_value(), outerCallback);
+        static_cast<void>(query);
+        return 0;
+    }
+
+    if (a_mode == "NestedEmptyQuery")
+    {
+        /// @brief Storage 未生成の Nested Query が早期 return せず拒否されることを検証する
+        auto innerCallback = [](cue::game_core::EntityHandle,
+                                const EmptyComponent &) noexcept
+        {
+        };
+        /// @brief Query Callback から同じ World の空 Storage Query へ再入する
+        auto outerCallback = [&world, &emptyComponentType, &innerCallback](
+                                 cue::game_core::EntityHandle,
+                                 const ReentrantDestructorComponent &) noexcept
+        {
+            auto nested = (*world.try_value())->query_read(
+                *emptyComponentType.try_value(), innerCallback);
             static_cast<void>(nested);
         };
         auto query = (*world.try_value())->query_read(

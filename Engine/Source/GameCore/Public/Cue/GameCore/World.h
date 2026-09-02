@@ -756,6 +756,7 @@ class World final
     {
         assert_owner_thread();
         assert_active();
+        QueryScope queryScope(*this);
 
         if (!validate_component_type(a_type))
         {
@@ -775,7 +776,6 @@ class World final
 
         try
         {
-            QueryScope queryScope(*this);
             auto *storage = static_cast<ComponentStorage<T> *>(baseStorage);
             const std::size_t count = storage->size();
 
@@ -814,6 +814,7 @@ class World final
     {
         assert_owner_thread();
         assert_active();
+        QueryScope queryScope(*this);
 
         if (a_firstType.m_denseIndex == a_secondType.m_denseIndex ||
             !validate_component_type(a_firstType) ||
@@ -838,7 +839,6 @@ class World final
 
         try
         {
-            QueryScope queryScope(*this);
             auto *firstStorage = static_cast<ComponentStorage<T> *>(firstBase);
             auto *secondStorage = static_cast<ComponentStorage<U> *>(secondBase);
             const ComponentStorageBase *driver = firstBase;
