@@ -66,6 +66,7 @@ if(MSVC)
 endif()
 
 if(BUILD_TESTING)
+    add_subdirectory(Tools/GameCoreBenchmark)
     add_subdirectory(Engine/Tests/Foundation)
     add_subdirectory(Engine/Tests/Schema)
     add_subdirectory(Engine/Tests/GameCore)
