@@ -8,6 +8,7 @@
 
 #include <cstdlib>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -173,6 +174,10 @@ void test_component_data() noexcept
     const auto invalidString = cue::scene::FieldValue::string(invalidUtf8,
                                                               assertContext);
     require(!invalidString.has_value());
+    const std::string longAssetToken(256U, 'a');
+    const auto validLongAssetToken = cue::scene::AssetReferenceValue::create(
+        longAssetToken, assertContext);
+    require(validLongAssetToken.has_value());
     const auto invalidOpaqueField = cue::scene::OpaqueFieldData::create(
         unknownField, invalidUtf8, assertContext);
     require(!invalidOpaqueField.has_value());

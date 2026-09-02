@@ -551,11 +551,11 @@ Result<AssetReferenceValue> AssetReferenceValue::create(
     std::string_view a_token,
     const AssertContext &a_assertContext) noexcept
 {
-    if (a_token.empty() || a_token.size() > 255U || !is_valid_utf8(a_token))
+    if (a_token.empty() || !is_valid_utf8(a_token))
     {
         return Result<AssetReferenceValue>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidComponentData,
-            "Asset reference token must contain 1 to 255 bytes"));
+            "Asset reference token must be non-empty valid UTF-8"));
     }
     try
     {
