@@ -508,7 +508,7 @@ void add_velocities(BenchmarkFixture &a_fixture)
         a_fixture.checksum = succeeded;
     };
     results.push_back(measure_workload("deferred_component_remove", a_options.entityCount, a_environment, a_options,
-                                       prepareDeferred, applyDeferred));
+                                       prepareDeferred, applyDeferred, validatePositionRemoval));
 
     return results;
 }
