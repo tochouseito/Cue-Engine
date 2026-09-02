@@ -355,19 +355,6 @@ Result<void> validate_type_descriptor(
         }
     }
 
-    for (std::size_t index = 1U; index < fields.size(); ++index)
-    {
-        if (fields[index - 1U].id() > fields[index].id())
-        {
-            return Result<void>::failure(make_field_collision_error(
-                a_assertContext, SchemaError::InvalidFieldId,
-                "InvalidFieldOrder", a_descriptor.id(),
-                a_descriptor.name(), fields[index - 1U].id().value(),
-                fields[index - 1U].name(), fields[index].id().value(),
-                fields[index].name()));
-        }
-    }
-
     for (std::size_t left = 0U; left < fields.size(); ++left)
     {
         for (std::size_t right = left + 1U; right < fields.size(); ++right)
@@ -400,28 +387,42 @@ Result<void> validate_type_descriptor(
         }
     }
 
+    for (const auto &field : fields)
+    {
+        for (const auto reservedId : reservedIds)
+        {
+            if (field.id() == reservedId)
+            {
+                return Result<void>::failure(make_field_collision_error(
+                    a_assertContext, SchemaError::ReservedFieldId,
+                    "ActiveFieldIdReusesReservedFieldId", a_descriptor.id(),
+                    a_descriptor.name(), reservedId.value(), "<reserved>",
+                    field.id().value(), field.name()));
+            }
+        }
+    }
+
+    for (std::size_t index = 1U; index < fields.size(); ++index)
+    {
+        if (fields[index - 1U].id() > fields[index].id())
+        {
+            return Result<void>::failure(make_field_collision_error(
+                a_assertContext, SchemaError::InvalidFieldId,
+                "InvalidFieldOrder", a_descriptor.id(), a_descriptor.name(),
+                fields[index - 1U].id().value(), fields[index - 1U].name(),
+                fields[index].id().value(), fields[index].name()));
+        }
+    }
+
     for (std::size_t index = 1U; index < reservedIds.size(); ++index)
     {
         if (reservedIds[index - 1U] > reservedIds[index])
         {
             return Result<void>::failure(make_field_collision_error(
                 a_assertContext, SchemaError::ReservedFieldId,
-                "InvalidReservedFieldOrder",
-                a_descriptor.id(), a_descriptor.name(),
-                reservedIds[index - 1U].value(), "<reserved>",
-                reservedIds[index].value(), "<reserved>"));
-        }
-    }
-
-    for (const auto &field : fields)
-    {
-        if (std::binary_search(reservedIds.begin(), reservedIds.end(), field.id()))
-        {
-            return Result<void>::failure(make_field_collision_error(
-                a_assertContext, SchemaError::ReservedFieldId,
-                "ActiveFieldIdReusesReservedFieldId", a_descriptor.id(),
-                a_descriptor.name(), field.id().value(), "<reserved>",
-                field.id().value(), field.name()));
+                "InvalidReservedFieldOrder", a_descriptor.id(),
+                a_descriptor.name(), reservedIds[index - 1U].value(),
+                "<reserved>", reservedIds[index].value(), "<reserved>"));
         }
     }
 

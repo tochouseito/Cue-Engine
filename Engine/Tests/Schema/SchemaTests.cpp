@@ -268,6 +268,38 @@ void invalidate_for_test(cue::schema::SchemaVersion &a_version) noexcept
             std::string_view::npos &&
         invalidReservedError->summary().find("12") != std::string_view::npos;
 
+    std::vector<cue::schema::FieldDescriptor> activeReservedFields;
+    activeReservedFields.push_back(make_field(20U, "active", a_assertContext));
+    std::vector<cue::schema::FieldId> activeReservedIds;
+    activeReservedIds.push_back(make_field_id(21U, a_assertContext));
+    activeReservedIds.push_back(make_field_id(22U, a_assertContext));
+    auto activeReservedResult = cue::schema::create_type_descriptor(
+        make_type_id("e0000000-0000-4000-8000-00000000000e", a_assertContext),
+        "Cue.Test.ActiveReserved", make_version(a_assertContext),
+        std::move(activeReservedFields), std::move(activeReservedIds),
+        a_assertContext);
+    auto *activeReservedDescriptor = activeReservedResult.try_value();
+
+    if (activeReservedDescriptor == nullptr)
+    {
+        return false;
+    }
+
+    const auto activeReservedValues =
+        activeReservedDescriptor->reserved_field_ids();
+    auto *mutableActiveReservedIds =
+        const_cast<cue::schema::FieldId *>(activeReservedValues.data());
+    mutableActiveReservedIds[1U] = make_field_id(20U, a_assertContext);
+    cue::schema::SchemaRegistryBuilder activeReservedBuilder(identitySource,
+                                                             a_assertContext);
+    auto activeReservedCollision =
+        activeReservedBuilder.add_type(std::move(*activeReservedDescriptor));
+    const cue::Error *activeReservedError = activeReservedCollision.try_error();
+    const bool activeReservedDiagnostic = activeReservedError != nullptr &&
+        activeReservedError->summary().find(
+            "ActiveFieldIdReusesReservedFieldId") != std::string_view::npos &&
+        activeReservedError->summary().find("active") != std::string_view::npos;
+
     return has_schema_error(invalidTypeId, cue::schema::SchemaError::InvalidTypeId) &&
            has_schema_error(invalidVersion,
                             cue::schema::SchemaError::InvalidSchemaVersion) &&
@@ -283,7 +315,10 @@ void invalidate_for_test(cue::schema::SchemaVersion &a_version) noexcept
            fieldRuleDiagnostic &&
            has_schema_error(invalidReservedCollection,
                             cue::schema::SchemaError::ReservedFieldId) &&
-           reservedDiagnostic;
+           reservedDiagnostic &&
+           has_schema_error(activeReservedCollision,
+                            cue::schema::SchemaError::ReservedFieldId) &&
+           activeReservedDiagnostic;
 }
 
 /// @brief Stable Identity Value が不正入力を拒否することを検証する
