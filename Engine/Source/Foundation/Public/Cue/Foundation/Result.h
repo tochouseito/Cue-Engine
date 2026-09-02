@@ -10,7 +10,7 @@
 namespace cue
 {
 /// @brief 成功 Value または Error の正確に一方を所有する
-/// @tparam T `noexcept` Move 可能な成功 Value
+/// @tparam T `noexcept` Move構築可能な成功 Value
 ///
 /// 回復可能な失敗を Exception や無効 Value へ変換せず、呼び出し側へ明示的に伝播するための戻り値型
 template <typename T> class Result final
@@ -19,7 +19,6 @@ template <typename T> class Result final
     static_assert(std::is_object_v<T>);
     static_assert(!std::is_same_v<std::remove_cv_t<T>, Error>);
     static_assert(std::is_nothrow_move_constructible_v<T>);
-    static_assert(std::is_nothrow_move_assignable_v<T>);
     static_assert(std::is_nothrow_destructible_v<T>);
 
   public:
@@ -31,7 +30,9 @@ template <typename T> class Result final
     Result &operator=(const Result &) = delete;
     /// @brief Result の状態を Move 構築し、移動元は有効だが内容未規定の状態にする
     Result(Result &&) noexcept = default;
-    /// @brief Result の状態を Move 代入し、移動元は有効だが内容未規定の状態にする
+    /// @brief 成功ValueがMove代入可能な場合にResultの状態をMove代入する
+    ///
+    /// 成功ValueがMove代入不可能な場合、この演算子はCompilerにより削除される
     Result &operator=(Result &&) noexcept = default;
     /// @brief Result が保持する Resource を所有権規則に従って破棄する
     ~Result() = default;

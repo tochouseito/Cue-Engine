@@ -18,6 +18,9 @@
 
 namespace
 {
+static_assert(std::is_move_constructible_v<cue::schema::SchemaRegistry>);
+static_assert(!std::is_move_assignable_v<cue::schema::SchemaRegistry>);
+
 class TestFatalHandler final : public cue::FatalHandler
 {
   public:

@@ -51,8 +51,8 @@ class SchemaRegistry final
     SchemaRegistry &operator=(const SchemaRegistry &) = delete;
     /// @brief Immutable Registryの所有権を移動する
     SchemaRegistry(SchemaRegistry &&) noexcept = default;
-    /// @brief Immutable Registryの所有権を移動代入する
-    SchemaRegistry &operator=(SchemaRegistry &&) noexcept = default;
+    /// @brief 発行済み参照とIndexを保護するためRegistryの置換を禁止する
+    SchemaRegistry &operator=(SchemaRegistry &&) noexcept = delete;
     /// @brief Registryが所有するDescriptorとTombstoneを破棄する
     ~SchemaRegistry() = default;
 
