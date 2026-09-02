@@ -24,6 +24,8 @@ enum class RuntimeWorldState
 };
 
 /// @brief ECS、Core Transform、Structural Safe Point を所有する Headless Runtime Session
+/// @details create を呼び出した Thread を Owner とし、全公開 API と Destructor は同じ Thread からだけ呼び出す
+/// @details Owner Thread 契約への違反は Data Race を防ぐため Debug／Development／Release の全構成で Fatal 終了する
 class RuntimeWorld final
 {
   public:
@@ -51,7 +53,7 @@ class RuntimeWorld final
         ConstructionKey() noexcept = default;
     };
 
-    /// @brief 初期化前の Headless Runtime World 所有者を生成する
+    /// @brief 呼び出し Thread を Owner とする初期化前の Headless Runtime World 所有者を生成する
     [[nodiscard]] static std::unique_ptr<RuntimeWorld> create(
         WorldIdentitySource &a_identitySource,
         const schema::SchemaRegistry &a_schemaRegistry,
@@ -68,7 +70,7 @@ class RuntimeWorld final
     RuntimeWorld(RuntimeWorld &&) = delete;
     /// @brief 所有する World Address を固定するため Move 代入を禁止する
     RuntimeWorld &operator=(RuntimeWorld &&) = delete;
-    /// @brief 未終了 Session を安全な逆順で終了する
+    /// @brief Owner Thread 上で未終了 Session を安全な逆順で終了する
     ~RuntimeWorld() noexcept;
 
     /// @brief Factory が保持する外部寿命と Transform Schema Type を固定する
