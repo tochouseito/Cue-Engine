@@ -271,6 +271,11 @@ Schema Version、CueEngine Versionとは別に扱う。未来の未対応Version
 Migrationは`N -> N + 1`の連続変換だけを登録し、途中Versionを飛ばさない。Parseした元DataをMemory上で段階変換し、
 各段階と現行Documentを検証する。Migration失敗時は元Fileと既存SceneDocumentを変更しない。Downgrade保存は行わない。
 
+Component Migrationは`TypeId`と変換元`SchemaVersion`をKeyにし、`fields` JSON Arrayだけを`N -> N + 1`へ変換する。
+各Stepの出力がResource上限内のJSON Arrayであることを確認し、登録済みTypeの現在Versionへ到達してから現在の
+`ComponentValueSchemaRegistry`でFieldを解釈する。Identity Metadata、`TypeId`、`ComponentInstanceId`はMigration関数へ渡さず、
+Schema変換によるIdentity変更を許可しない。Step欠落、変換失敗、現在Schemaとの不一致はScene全体のLoad失敗とする。
+
 Sceneを開いただけでSource Fileを暗黙更新しない。Migration済みDocumentは呼び出し側へ`MigrationRequired`状態と元Versionを返し、
 明示Save時だけ現行Versionとして保存する。元FileのBackup／Recovery PolicyはIssue #152でADR-0014に従って実装する。
 
@@ -285,6 +290,11 @@ ADR-0014のAtomic File Replaceで公開する。結果は`Committed`、`NotPubli
 Publish前失敗の`NotPublished`では元Fileを維持してTemporary FileをCleanupする。Publish後の
 `PublishedButDurabilityUnknown`では新Fileが既に可視化されているため元Fileへ戻さず、呼び出し側へ再読込と診断を要求する。
 Cleanup失敗はPrimary Errorを置換せずSecondary診断へ追加する。
+
+明示Saveで既存のRegular Fileを置換する場合は、本文公開前に同じRoot内の`<Scene Path>.backup`へ旧Byte列をAtomic Writeする。
+Backup作成に失敗した場合は本文を公開せず`NotPublished`を返す。本文公開失敗時はBackupと元本文を維持し、自動復元は行わない。
+本文公開成功後もBackupをRecovery Sourceとして残し、削除時期はM12のEditor Recovery Policyで決定する。新規File、Directory、
+その他の非Regular Entryを暗黙にBackupまたは置換しない。
 
 ## Rejected Alternatives
 

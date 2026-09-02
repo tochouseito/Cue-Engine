@@ -10,7 +10,11 @@ add_executable(CueScenePublicHeaderTest PublicHeaderCompile.cpp)
 target_link_libraries(CueScenePublicHeaderTest PRIVATE Cue.Scene)
 target_compile_features(CueScenePublicHeaderTest PRIVATE cxx_std_20)
 
-set(cueSceneTestTargets CueSceneTests CueSceneComponentDataTests CueScenePublicHeaderTest)
+add_executable(CueSceneSerializationTests SerializationTests.cpp)
+target_link_libraries(CueSceneSerializationTests PRIVATE Cue.Scene)
+target_compile_features(CueSceneSerializationTests PRIVATE cxx_std_20)
+
+set(cueSceneTestTargets CueSceneTests CueSceneComponentDataTests CueScenePublicHeaderTest CueSceneSerializationTests)
 
 foreach(testTarget IN LISTS cueSceneTestTargets)
     set_target_properties(
@@ -41,11 +45,13 @@ add_custom_target(Cue.Scene.Tests DEPENDS ${cueSceneTestTargets})
 add_test(NAME Cue.Scene.Document COMMAND CueSceneTests)
 add_test(NAME Cue.Scene.ComponentData COMMAND CueSceneComponentDataTests)
 add_test(NAME Cue.Scene.PublicHeaders COMMAND CueScenePublicHeaderTest)
+add_test(NAME Cue.Scene.Serialization COMMAND CueSceneSerializationTests)
 
 set_tests_properties(
     Cue.Scene.Document
     Cue.Scene.ComponentData
     Cue.Scene.PublicHeaders
+    Cue.Scene.Serialization
     PROPERTIES
         LABELS Scene
         TIMEOUT 10

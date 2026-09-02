@@ -30,11 +30,17 @@ enum class SceneError : std::int64_t
     UnknownSchemaType = 13,
     UnknownSchemaField = 14,
     FieldTypeMismatch = 15,
-    InvalidOpaqueData = 16
+    InvalidOpaqueData = 16,
+    InvalidFormat = 17,
+    UnsupportedFormatVersion = 18,
+    MissingMigrationStep = 19,
+    MigrationFailed = 20,
+    StorageNotPublished = 21,
+    StorageDurabilityUnknown = 22,
+    ParseBackMismatch = 23
 };
 
 /// @brief Scene Errorを診断Summaryと共に生成する
-[[nodiscard]] Error make_scene_error(const AssertContext &a_assertContext,
-                                     SceneError a_code,
+[[nodiscard]] Error make_scene_error(const AssertContext &a_assertContext, SceneError a_code,
                                      std::string_view a_summary) noexcept;
 } // namespace cue::scene
