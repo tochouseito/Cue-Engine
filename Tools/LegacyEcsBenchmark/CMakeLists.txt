@@ -37,21 +37,50 @@ foreach(requiredFile
     endif()
 endforeach()
 
-find_package(Git QUIET)
-set(legacyCommit "unknown")
+find_package(Git REQUIRED)
 
-if(Git_FOUND)
-    execute_process(
-        COMMAND "${GIT_EXECUTABLE}" -C "${legacyRoot}" rev-parse HEAD
-        OUTPUT_VARIABLE legacyCommit
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET
-        RESULT_VARIABLE legacyCommitResult
-    )
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" -C "${legacyRoot}" rev-parse --show-toplevel
+    OUTPUT_VARIABLE legacyRepositoryRoot
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+    RESULT_VARIABLE legacyRepositoryResult
+)
 
-    if(NOT legacyCommitResult EQUAL 0)
-        set(legacyCommit "unknown")
-    endif()
+if(NOT legacyRepositoryResult EQUAL 0)
+    message(FATAL_ERROR "CUE_LEGACY_ROOT must be a Git repository root")
+endif()
+
+cmake_path(CONVERT "${legacyRepositoryRoot}" TO_CMAKE_PATH_LIST legacyRepositoryRoot NORMALIZE)
+
+if(NOT legacyRepositoryRoot STREQUAL legacyRoot)
+    message(FATAL_ERROR "CUE_LEGACY_ROOT must match the Git repository root: ${legacyRepositoryRoot}")
+endif()
+
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" -C "${legacyRoot}" status --porcelain
+    OUTPUT_VARIABLE legacyStatus
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+    RESULT_VARIABLE legacyStatusResult
+)
+
+if(NOT legacyStatusResult EQUAL 0 OR NOT legacyStatus STREQUAL "")
+    message(FATAL_ERROR "CUE_LEGACY_ROOT must be a clean checkout")
+endif()
+
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" -C "${legacyRoot}" rev-parse HEAD
+    OUTPUT_VARIABLE legacyCommit
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+    RESULT_VARIABLE legacyCommitResult
+)
+
+string(LENGTH "${legacyCommit}" legacyCommitLength)
+
+if(NOT legacyCommitResult EQUAL 0 OR NOT legacyCommit MATCHES "^[0-9a-fA-F]+$" OR NOT legacyCommitLength EQUAL 40)
+    message(FATAL_ERROR "Failed to resolve the legacy checkout commit")
 endif()
 
 add_executable(CueLegacyEcsBenchmark)
