@@ -1,7 +1,7 @@
 # Rebuild ECS Baseline Environment
 
 - Date: 2026-09-03
-- Rebuild benchmark commit: `0e1538ffc4b79e877873c92f1b2e68f09309de4d`
+- Rebuild benchmark commit: `5a032e330ca5e51bce6d96e5ee0ae0a3a0feb541`
 - Host: Windows x64
 - OS: Microsoft Windows 11 Home 10.0.26200、Build 26200.9168
 - CPU: AMD Ryzen 7 3700X 8-Core Processor
@@ -35,7 +35,7 @@ OS SchedulingとBackground Loadの揺らぎを含むため、絶対性能や他M
 
 各JSONの`rebuildCommit`は測定ExecutableへConfigure時に埋め込んだBenchmark実装Commitを示す。
 結果Fileを追加した後続Commitではなく、測定対象Codeを再現するためのIdentityとして扱う。
-Build直前にHEADが埋め込み対象Commitと一致し、Benchmark、Foundation、Math、Schema、GameCoreの測定入力がCleanであることを再検証する。
+Benchmark TargetをBuildするたびに、HEADが埋め込み対象Commitと一致し、Benchmark、Foundation、Math、Schema、GameCoreの測定入力がCleanであることを再検証する。
 
 ## Comparison Limits
 
