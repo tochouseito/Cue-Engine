@@ -493,6 +493,10 @@ Result<std::string> SceneMigrationRegistry::migrate(std::string_view a_source, s
                                  "Scene migration did not produce the next format version"));
             }
             current = std::move(*migrated.try_value());
+            if (version == a_targetVersion - 1U)
+            {
+                break;
+            }
         }
         return Result<std::string>::success(std::move(current));
     }
@@ -585,6 +589,10 @@ Result<std::string> ComponentMigrationRegistry::migrate(schema::TypeId a_typeId,
                                  "Component migration did not produce a bounded JSON field array"));
             }
             current = std::move(*migrated.try_value());
+            if (version == a_targetVersion - 1U)
+            {
+                break;
+            }
         }
         return Result<std::string>::success(std::move(current));
     }
@@ -935,6 +943,7 @@ namespace
     }
     auto document = cue::scene::SceneDocument::create(std::move(*sceneId.try_value()), a_assertContext);
     std::vector<std::pair<cue::scene::ObjectId, std::optional<cue::scene::ObjectId>>> parents;
+    std::size_t retainedComponentBytes = 0U;
     try
     {
         for (const auto &object : objectsMember->elements)
@@ -996,6 +1005,15 @@ namespace
                 {
                     return cue::Result<cue::scene::SceneDocument>::failure(std::move(*parsedComponent.try_error()));
                 }
+                std::string retainedComponent;
+                append_component(retainedComponent, *parsedComponent.try_value());
+                if (retainedComponent.size() > k_maximumSceneBytes - retainedComponentBytes)
+                {
+                    return cue::Result<cue::scene::SceneDocument>::failure(
+                        format_error(a_assertContext, cue::scene::SceneError::MigrationFailed,
+                                     "Migrated component data exceeds the scene size limit"));
+                }
+                retainedComponentBytes += retainedComponent.size();
                 auto componentAdded = document.add_component(stableObjectId, std::move(*parsedComponent.try_value()));
                 if (!componentAdded)
                 {
@@ -1025,6 +1043,11 @@ namespace
     if (!validation)
     {
         return cue::Result<cue::scene::SceneDocument>::failure(std::move(*validation.try_error()));
+    }
+    auto serialized = cue::scene::serialize_scene_document(document, a_assertContext);
+    if (!serialized)
+    {
+        return cue::Result<cue::scene::SceneDocument>::failure(std::move(*serialized.try_error()));
     }
     return cue::Result<cue::scene::SceneDocument>::success(std::move(document));
 }

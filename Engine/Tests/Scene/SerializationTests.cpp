@@ -7,6 +7,7 @@
 #include <Cue/Schema/Descriptor.h>
 
 #include <cstdlib>
+#include <limits>
 #include <map>
 #include <memory>
 #include <span>
@@ -387,6 +388,22 @@ template <typename Value> Value take_value(cue::Result<Value> &&a_result) noexce
     return migrate_component_value(a_json, "\"value\":-4", "\"value\":-3", a_assertContext);
 }
 
+/// @brief 最大Scene Format Version直前から最大値へ一段進める
+[[nodiscard]] cue::Result<std::string> migrate_scene_to_maximum(
+    std::string_view a_json, const cue::AssertContext &a_assertContext) noexcept
+{
+    return migrate_version(a_json, "\"formatVersion\":4294967294",
+                           "\"formatVersion\":4294967295",
+                           a_assertContext);
+}
+
+/// @brief 最大Component Schema Versionへの最終StepでField列を維持する
+[[nodiscard]] cue::Result<std::string> migrate_component_to_maximum(
+    std::string_view a_json, const cue::AssertContext &) noexcept
+{
+    return cue::Result<std::string>::success(std::string(a_json));
+}
+
 /// @brief Scene Round-trip、Migration、Atomic Save契約を検証する
 void test_serialization() noexcept
 {
@@ -469,6 +486,19 @@ void test_serialization() noexcept
     cue::scene::SceneMigrationRegistry oversizedMigration;
     require(oversizedMigration.add_step(1U, &migrate_to_oversized_scene, assertContext).has_value());
     require(!oversizedMigration.migrate("{\"formatVersion\":1}", 1U, 2U, assertContext).has_value());
+    constexpr std::uint32_t k_beforeMaximumVersion =
+        std::numeric_limits<std::uint32_t>::max() - 1U;
+    cue::scene::SceneMigrationRegistry maximumSceneMigration;
+    require(maximumSceneMigration
+                .add_step(k_beforeMaximumVersion, &migrate_scene_to_maximum,
+                          assertContext)
+                .has_value());
+    require(maximumSceneMigration
+                .migrate("{\"formatVersion\":4294967294}",
+                         k_beforeMaximumVersion,
+                         std::numeric_limits<std::uint32_t>::max(),
+                         assertContext)
+                .has_value());
 
     cue::schema::SchemaRegistryIdentitySource migratedIdentitySource;
     auto migratedRegistry = make_registry(migratedIdentitySource, 3U, assertContext);
@@ -495,6 +525,17 @@ void test_serialization() noexcept
     require(!rejectedComponent.has_value());
     require(rejectedComponent.try_error()->code().value() ==
             static_cast<std::int64_t>(cue::scene::SceneError::MissingMigrationStep));
+    cue::scene::ComponentMigrationRegistry maximumComponentMigration;
+    require(maximumComponentMigration
+                .add_step(make_type_id(assertContext), k_beforeMaximumVersion,
+                          &migrate_component_to_maximum, assertContext)
+                .has_value());
+    require(maximumComponentMigration
+                .migrate(make_type_id(assertContext), "[]",
+                         k_beforeMaximumVersion,
+                         std::numeric_limits<std::uint32_t>::max(),
+                         assertContext)
+                .has_value());
 
     MemoryFilesystemRoot filesystem(assertContext);
     filesystem.set("Scenes/Main.cuescene", "original");
