@@ -175,8 +175,11 @@ SceneDocument -> SceneSnapshot -> Instantiation Plan -> RuntimeWorld + SceneInst
 `SceneInstantiator`はRuntime WorldのOwner ThreadかつSafe Pointでだけ実行する。まずSnapshot全体から生成Planを構築し、
 TypeとField、Hierarchy、Resource上限、Runtime Component生成能力を検証する。Plan検証中はRuntime Worldを変更しない。
 
-適用前に、生成と失敗時破棄に必要なStructural Mutation容量を検証する。適用時はObjectごとにRuntime Entityを生成し、Core Transform、
-Hierarchy、既知Componentを構築する。途中で一件でも失敗した場合、その実体化Operationで生成した生存Entityを逆順で全て破棄する。
+適用前に、生成と失敗時破棄に必要なStructural Mutation容量を検証する。適用時はActive状態に関係なくObjectごとにRuntime Entityを生成し、
+Core Transform、Hierarchy、既知Componentを構築する。`Cue.Scene`が所有するRuntime `SceneObjectState` ComponentへAuthoringのself-activeと、
+全Ancestorの状態を反映したeffective-activeを保存する。Inactive Objectも`ObjectId`／`EntityHandle` Mappingを持つが、Runtime Systemは
+effective-activeがfalseのEntityへGameplay更新を行わない。Parentまたはself-active変更時のRuntime伝播は暗黙逆同期ではなく、
+将来の明示Runtime Command対象としM11では実装しない。途中で一件でも失敗した場合、その実体化Operationで生成した生存Entityを逆順で全て破棄する。
 Slot Generation、Free List、`StructuralEpoch`を含むWorld内部状態が呼び出し前と同一になることは保証しない。他の既存Entityを変更せず、
 失敗したScene Instanceに由来する生存Entityを残さないことを観測可能なRollback契約とする。
 
@@ -196,6 +199,11 @@ EditorDocumentへの参照を保持しない。Instance終了は呼び出し側�
 部分失敗後もMappingが現在の生存所有Entityだけを解決する状態を保つ。呼び出し側が再試行またはRuntime World終了を選べるようにする。
 Runtime Worldより先にSceneInstanceを正常終了する所有順を
 Composition Rootが保証する。
+
+`SceneInstance`はCopyを禁止するmove-only所有Handleとする。Moveは所有集合、Mapping、`WorldId`を移動先へ移し、移動元を終了済みの
+空状態にする。終了成功後も空の終了済み状態となり、再終了は成功する冪等操作とする。生存Entityを所有したままのDestructor実行または
+liveな移動先へのMove代入は、World参照なしで安全に解放できないため全Build構成のProgrammer Errorとする。DestructorからWorld操作を
+推測実行しない。Composition RootはSceneInstanceを明示終了してから破棄し、Runtime World終了後までlive Handleを残さない。
 
 Runtime Type Builderが存在しない未知Componentまたは、解釈できない既知Component Fieldを含むSnapshotは実体化を失敗させる。
 Authoring保存では未知Dataを保持できるが、意味不明なDataを黙ってRuntimeへ無視して部分実行しない。
