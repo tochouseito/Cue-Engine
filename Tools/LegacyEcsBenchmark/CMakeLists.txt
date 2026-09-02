@@ -85,6 +85,19 @@ endif()
 
 add_executable(CueLegacyEcsBenchmark)
 
+add_custom_command(
+    TARGET CueLegacyEcsBenchmark
+    PRE_BUILD
+    COMMAND
+        "${CMAKE_COMMAND}"
+        "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
+        "-DLEGACY_ROOT=${legacyRoot}"
+        "-DEXPECTED_COMMIT=${legacyCommit}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyLegacyCheckout.cmake"
+    COMMENT "Verifying the legacy ECS checkout before compilation"
+    VERBATIM
+)
+
 target_sources(
     CueLegacyEcsBenchmark
     PRIVATE

@@ -21,7 +21,8 @@ Asset、Scripting、Third-party TargetはBuildまたはLinkしない。
 ## Isolated Checkout
 
 `CUE_LEGACY_ROOT`には`origin/release`をCheckoutした、Rebuildとは別のWorktreeを指定する。実行前にCheckoutのCommitを固定し、
-作業TreeがCleanであることを確認する。Toolは旧CheckoutへFileを書き込まない。
+作業TreeがCleanであることを確認する。Configure時とBuild直前の両方で、Git Repository Root、Clean状態、Commit SHA一致を
+検証する。Toolは旧CheckoutへFileを書き込まない。
 
 ```text
 git worktree add --detach C:/Work/CueEngine-Legacy-EcsBaseline origin/release

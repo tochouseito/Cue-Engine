@@ -21,7 +21,7 @@ Configure、Build、CTestも旧Checkoutを探索せず、旧ECS Targetを含ま�
 ## Isolation Contract
 
 - 旧ECSは`origin/release`のDetached Worktreeから読み取る
-- WorktreeのCommit SHAとClean状態を結果へ対応付ける
+- WorktreeのGit Root、Commit SHA、Clean状態をConfigure時とBuild直前に検証して結果へ対応付ける
 - Benchmark Build DirectoryはRebuildの通常Presetと分離する
 - 旧Checkoutへ生成物、Patch、設定Fileを書き込まない
 - Rebuild Runtime、GameCore、Schemaから旧ECS HeaderまたはBinaryを参照しない
