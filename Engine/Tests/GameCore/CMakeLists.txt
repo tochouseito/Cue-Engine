@@ -40,8 +40,14 @@ add_custom_target(Cue.GameCore.Tests DEPENDS ${cueGameCoreTestTargets})
 
 add_test(NAME Cue.GameCore.Storage COMMAND CueGameCoreTests)
 add_test(NAME Cue.GameCore.PublicHeaders COMMAND CueGameCorePublicHeaderTest)
-add_test(NAME Cue.GameCore.StructuralMutation.Reentry COMMAND CueGameCoreProcessTests)
-set_tests_properties(Cue.GameCore.StructuralMutation.Reentry PROPERTIES WILL_FAIL TRUE)
+add_test(
+    NAME Cue.GameCore.StructuralMutation.Reentry
+    COMMAND
+        ${CMAKE_COMMAND}
+        -DTEST_EXECUTABLE=$<TARGET_FILE:CueGameCoreProcessTests>
+        -DEXPECTED_EXIT_CODE=42
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyProcessExit.cmake
+)
 
 set_tests_properties(
     Cue.GameCore.Storage
