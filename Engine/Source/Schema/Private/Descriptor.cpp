@@ -376,9 +376,14 @@ Result<void> validate_type_descriptor(
     {
         if (reservedIds[index - 1U] >= reservedIds[index])
         {
-            return Result<void>::failure(make_schema_error(
-                a_assertContext, SchemaError::ReservedFieldId,
-                "Reserved FieldId values must remain unique and sorted"));
+            const auto rule = reservedIds[index - 1U] == reservedIds[index]
+                                  ? "DuplicateReservedFieldId"
+                                  : "InvalidReservedFieldOrder";
+            return Result<void>::failure(make_field_collision_error(
+                a_assertContext, SchemaError::ReservedFieldId, rule,
+                a_descriptor.id(), a_descriptor.name(),
+                reservedIds[index - 1U].value(), "<reserved>",
+                reservedIds[index].value(), "<reserved>"));
         }
     }
 
@@ -400,6 +405,13 @@ Result<void> validate_type_descriptor(
 Result<FieldDescriptor> create_field_descriptor(
     FieldId a_id, std::string_view a_name, const AssertContext &a_assertContext) noexcept
 {
+    if (a_id.value() == 0U)
+    {
+        return Result<FieldDescriptor>::failure(make_schema_error(
+            a_assertContext, SchemaError::InvalidFieldId,
+            "FieldId zero is reserved as invalid"));
+    }
+
     if (!is_valid_diagnostic_name(a_name, 128U))
     {
         return Result<FieldDescriptor>::failure(make_schema_error(

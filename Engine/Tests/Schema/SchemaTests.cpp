@@ -172,6 +172,8 @@ void invalidate_for_test(cue::schema::SchemaVersion &a_version) noexcept
     auto forgedField = make_field(8U, "forged", a_assertContext);
     auto *forgedFieldId = reinterpret_cast<cue::schema::FieldId *>(&forgedField);
     invalidate_for_test(*forgedFieldId);
+    auto invalidFieldDescriptor = cue::schema::create_field_descriptor(
+        *forgedFieldId, "direct", a_assertContext);
     std::vector<cue::schema::FieldDescriptor> fieldValues;
     fieldValues.push_back(std::move(forgedField));
     std::vector<cue::schema::FieldId> fieldReservedIds;
@@ -222,16 +224,57 @@ void invalidate_for_test(cue::schema::SchemaVersion &a_version) noexcept
     auto invalidFieldCollection =
         fieldBuilder.add_type(std::move(*forgedFieldsDescriptor));
 
+    std::vector<cue::schema::FieldDescriptor> noReservedFields;
+    std::vector<cue::schema::FieldId> forgedReservedIdsForRegistration;
+    forgedReservedIdsForRegistration.push_back(
+        make_field_id(12U, a_assertContext));
+    forgedReservedIdsForRegistration.push_back(
+        make_field_id(13U, a_assertContext));
+    auto forgedReservedResult = cue::schema::create_type_descriptor(
+        make_type_id("d0000000-0000-4000-8000-00000000000d", a_assertContext),
+        "Cue.Test.ForgedReserved", make_version(a_assertContext),
+        std::move(noReservedFields),
+        std::move(forgedReservedIdsForRegistration), a_assertContext);
+    auto *forgedReservedDescriptor = forgedReservedResult.try_value();
+
+    if (forgedReservedDescriptor == nullptr)
+    {
+        return false;
+    }
+
+    const auto descriptorReservedIds =
+        forgedReservedDescriptor->reserved_field_ids();
+    auto *mutableReservedIds =
+        const_cast<cue::schema::FieldId *>(descriptorReservedIds.data());
+    mutableReservedIds[1U] = make_field_id(12U, a_assertContext);
+    cue::schema::SchemaRegistryBuilder reservedBuilder(identitySource,
+                                                       a_assertContext);
+    auto invalidReservedCollection =
+        reservedBuilder.add_type(std::move(*forgedReservedDescriptor));
+    const cue::Error *invalidReservedError =
+        invalidReservedCollection.try_error();
+    const bool reservedDiagnostic = invalidReservedError != nullptr &&
+        invalidReservedError->summary().find(
+            "d0000000-0000-4000-8000-00000000000d") != std::string_view::npos &&
+        invalidReservedError->summary().find("Cue.Test.ForgedReserved") !=
+            std::string_view::npos &&
+        invalidReservedError->summary().find("12") != std::string_view::npos;
+
     return has_schema_error(invalidTypeId, cue::schema::SchemaError::InvalidTypeId) &&
            has_schema_error(invalidVersion,
                             cue::schema::SchemaError::InvalidSchemaVersion) &&
+           has_schema_error(invalidFieldDescriptor,
+                            cue::schema::SchemaError::InvalidFieldId) &&
            has_schema_error(invalidField, cue::schema::SchemaError::InvalidFieldId) &&
            has_schema_error(invalidRegistration,
                             cue::schema::SchemaError::InvalidTypeId) &&
            has_schema_error(invalidTombstone,
                             cue::schema::SchemaError::InvalidTypeId) &&
            has_schema_error(invalidFieldCollection,
-                            cue::schema::SchemaError::DuplicateFieldId);
+                            cue::schema::SchemaError::DuplicateFieldId) &&
+           has_schema_error(invalidReservedCollection,
+                            cue::schema::SchemaError::ReservedFieldId) &&
+           reservedDiagnostic;
 }
 
 /// @brief Stable Identity Value が不正入力を拒否することを検証する
