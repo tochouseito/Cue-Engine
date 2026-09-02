@@ -193,7 +193,9 @@ EditorDocumentへの参照を保持しない。Instance終了は呼び出し側�
 実行する。処理開始前に保存した`WorldId`と引数WorldのIdentityを照合し、不一致なら所有集合を変更せず拒否する。一致した場合だけ
 所属Entityを逆順で処理する。各Handleを`World::is_alive`で確認し、Gameplayにより既に破棄されたEntityは解放済みとして飛ばす。
 生存Entityの破棄が失敗しても後続を処理し、全失敗を順序付き結果として返す。失敗後も生存するEntityは`SceneInstance`の所有集合へ残し、
-呼び出し側が再試行またはRuntime World終了を選べるようにする。Runtime Worldより先にSceneInstanceを正常終了する所有順を
+破棄済みEntityに対応する`ObjectId`／`EntityHandle` Mappingは同じ終了Stepで除去する。所有集合とMappingの更新を分離せず、
+部分失敗後もMappingが現在の生存所有Entityだけを解決する状態を保つ。呼び出し側が再試行またはRuntime World終了を選べるようにする。
+Runtime Worldより先にSceneInstanceを正常終了する所有順を
 Composition Rootが保証する。
 
 Runtime Type Builderが存在しない未知Componentまたは、解釈できない既知Component Fieldを含むSnapshotは実体化を失敗させる。
@@ -228,9 +230,10 @@ Issue #150と#151で本ADRのIdentityと未知Data契約に従って実装し、
 同じ`formatVersion`の意味を実装後に変更しない。
 
 各Component Entryは`TypeId`に加えて保存時のnon-zero `SchemaVersion`を必須Memberとして保持する。登録済みTypeのAuthoring Loadは
-ADR-0015に従ってそのVersionから現在のType Schemaへ連続Migrationできることを検証し、Step欠落または未来Versionを拒否する。
-未知`TypeId`のComponentはMigrationせず、`SchemaVersion`を含むEntry全体をOpaque DataとしてLosslessに保持する。
-Runtime実体化時は未知Typeを拒否する。Top-level `formatVersion`をComponentの`SchemaVersion`として代用しない。
+ADR-0015に従って過去Versionから現在のType Schemaへ連続Migrationできることを検証し、Step欠落を拒否する。未知`TypeId`または
+現在より未来の`SchemaVersion`を持つComponentはMigrationせず、`SchemaVersion`を含むEntry全体をOpaque DataとしてLosslessに保持する。
+そのComponentの編集とRuntime実体化は拒否するが、Authoring Loadと他の編集可能Dataの利用は許可する。
+Top-level `formatVersion`をComponentの`SchemaVersion`として代用しない。
 
 固定Schema Objectの未知Memberと重複Memberを拒否する。`extensions`と未知Component／Field用Opaque Payloadだけは
 意味解釈せず所有し、再保存で失わない。Opaque JSONも構文、重複Member、Nesting、String、Container、File Size上限を適用する。
