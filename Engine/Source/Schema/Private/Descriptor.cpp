@@ -178,6 +178,24 @@ FieldDescriptor::FieldDescriptor(FieldId a_id, std::string &&a_name) noexcept
 {
 }
 
+FieldDescriptor::FieldDescriptor(FieldDescriptor &&a_other) noexcept
+    : m_id(a_other.m_id), m_name(std::move(a_other.m_name))
+{
+    a_other.m_name.clear();
+}
+
+FieldDescriptor &FieldDescriptor::operator=(FieldDescriptor &&a_other) noexcept
+{
+    if (this != &a_other)
+    {
+        m_id = a_other.m_id;
+        m_name = std::move(a_other.m_name);
+        a_other.m_name.clear();
+    }
+
+    return *this;
+}
+
 FieldId FieldDescriptor::id() const noexcept
 {
     return m_id;
@@ -195,6 +213,29 @@ TypeDescriptor::TypeDescriptor(TypeId a_id, std::string &&a_name,
     : m_id(a_id), m_name(std::move(a_name)), m_version(a_version),
       m_fields(std::move(a_fields)), m_reservedFieldIds(std::move(a_reservedFieldIds))
 {
+}
+
+TypeDescriptor::TypeDescriptor(TypeDescriptor &&a_other) noexcept
+    : m_id(a_other.m_id), m_name(std::move(a_other.m_name)),
+      m_version(a_other.m_version), m_fields(std::move(a_other.m_fields)),
+      m_reservedFieldIds(std::move(a_other.m_reservedFieldIds))
+{
+    a_other.m_name.clear();
+}
+
+TypeDescriptor &TypeDescriptor::operator=(TypeDescriptor &&a_other) noexcept
+{
+    if (this != &a_other)
+    {
+        m_id = a_other.m_id;
+        m_name = std::move(a_other.m_name);
+        m_version = a_other.m_version;
+        m_fields = std::move(a_other.m_fields);
+        m_reservedFieldIds = std::move(a_other.m_reservedFieldIds);
+        a_other.m_name.clear();
+    }
+
+    return *this;
 }
 
 TypeId TypeDescriptor::id() const noexcept
@@ -241,6 +282,30 @@ Result<const FieldDescriptor *> TypeDescriptor::find_field(
 std::span<const FieldId> TypeDescriptor::reserved_field_ids() const noexcept
 {
     return m_reservedFieldIds;
+}
+
+Result<void> validate_type_descriptor(
+    const TypeDescriptor &a_descriptor,
+    const AssertContext &a_assertContext) noexcept
+{
+    if (!is_valid_diagnostic_name(a_descriptor.name(), 255U))
+    {
+        return Result<void>::failure(make_schema_error(
+            a_assertContext, SchemaError::InvalidName,
+            "Type name must be valid UTF-8 without control characters and at most 255 bytes"));
+    }
+
+    for (const auto &field : a_descriptor.fields())
+    {
+        if (!is_valid_diagnostic_name(field.name(), 128U))
+        {
+            return Result<void>::failure(make_schema_error(
+                a_assertContext, SchemaError::InvalidName,
+                "Field name must be valid UTF-8 without control characters and at most 128 bytes"));
+        }
+    }
+
+    return Result<void>::success();
 }
 
 Result<FieldDescriptor> create_field_descriptor(
@@ -341,9 +406,18 @@ Result<TypeDescriptor> create_type_descriptor(
 
     try
     {
-        return Result<TypeDescriptor>::success(TypeDescriptor(
+        TypeDescriptor descriptor(
             a_id, std::string(a_name), a_version, std::move(a_fields),
-            std::move(a_reservedFieldIds)));
+            std::move(a_reservedFieldIds));
+        auto validation = validate_type_descriptor(descriptor, a_assertContext);
+
+        if (!validation)
+        {
+            return Result<TypeDescriptor>::failure(
+                std::move(*validation.try_error()));
+        }
+
+        return Result<TypeDescriptor>::success(std::move(descriptor));
     }
     catch (const std::bad_alloc &)
     {

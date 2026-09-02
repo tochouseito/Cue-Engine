@@ -185,6 +185,16 @@ template <typename T>
         "Cue.Test.Reused", make_version(a_assertContext),
         std::move(reusedFields), std::move(reusedReservedIds), a_assertContext);
 
+    auto movedFieldSource = make_field(5U, "moved", a_assertContext);
+    [[maybe_unused]] auto movedFieldDestination = std::move(movedFieldSource);
+    std::vector<cue::schema::FieldDescriptor> movedFields;
+    movedFields.push_back(std::move(movedFieldSource));
+    std::vector<cue::schema::FieldId> movedReservedIds;
+    auto movedFieldType = cue::schema::create_type_descriptor(
+        make_type_id("40000000-0000-4000-8000-000000000004", a_assertContext),
+        "Cue.Test.MovedField", make_version(a_assertContext),
+        std::move(movedFields), std::move(movedReservedIds), a_assertContext);
+
     const auto *ordered = orderedType.try_value();
 
     if (ordered == nullptr)
@@ -204,6 +214,7 @@ template <typename T>
            has_schema_error(duplicateField,
                             cue::schema::SchemaError::DuplicateFieldId) &&
            has_schema_error(unknownField, cue::schema::SchemaError::NotFound) &&
+           has_schema_error(movedFieldType, cue::schema::SchemaError::InvalidName) &&
            has_schema_error(reusedField, cue::schema::SchemaError::ReservedFieldId);
 }
 
@@ -314,6 +325,13 @@ template <typename T>
 
     cue::schema::SchemaRegistryBuilder duplicateTypeBuilder(identitySource,
                                                             a_assertContext);
+    auto movedTypeSource = make_type(
+        "40000000-0000-4000-8000-000000000004", "Cue.Test.Moved",
+        a_assertContext);
+    [[maybe_unused]] auto movedTypeDestination = std::move(movedTypeSource);
+    cue::schema::SchemaRegistryBuilder movedTypeBuilder(identitySource,
+                                                        a_assertContext);
+    auto movedType = movedTypeBuilder.add_type(std::move(movedTypeSource));
     auto firstType = duplicateTypeBuilder.add_type(
         make_type(firstId, "Cue.Test.First", a_assertContext));
     auto duplicateType = duplicateTypeBuilder.add_type(
@@ -356,7 +374,8 @@ template <typename T>
         duplicateTombstoneError->summary().find("Cue.Test.ModuleB") !=
             std::string_view::npos;
 
-    return firstType.has_value() && firstName.has_value() &&
+    return has_schema_error(movedType, cue::schema::SchemaError::InvalidName) &&
+           firstType.has_value() && firstName.has_value() &&
            firstTombstone.has_value() && conflictTombstone.has_value() &&
            duplicateTypeDiagnostic && tombstoneDiagnostic &&
            has_schema_error(duplicateType,

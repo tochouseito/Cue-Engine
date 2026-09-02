@@ -276,6 +276,15 @@ Result<void> SchemaRegistryBuilder::add_type(TypeDescriptor &&a_descriptor) noex
             "Schema registry builder previously rejected a registration"));
     }
 
+    auto descriptorValidation =
+        validate_type_descriptor(a_descriptor, *m_assertContext);
+
+    if (!descriptorValidation)
+    {
+        m_hasFailed = true;
+        return descriptorValidation;
+    }
+
     const auto duplicateType = std::find_if(
         m_descriptors.begin(), m_descriptors.end(),
         /// @brief 既存Descriptorが追加対象と同じTypeIdを持つか判定する

@@ -20,9 +20,9 @@ class FieldDescriptor final
     /// @brief 所有文字列の暗黙Allocationを避けるためCopy代入を禁止する
     FieldDescriptor &operator=(const FieldDescriptor &) = delete;
     /// @brief Field Descriptorの所有権を移動する
-    FieldDescriptor(FieldDescriptor &&) noexcept = default;
+    FieldDescriptor(FieldDescriptor &&a_other) noexcept;
     /// @brief Field Descriptorの所有権を移動代入する
-    FieldDescriptor &operator=(FieldDescriptor &&) noexcept = default;
+    FieldDescriptor &operator=(FieldDescriptor &&a_other) noexcept;
     /// @brief Field Descriptorの所有値を破棄する
     ~FieldDescriptor() = default;
 
@@ -53,9 +53,9 @@ class TypeDescriptor final
     /// @brief 所有Collectionの暗黙Allocationを避けるためCopy代入を禁止する
     TypeDescriptor &operator=(const TypeDescriptor &) = delete;
     /// @brief Type Descriptorの所有権を移動する
-    TypeDescriptor(TypeDescriptor &&) noexcept = default;
+    TypeDescriptor(TypeDescriptor &&a_other) noexcept;
     /// @brief Type Descriptorの所有権を移動代入する
-    TypeDescriptor &operator=(TypeDescriptor &&) noexcept = default;
+    TypeDescriptor &operator=(TypeDescriptor &&a_other) noexcept;
     /// @brief Type Descriptorの所有値を破棄する
     ~TypeDescriptor() = default;
 
@@ -102,5 +102,10 @@ class TypeDescriptor final
 [[nodiscard]] Result<TypeDescriptor> create_type_descriptor(
     TypeId a_id, std::string_view a_name, SchemaVersion a_version,
     std::vector<FieldDescriptor> &&a_fields, std::vector<FieldId> &&a_reservedFieldIds,
+    const AssertContext &a_assertContext) noexcept;
+
+/// @brief Registry登録前にTypeとFieldの診断名不変条件を再検証する
+[[nodiscard]] Result<void> validate_type_descriptor(
+    const TypeDescriptor &a_descriptor,
     const AssertContext &a_assertContext) noexcept;
 } // namespace cue::schema
