@@ -207,6 +207,14 @@ void test_component_data() noexcept
     const auto invalidString = cue::scene::FieldValue::string(invalidUtf8,
                                                               assertContext);
     require(!invalidString.has_value());
+    const std::string oversizedWireString(
+        cue::scene::k_maximumSceneStringBytes + 1U, 's');
+    require(!cue::scene::FieldValue::string(oversizedWireString,
+                                            assertContext)
+                 .has_value());
+    require(!cue::scene::AssetReferenceValue::create(oversizedWireString,
+                                                      assertContext)
+                 .has_value());
     const std::string longAssetToken(256U, 'a');
     const auto validLongAssetToken = cue::scene::AssetReferenceValue::create(
         longAssetToken, assertContext);

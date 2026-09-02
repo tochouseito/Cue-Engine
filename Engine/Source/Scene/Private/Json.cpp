@@ -1,5 +1,7 @@
 #include "Json.h"
 
+#include <Cue/Scene/ComponentData.h>
+
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -10,7 +12,6 @@ namespace
 {
 constexpr std::size_t k_maximumDepth = 64U;
 constexpr std::size_t k_maximumElements = 4096U;
-constexpr std::size_t k_maximumStringBytes = 256U * 1024U;
 
 /// @brief UTF-8先頭位置から一ScalarとByte長を厳密に復号する
 [[nodiscard]] bool decode_utf8(std::string_view a_text, std::size_t a_offset, std::uint32_t &a_scalar,
@@ -326,7 +327,7 @@ class Parser final
                 a_output.append(m_input.substr(m_offset, length));
                 m_offset += length;
             }
-            if (a_output.size() > k_maximumStringBytes)
+            if (a_output.size() > cue::scene::k_maximumSceneStringBytes)
             {
                 return fail("JSON string exceeds byte limit");
             }
@@ -506,7 +507,7 @@ bool parse_json_document(std::string_view a_input, JsonValue &a_value, std::stri
 
 bool is_valid_json_string_text(std::string_view a_text) noexcept
 {
-    if (a_text.size() > k_maximumStringBytes)
+    if (a_text.size() > cue::scene::k_maximumSceneStringBytes)
     {
         return false;
     }

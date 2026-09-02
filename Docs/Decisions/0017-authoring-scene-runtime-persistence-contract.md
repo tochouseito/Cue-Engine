@@ -278,6 +278,7 @@ Schema変換によるIdentity変更を許可しない。Step欠落、変換失�
 
 Scene／Component Migration Registryの`add_step`を行う構築期間は単一Threadまたは呼び出し側の外部同期で直列化する。
 登録完了後は`add_step`を呼ばないImmutable状態として共有し、その間だけ複数ThreadからMigration、Parse、Saveに利用できる。
+並行利用する場合は登録CallbackとCallbackが参照する状態も再入可能にするか、呼び出し側が外部同期する。
 登録した関数の参照先はRegistryを利用する全処理の完了まで有効に保つ。
 
 Sceneを開いただけでSource Fileを暗黙更新しない。Migration済みDocumentは呼び出し側へ`MigrationRequired`状態と元Versionを返し、

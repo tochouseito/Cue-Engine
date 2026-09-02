@@ -580,11 +580,12 @@ Result<AssetReferenceValue> AssetReferenceValue::create(
     std::string_view a_token,
     const AssertContext &a_assertContext) noexcept
 {
-    if (a_token.empty() || !is_valid_utf8(a_token))
+    if (a_token.empty() || a_token.size() > k_maximumSceneStringBytes ||
+        !is_valid_utf8(a_token))
     {
         return Result<AssetReferenceValue>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidComponentData,
-            "Asset reference token must be non-empty valid UTF-8"));
+            "Asset reference token must be non-empty valid UTF-8 within 256 KiB"));
     }
     try
     {
@@ -638,11 +639,12 @@ Result<FieldValue> FieldValue::floating_point(
 Result<FieldValue> FieldValue::string(
     std::string_view a_value, const AssertContext &a_assertContext) noexcept
 {
-    if (!is_valid_utf8(a_value))
+    if (a_value.size() > k_maximumSceneStringBytes ||
+        !is_valid_utf8(a_value))
     {
         return Result<FieldValue>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidComponentData,
-            "Scene string field must contain valid UTF-8"));
+            "Scene string field must contain valid UTF-8 within 256 KiB"));
     }
     try
     {

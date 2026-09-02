@@ -3,6 +3,7 @@
 #include <Cue/Scene/Identity.h>
 #include <Cue/Schema/Registry.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -13,6 +14,9 @@
 namespace cue::scene
 {
 class SceneDocumentSerializationAccess;
+
+/// @brief Scene File内の復号済み一String Valueが所有できる最大Byte数
+inline constexpr std::size_t k_maximumSceneStringBytes = 256U * 1024U;
 
 /// @brief Scene Wire Dataで解釈可能なField Valueの意味Kind
 enum class FieldValueKind : std::uint8_t
