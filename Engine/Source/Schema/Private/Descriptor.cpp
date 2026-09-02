@@ -217,6 +217,27 @@ std::span<const FieldDescriptor> TypeDescriptor::fields() const noexcept
     return m_fields;
 }
 
+Result<const FieldDescriptor *> TypeDescriptor::find_field(
+    FieldId a_id, const AssertContext &a_assertContext) const noexcept
+{
+    const auto iterator = std::lower_bound(
+        m_fields.begin(), m_fields.end(), a_id,
+        /// @brief Field DescriptorのStable FieldIdが検索値より小さいか判定する
+        [](const FieldDescriptor &a_descriptor, FieldId a_value) noexcept
+        {
+            return a_descriptor.id() < a_value;
+        });
+
+    if (iterator != m_fields.end() && iterator->id() == a_id)
+    {
+        return Result<const FieldDescriptor *>::success(&*iterator);
+    }
+
+    return Result<const FieldDescriptor *>::failure(make_schema_error(
+        a_assertContext, SchemaError::NotFound,
+        "Schema FieldId is not registered in this type descriptor"));
+}
+
 std::span<const FieldId> TypeDescriptor::reserved_field_ids() const noexcept
 {
     return m_reservedFieldIds;

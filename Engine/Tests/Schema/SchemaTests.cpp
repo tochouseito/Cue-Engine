@@ -186,13 +186,24 @@ template <typename T>
         std::move(reusedFields), std::move(reusedReservedIds), a_assertContext);
 
     const auto *ordered = orderedType.try_value();
+
+    if (ordered == nullptr)
+    {
+        return false;
+    }
+
+    auto knownField = ordered->find_field(make_field_id(1U, a_assertContext),
+                                          a_assertContext);
+    auto unknownField = ordered->find_field(make_field_id(9U, a_assertContext),
+                                            a_assertContext);
     return has_schema_error(invalidName, cue::schema::SchemaError::InvalidName) &&
-           ordered != nullptr && ordered->fields().size() == 2U &&
+           knownField.has_value() && ordered->fields().size() == 2U &&
            ordered->fields()[0].id().value() == 1U &&
            ordered->fields()[1].id().value() == 2U &&
            ordered->reserved_field_ids().size() == 1U &&
            has_schema_error(duplicateField,
                             cue::schema::SchemaError::DuplicateFieldId) &&
+           has_schema_error(unknownField, cue::schema::SchemaError::NotFound) &&
            has_schema_error(reusedField, cue::schema::SchemaError::ReservedFieldId);
 }
 

@@ -67,6 +67,9 @@ class TypeDescriptor final
     [[nodiscard]] SchemaVersion version() const noexcept;
     /// @brief Field Descriptorを登録時の意味に依存しないStable ID順で返す
     [[nodiscard]] std::span<const FieldDescriptor> fields() const noexcept;
+    /// @brief Stable FieldIdに対応するDescriptorへの非所有PointerまたはNotFoundを返す
+    [[nodiscard]] Result<const FieldDescriptor *> find_field(
+        FieldId a_id, const AssertContext &a_assertContext) const noexcept;
     /// @brief 再利用禁止Field IDをunsigned値順で返す
     [[nodiscard]] std::span<const FieldId> reserved_field_ids() const noexcept;
 
