@@ -19,6 +19,8 @@ class SceneDocumentSerializationAccess;
 inline constexpr std::size_t k_maximumSceneStringBytes = 256U * 1024U;
 /// @brief Scene File内の一ObjectまたはArrayが所有できる最大要素数
 inline constexpr std::size_t k_maximumSceneContainerElements = 4096U;
+/// @brief Scene File内のRootから数えるJSON Container最大Nesting Depth
+inline constexpr std::size_t k_maximumSceneNestingDepth = 64U;
 
 /// @brief Scene Wire Dataで解釈可能なField Valueの意味Kind
 enum class FieldValueKind : std::uint8_t

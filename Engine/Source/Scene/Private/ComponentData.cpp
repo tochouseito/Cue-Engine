@@ -145,7 +145,7 @@ class JsonSyntaxValidator final
     /// @brief 現在位置から一つのJSON Valueを検証する
     [[nodiscard]] bool parse_value(std::size_t a_depth)
     {
-        if (a_depth > 64U)
+        if (a_depth > cue::scene::k_maximumSceneNestingDepth)
         {
             return false;
         }
@@ -172,6 +172,10 @@ class JsonSyntaxValidator final
     /// @brief 重複Memberを拒否してJSON Objectを検証する
     [[nodiscard]] bool parse_object(std::size_t a_depth)
     {
+        if (a_depth > cue::scene::k_maximumSceneNestingDepth)
+        {
+            return false;
+        }
         ++m_position;
         skip_whitespace();
         std::vector<std::string> names;
@@ -224,6 +228,10 @@ class JsonSyntaxValidator final
     /// @brief 要素数上限内のJSON Arrayを検証する
     [[nodiscard]] bool parse_array(std::size_t a_depth)
     {
+        if (a_depth > cue::scene::k_maximumSceneNestingDepth)
+        {
+            return false;
+        }
         ++m_position;
         skip_whitespace();
         if (peek() == ']')

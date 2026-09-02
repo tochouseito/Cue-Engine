@@ -249,6 +249,11 @@ void test_component_data() noexcept
     require(!cue::scene::OpaqueFieldData::create(
                  unknownField, overNestedOpaqueValue, assertContext)
                  .has_value());
+    const std::string overNestedEmptyOpaqueValue =
+        std::string(58U, '[') + std::string(58U, ']');
+    require(!cue::scene::OpaqueFieldData::create(
+                 unknownField, overNestedEmptyOpaqueValue, assertContext)
+                 .has_value());
 
     std::vector<cue::scene::KnownFieldData> repeatedFields;
     repeatedFields.push_back(take_value(cue::scene::create_known_field(

@@ -10,8 +10,6 @@
 
 namespace
 {
-constexpr std::size_t k_maximumDepth = 64U;
-
 /// @brief UTF-8先頭位置から一ScalarとByte長を厳密に復号する
 [[nodiscard]] bool decode_utf8(std::string_view a_text, std::size_t a_offset, std::uint32_t &a_scalar,
                                std::size_t &a_length) noexcept
@@ -202,7 +200,7 @@ class Parser final
     /// @brief JSON Objectと重複Memberを上限内で解析する
     [[nodiscard]] bool parse_object(cue::scene_private::JsonValue &a_value, std::size_t a_depth)
     {
-        if (a_depth > k_maximumDepth)
+        if (a_depth > cue::scene::k_maximumSceneNestingDepth)
         {
             return fail("JSON nesting exceeds limit");
         }
@@ -253,7 +251,7 @@ class Parser final
     /// @brief JSON Arrayを要素上限内で解析する
     [[nodiscard]] bool parse_array(cue::scene_private::JsonValue &a_value, std::size_t a_depth)
     {
-        if (a_depth > k_maximumDepth)
+        if (a_depth > cue::scene::k_maximumSceneNestingDepth)
         {
             return fail("JSON nesting exceeds limit");
         }
