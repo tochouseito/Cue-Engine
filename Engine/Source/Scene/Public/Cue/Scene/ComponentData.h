@@ -247,6 +247,7 @@ class OpaqueComponentData final
     [[nodiscard]] static Result<OpaqueComponentData> create(
         ComponentInstanceId a_instanceId, schema::TypeId a_typeId,
         schema::SchemaVersion a_schemaVersion, std::string_view a_rawJson,
+        const schema::SchemaRegistry &a_schemaRegistry,
         const AssertContext &a_assertContext) noexcept;
 
     /// @brief Stable Component Instance Identityを返す

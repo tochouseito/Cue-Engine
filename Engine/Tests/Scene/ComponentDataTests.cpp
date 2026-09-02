@@ -83,9 +83,10 @@ template <typename T> T take_value(cue::Result<T> &&a_result) noexcept
 
 /// @brief Test用Schema Versionを生成する
 [[nodiscard]] cue::schema::SchemaVersion make_version(
-    const cue::AssertContext &a_assertContext) noexcept
+    const cue::AssertContext &a_assertContext,
+    std::uint32_t a_value = 1U) noexcept
 {
-    return take_value(cue::schema::SchemaVersion::create(1U, a_assertContext));
+    return take_value(cue::schema::SchemaVersion::create(a_value, a_assertContext));
 }
 
 /// @brief Field 1と2を持つTest用Immutable Schema Registryを構築する
@@ -165,6 +166,9 @@ void test_component_data() noexcept
     const auto invalidString = cue::scene::FieldValue::string(invalidUtf8,
                                                               assertContext);
     require(!invalidString.has_value());
+    const auto invalidOpaqueField = cue::scene::OpaqueFieldData::create(
+        unknownField, invalidUtf8, assertContext);
+    require(!invalidOpaqueField.has_value());
 
     std::vector<cue::scene::KnownFieldData> repeatedFields;
     repeatedFields.push_back(take_value(cue::scene::create_known_field(
@@ -202,11 +206,19 @@ void test_component_data() noexcept
 
     auto opaqueId = take_value(cue::scene::ComponentInstanceId::generate(
         sceneIdentitySource, assertContext));
+    auto incorrectlyOpaqueId = take_value(
+        cue::scene::ComponentInstanceId::generate(sceneIdentitySource,
+                                                   assertContext));
+    const auto incorrectlyOpaque = cue::scene::OpaqueComponentData::create(
+        std::move(incorrectlyOpaqueId), make_type_id(assertContext),
+        make_version(assertContext), "{\"known\":true}", *registry,
+        assertContext);
+    require(!incorrectlyOpaque.has_value());
     auto opaque = take_value(cue::scene::OpaqueComponentData::create(
         std::move(opaqueId), make_type_id(assertContext),
-        make_version(assertContext),
+        make_version(assertContext, 2U),
         "{\"future\":true}",
-        assertContext));
+        *registry, assertContext));
     require(document.add_component(
                         objectId,
                         cue::scene::SceneComponent::opaque(std::move(opaque)))

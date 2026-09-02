@@ -261,7 +261,7 @@ Result<OpaqueFieldData> OpaqueFieldData::create(
     schema::FieldId a_id, std::string_view a_rawJson,
     const AssertContext &a_assertContext) noexcept
 {
-    if (a_rawJson.empty())
+    if (a_rawJson.empty() || !is_valid_utf8(a_rawJson))
     {
         return Result<OpaqueFieldData>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidOpaqueData,
@@ -412,13 +412,25 @@ OpaqueComponentData::OpaqueComponentData(
 Result<OpaqueComponentData> OpaqueComponentData::create(
     ComponentInstanceId a_instanceId, schema::TypeId a_typeId,
     schema::SchemaVersion a_schemaVersion, std::string_view a_rawJson,
+    const schema::SchemaRegistry &a_schemaRegistry,
     const AssertContext &a_assertContext) noexcept
 {
-    if (a_rawJson.empty())
+    if (a_rawJson.empty() || !is_valid_utf8(a_rawJson))
     {
         return Result<OpaqueComponentData>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidOpaqueData,
             "Opaque component JSON entry must not be empty"));
+    }
+    auto descriptorResult = a_schemaRegistry.find(a_typeId, a_assertContext);
+    if (descriptorResult)
+    {
+        const auto *descriptor = *descriptorResult.try_value();
+        if (a_schemaVersion <= descriptor->version())
+        {
+            return Result<OpaqueComponentData>::failure(make_scene_error(
+                a_assertContext, SceneError::InvalidOpaqueData,
+                "Registered component type is opaque only for a future schema version"));
+        }
     }
     try
     {
