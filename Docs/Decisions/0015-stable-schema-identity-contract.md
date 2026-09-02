@@ -67,6 +67,12 @@ Binary表現を導入する場合も同じ16 byte値をNetwork Byte Orderで表�
 Typeの改名、Source移動、Module分割、C++実装差替え、Hot Reloadでは`TypeId`を維持する。意味的に互換でない新Typeは新しい
 `TypeId`を発行する。削除した`TypeId`はTombstoneとして予約し、別の意味へ再利用しない。
 
+Version Control対象のFirst-party Schema Manifestを、Active `TypeDescriptor`と削除済み`TypeId` Tombstoneの正本とする。
+Type削除時はActive Entryを同じManifestのTombstone Setへ移し、履歴から値を消さない。新しいTypeを発行するAuthoring Toolは
+Active SetとTombstone Setの両方を検査する。Registry構築時も両方を入力し、同じ`TypeId`がActiveとTombstoneに現れる場合、
+またはTombstoneが重複する場合は失敗する。M10のRegistryはManifest FileのParserを所有せず、呼び出し側から登録されたActive
+DescriptorとTombstoneをSeal時に検査する。
+
 ### FieldId
 
 `FieldId`は一つの`TypeId`内で一意な、明示指定のnon-zero 32-bit unsigned integerとする。永続Text FormatがDecimalを
@@ -81,7 +87,8 @@ Field名、宣言順、Memory Offset、Compiler Layoutから`FieldId`を自動�
 
 ### SchemaVersion and Migration
 
-`SchemaVersion`はTypeごとの単調増加するnon-zero 32-bit unsigned integerとする。初期Versionは1とする。次の変更ではVersionを増やす。
+`SchemaVersion`はTypeごとの連続したnon-zero 32-bit unsigned integerとする。初期Versionは1とし、次のSchema変更では必ず
+現在値へ1を加える。Versionを飛ばさない。次の変更ではVersionを増やす。
 
 - Fieldの追加、削除、意味変更、値Domain変更
 - Fieldの必須性またはDefault規則の変更
@@ -116,6 +123,10 @@ M10のSchema Registryが所有する最小Metadataを次に限定する。
 - `FieldDescriptor`の集合
 - 再利用禁止となったReserved `FieldId`の集合
 
+Registry全体:
+
+- 削除済み`TypeId` Tombstoneの集合
+
 `FieldDescriptor`:
 
 - `FieldId`
@@ -142,6 +153,7 @@ Mutable RegistryはSeal前にDescriptorを登録し、次を検出した時点�
 
 - nil、Version／Variant不正、非Canonicalな`TypeId`
 - 同じ`TypeId`の重複登録
+- Active `TypeId`とTombstoneの重複、またはTombstone同士の重複
 - Canonical Nameの重複
 - `SchemaVersion`が0
 - `FieldId`が0、Type内で重複、またはReserved Setと重複
