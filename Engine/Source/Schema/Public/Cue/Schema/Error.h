@@ -27,7 +27,8 @@ enum class SchemaError : std::int64_t
     TombstonedTypeId = 10,
     DuplicateTombstone = 11,
     CapacityExceeded = 12,
-    BuilderFailed = 13
+    BuilderFailed = 13,
+    BuilderSealed = 14
 };
 
 /// @brief Schema Errorを診断Summaryと共に生成する

@@ -103,7 +103,7 @@ void append_type_id(std::string &a_destination, cue::schema::TypeId a_id)
 [[nodiscard]] cue::Error make_tombstone_collision_error(
     const cue::AssertContext &a_assertContext, cue::schema::SchemaError a_code,
     std::string_view a_rule, cue::schema::TypeId a_id,
-    std::string_view a_incomingName) noexcept
+    std::string_view a_existingName, std::string_view a_incomingName) noexcept
 {
     try
     {
@@ -111,11 +111,10 @@ void append_type_id(std::string &a_destination, cue::schema::TypeId a_id)
         summary.append(" TypeId=");
         append_type_id(summary, a_id);
 
-        if (!a_incomingName.empty())
-        {
-            summary.append(" IncomingName=");
-            summary.append(a_incomingName);
-        }
+        summary.append(" ExistingSource=");
+        summary.append(a_existingName);
+        summary.append(" IncomingSource=");
+        summary.append(a_incomingName);
 
         return cue::schema::make_schema_error(a_assertContext, a_code, summary);
     }
@@ -127,6 +126,31 @@ void append_type_id(std::string &a_destination, cue::schema::TypeId a_id)
     {
         terminate_registry_exception(a_assertContext);
     }
+}
+
+/// @brief Tombstone登録元名が安定したASCII診断Tokenか検証する
+[[nodiscard]] bool is_valid_registration_source(std::string_view a_sourceName) noexcept
+{
+    if (a_sourceName.empty() || a_sourceName.size() > 128U)
+    {
+        return false;
+    }
+
+    for (const char character : a_sourceName)
+    {
+        const bool isLetter = (character >= 'A' && character <= 'Z') ||
+                              (character >= 'a' && character <= 'z');
+        const bool isDigit = character >= '0' && character <= '9';
+        const bool isSeparator = character == '.' || character == '_' ||
+                                 character == ':' || character == '-';
+
+        if (!isLetter && !isDigit && !isSeparator)
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 /// @brief Process内で再利用しないRegistry Generationを予約する
@@ -225,8 +249,13 @@ Result<void> SchemaRegistryBuilder::add_type(TypeDescriptor &&a_descriptor) noex
 {
     CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_ownerThread,
                "SchemaRegistryBuilder must be used on its owner thread");
-    CUE_ASSERT(*m_assertContext, !m_isSealed,
-               "SchemaRegistryBuilder cannot register a type after seal");
+
+    if (m_isSealed)
+    {
+        return Result<void>::failure(make_schema_error(
+            *m_assertContext, SchemaError::BuilderSealed,
+            "Schema registry builder cannot register a type after seal"));
+    }
 
     if (m_hasFailed)
     {
@@ -267,13 +296,17 @@ Result<void> SchemaRegistryBuilder::add_type(TypeDescriptor &&a_descriptor) noex
             a_descriptor.id()));
     }
 
-    if (std::find(m_tombstones.begin(), m_tombstones.end(), a_descriptor.id()) !=
-        m_tombstones.end())
+    const auto tombstone =
+        std::find(m_tombstones.begin(), m_tombstones.end(), a_descriptor.id());
+
+    if (tombstone != m_tombstones.end())
     {
+        const auto offset = static_cast<std::size_t>(tombstone - m_tombstones.begin());
         m_hasFailed = true;
         return Result<void>::failure(make_tombstone_collision_error(
             *m_assertContext, SchemaError::TombstonedTypeId,
-            "ActiveTypeIdReusesTombstone", a_descriptor.id(), a_descriptor.name()));
+            "ActiveTypeIdReusesTombstone", a_descriptor.id(),
+            m_tombstoneSources[offset], a_descriptor.name()));
     }
 
     try
@@ -292,12 +325,18 @@ Result<void> SchemaRegistryBuilder::add_type(TypeDescriptor &&a_descriptor) noex
     return Result<void>::success();
 }
 
-Result<void> SchemaRegistryBuilder::add_tombstone(TypeId a_id) noexcept
+Result<void> SchemaRegistryBuilder::add_tombstone(
+    TypeId a_id, std::string_view a_sourceName) noexcept
 {
     CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_ownerThread,
                "SchemaRegistryBuilder must be used on its owner thread");
-    CUE_ASSERT(*m_assertContext, !m_isSealed,
-               "SchemaRegistryBuilder cannot register a tombstone after seal");
+
+    if (m_isSealed)
+    {
+        return Result<void>::failure(make_schema_error(
+            *m_assertContext, SchemaError::BuilderSealed,
+            "Schema registry builder cannot register a tombstone after seal"));
+    }
 
     if (m_hasFailed)
     {
@@ -306,13 +345,25 @@ Result<void> SchemaRegistryBuilder::add_tombstone(TypeId a_id) noexcept
             "Schema registry builder previously rejected a registration"));
     }
 
-    if (std::find(m_tombstones.begin(), m_tombstones.end(), a_id) !=
-        m_tombstones.end())
+    if (!is_valid_registration_source(a_sourceName))
     {
+        m_hasFailed = true;
+        return Result<void>::failure(make_schema_error(
+            *m_assertContext, SchemaError::InvalidName,
+            "Tombstone source must be a 1 to 128 byte ASCII diagnostic token"));
+    }
+
+    const auto duplicateTombstone =
+        std::find(m_tombstones.begin(), m_tombstones.end(), a_id);
+
+    if (duplicateTombstone != m_tombstones.end())
+    {
+        const auto offset = static_cast<std::size_t>(
+            duplicateTombstone - m_tombstones.begin());
         m_hasFailed = true;
         return Result<void>::failure(make_tombstone_collision_error(
             *m_assertContext, SchemaError::DuplicateTombstone,
-            "DuplicateTombstone", a_id, {}));
+            "DuplicateTombstone", a_id, m_tombstoneSources[offset], a_sourceName));
     }
 
     const auto activeType = std::find_if(
@@ -328,12 +379,14 @@ Result<void> SchemaRegistryBuilder::add_tombstone(TypeId a_id) noexcept
         m_hasFailed = true;
         return Result<void>::failure(make_tombstone_collision_error(
             *m_assertContext, SchemaError::TombstonedTypeId,
-            "TombstoneConflictsWithActiveType", a_id, activeType->name()));
+            "TombstoneConflictsWithActiveType", a_id, activeType->name(),
+            a_sourceName));
     }
 
     try
     {
         m_tombstones.push_back(a_id);
+        m_tombstoneSources.emplace_back(a_sourceName);
     }
     catch (const std::bad_alloc &)
     {
@@ -351,8 +404,13 @@ Result<SchemaRegistry> SchemaRegistryBuilder::seal() noexcept
 {
     CUE_ASSERT(*m_assertContext, std::this_thread::get_id() == m_ownerThread,
                "SchemaRegistryBuilder must be sealed on its owner thread");
-    CUE_ASSERT(*m_assertContext, !m_isSealed,
-               "SchemaRegistryBuilder can be sealed only once");
+
+    if (m_isSealed)
+    {
+        return Result<SchemaRegistry>::failure(make_schema_error(
+            *m_assertContext, SchemaError::BuilderSealed,
+            "Schema registry builder can be sealed only once"));
+    }
 
     if (m_hasFailed)
     {

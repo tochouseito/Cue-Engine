@@ -256,7 +256,7 @@ template <typename T>
     auto duplicateType = duplicateTypeBuilder.add_type(
         make_type(firstId, "Cue.Test.Other", a_assertContext));
     auto addAfterFailure = duplicateTypeBuilder.add_tombstone(
-        make_type_id(secondId, a_assertContext));
+        make_type_id(secondId, a_assertContext), "Cue.Test.ModuleB");
     auto sealAfterFailure = duplicateTypeBuilder.seal();
 
     cue::schema::SchemaRegistryBuilder duplicateNameBuilder(a_assertContext);
@@ -267,11 +267,14 @@ template <typename T>
 
     cue::schema::SchemaRegistryBuilder tombstoneBuilder(a_assertContext);
     const auto tombstoneId = make_type_id(secondId, a_assertContext);
-    auto firstTombstone = tombstoneBuilder.add_tombstone(tombstoneId);
-    auto duplicateTombstone = tombstoneBuilder.add_tombstone(tombstoneId);
+    auto firstTombstone = tombstoneBuilder.add_tombstone(
+        tombstoneId, "Cue.Test.ModuleA");
+    auto duplicateTombstone = tombstoneBuilder.add_tombstone(
+        tombstoneId, "Cue.Test.ModuleB");
 
     cue::schema::SchemaRegistryBuilder tombstoneConflictBuilder(a_assertContext);
-    auto conflictTombstone = tombstoneConflictBuilder.add_tombstone(tombstoneId);
+    auto conflictTombstone = tombstoneConflictBuilder.add_tombstone(
+        tombstoneId, "Cue.Test.ModuleA");
     auto tombstonedType = tombstoneConflictBuilder.add_type(
         make_type(secondId, "Cue.Test.Tombstoned", a_assertContext));
 
@@ -280,10 +283,16 @@ template <typename T>
         duplicateTypeError->summary().find(firstId) != std::string_view::npos &&
         duplicateTypeError->summary().find("Cue.Test.First") != std::string_view::npos &&
         duplicateTypeError->summary().find("Cue.Test.Other") != std::string_view::npos;
+    const cue::Error *duplicateTombstoneError = duplicateTombstone.try_error();
+    const bool tombstoneDiagnostic = duplicateTombstoneError != nullptr &&
+        duplicateTombstoneError->summary().find("Cue.Test.ModuleA") !=
+            std::string_view::npos &&
+        duplicateTombstoneError->summary().find("Cue.Test.ModuleB") !=
+            std::string_view::npos;
 
     return firstType.has_value() && firstName.has_value() &&
            firstTombstone.has_value() && conflictTombstone.has_value() &&
-           duplicateTypeDiagnostic &&
+           duplicateTypeDiagnostic && tombstoneDiagnostic &&
            has_schema_error(duplicateType,
                             cue::schema::SchemaError::DuplicateTypeId) &&
            has_schema_error(addAfterFailure,
@@ -296,6 +305,27 @@ template <typename T>
                             cue::schema::SchemaError::DuplicateTombstone) &&
            has_schema_error(tombstonedType,
                             cue::schema::SchemaError::TombstonedTypeId);
+}
+
+/// @brief Seal済みBuilderが全Build構成で追加登録と再Sealを拒否することを検証する
+[[nodiscard]] bool test_sealed_builder_rejection(
+    const cue::AssertContext &a_assertContext)
+{
+    constexpr std::string_view firstId =
+        "10000000-0000-4000-8000-000000000001";
+    constexpr std::string_view secondId =
+        "20000000-0000-4000-8000-000000000002";
+    cue::schema::SchemaRegistryBuilder builder(a_assertContext);
+    auto addType = builder.add_type(
+        make_type(firstId, "Cue.Test.First", a_assertContext));
+    auto registry = builder.seal();
+    auto addAfterSeal = builder.add_tombstone(
+        make_type_id(secondId, a_assertContext), "Cue.Test.Module");
+    auto secondSeal = builder.seal();
+
+    return addType.has_value() && registry.has_value() &&
+           has_schema_error(addAfterSeal, cue::schema::SchemaError::BuilderSealed) &&
+           has_schema_error(secondSeal, cue::schema::SchemaError::BuilderSealed);
 }
 
 /// @brief Seal済みRegistryを複数Reader Threadから変更なしで参照できることを検証する
@@ -311,7 +341,7 @@ template <typename T>
     cue::schema::SchemaRegistryBuilder builder(a_assertContext);
     auto addType = builder.add_type(
         make_type(activeIdText, "Cue.Test.Active", a_assertContext));
-    auto addTombstone = builder.add_tombstone(tombstoneId);
+    auto addTombstone = builder.add_tombstone(tombstoneId, "Cue.Test.Module");
     auto registryResult = builder.seal();
     const auto *registry = registryResult.try_value();
 
@@ -391,6 +421,11 @@ int main()
     if (!test_immutable_concurrent_read(assertContext))
     {
         return 5;
+    }
+
+    if (!test_sealed_builder_rejection(assertContext))
+    {
+        return 6;
     }
 
     return 0;

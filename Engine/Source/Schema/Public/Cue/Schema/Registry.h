@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -71,8 +73,9 @@ class SchemaRegistryBuilder final
 
     /// @brief Active Type DescriptorをBuilderへ一意登録する
     [[nodiscard]] Result<void> add_type(TypeDescriptor &&a_descriptor) noexcept;
-    /// @brief 削除済みTypeId TombstoneをBuilderへ一意登録する
-    [[nodiscard]] Result<void> add_tombstone(TypeId a_id) noexcept;
+    /// @brief 削除済みTypeId Tombstoneを登録元診断名と共にBuilderへ一意登録する
+    [[nodiscard]] Result<void> add_tombstone(TypeId a_id,
+                                            std::string_view a_sourceName) noexcept;
     /// @brief 全衝突を検証しTypeId順のImmutable Registryへ所有権を移す
     [[nodiscard]] Result<SchemaRegistry> seal() noexcept;
 
@@ -81,6 +84,7 @@ class SchemaRegistryBuilder final
     std::thread::id m_ownerThread;
     std::vector<TypeDescriptor> m_descriptors;
     std::vector<TypeId> m_tombstones;
+    std::vector<std::string> m_tombstoneSources;
     bool m_isSealed = false;
     bool m_hasFailed = false;
 };
