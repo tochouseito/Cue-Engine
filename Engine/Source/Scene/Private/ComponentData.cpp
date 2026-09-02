@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_set>
 #include <utility>
 
 namespace
@@ -190,7 +191,7 @@ class JsonSyntaxValidator final
         }
         ++m_position;
         skip_whitespace();
-        std::vector<std::string> names;
+        std::unordered_set<std::string> names;
         if (peek() == '}')
         {
             ++m_position;
@@ -203,8 +204,7 @@ class JsonSyntaxValidator final
                 return false;
             }
             std::string name;
-            if (!parse_string(&name) ||
-                std::find(names.begin(), names.end(), name) != names.end())
+            if (!parse_string(&name) || !names.emplace(name).second)
             {
                 return false;
             }
@@ -214,7 +214,6 @@ class JsonSyntaxValidator final
             {
                 return false;
             }
-            names.push_back(std::move(name));
             skip_whitespace();
             if (peek() != ':')
             {

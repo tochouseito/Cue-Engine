@@ -7,6 +7,7 @@
 #include <charconv>
 #include <cstdint>
 #include <ranges>
+#include <unordered_set>
 
 namespace
 {
@@ -215,6 +216,7 @@ class Parser final
         {
             return true;
         }
+        std::unordered_set<std::string> memberNames;
         while (true)
         {
             if (a_value.members.size() >= cue::scene::k_maximumSceneContainerElements)
@@ -226,8 +228,7 @@ class Parser final
                 return false;
             }
             std::string name;
-            if (!parse_string(name) || std::ranges::any_of(a_value.members, [&name](const auto &a_member) noexcept
-                                                           { return a_member.first == name; }))
+            if (!parse_string(name) || !memberNames.emplace(name).second)
             {
                 return fail("JSON object member is invalid or duplicated");
             }
