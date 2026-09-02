@@ -88,8 +88,10 @@ class JsonSyntaxValidator final
     }
 
     /// @brief JSON文書全体と必要なRoot形状を検証する
-    [[nodiscard]] bool validate(bool a_requireObject)
+    [[nodiscard]] bool validate(bool a_requireObject,
+                                bool a_rejectIdentityMembers)
     {
+        m_rejectIdentityMembers = a_rejectIdentityMembers;
         skip_whitespace();
         if (a_requireObject && peek() != '{')
         {
@@ -163,6 +165,12 @@ class JsonSyntaxValidator final
             std::string name;
             if (!parse_string(&name) ||
                 std::find(names.begin(), names.end(), name) != names.end())
+            {
+                return false;
+            }
+            if (a_depth == 1U && m_rejectIdentityMembers &&
+                (name == "componentInstanceId" || name == "typeId" ||
+                 name == "schemaVersion"))
             {
                 return false;
             }
@@ -459,11 +467,13 @@ class JsonSyntaxValidator final
 
     std::string_view m_input;
     std::size_t m_position = 0U;
+    bool m_rejectIdentityMembers = false;
 };
 
 /// @brief Opaque JSONのUTF-8、構文、重複Member、Root形状を検証する
 [[nodiscard]] bool validate_opaque_json(
     std::string_view a_json, bool a_requireObject,
+    bool a_rejectIdentityMembers,
     const cue::AssertContext &a_assertContext) noexcept
 {
     if (!is_valid_utf8(a_json))
@@ -473,7 +483,7 @@ class JsonSyntaxValidator final
     try
     {
         JsonSyntaxValidator validator(a_json);
-        return validator.validate(a_requireObject);
+        return validator.validate(a_requireObject, a_rejectIdentityMembers);
     }
     catch (...)
     {
@@ -666,7 +676,7 @@ Result<OpaqueFieldData> OpaqueFieldData::create(
     const AssertContext &a_assertContext) noexcept
 {
     if (a_rawJson.empty() ||
-        !validate_opaque_json(a_rawJson, false, a_assertContext))
+        !validate_opaque_json(a_rawJson, false, false, a_assertContext))
     {
         return Result<OpaqueFieldData>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidOpaqueData,
@@ -841,7 +851,7 @@ Result<OpaqueComponentData> OpaqueComponentData::create(
     const AssertContext &a_assertContext) noexcept
 {
     if (a_rawJson.empty() ||
-        !validate_opaque_json(a_rawJson, true, a_assertContext))
+        !validate_opaque_json(a_rawJson, true, true, a_assertContext))
     {
         return Result<OpaqueComponentData>::failure(make_scene_error(
             a_assertContext, SceneError::InvalidOpaqueData,

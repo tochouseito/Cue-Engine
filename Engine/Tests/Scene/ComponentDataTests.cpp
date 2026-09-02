@@ -244,6 +244,14 @@ void test_component_data() noexcept
         std::move(nonObjectOpaqueId), make_type_id(assertContext),
         make_version(assertContext, 2U), "true", *registry, assertContext);
     require(!nonObjectOpaque.has_value());
+    auto metadataOpaqueId = take_value(
+        cue::scene::ComponentInstanceId::generate(sceneIdentitySource,
+                                                   assertContext));
+    const auto metadataOpaque = cue::scene::OpaqueComponentData::create(
+        std::move(metadataOpaqueId), make_type_id(assertContext),
+        make_version(assertContext, 2U), "{\"typeId\":\"conflict\"}",
+        *registry, assertContext);
+    require(!metadataOpaque.has_value());
     auto opaque = take_value(cue::scene::OpaqueComponentData::create(
         std::move(opaqueId), make_type_id(assertContext),
         make_version(assertContext, 2U),
