@@ -698,7 +698,8 @@ ComponentValueSchema::ComponentValueSchema(
     std::vector<FieldKindBinding> a_fieldKinds,
     const schema::SchemaRegistry &a_schemaRegistry) noexcept
     : m_typeId(a_typeId), m_version(a_version),
-      m_fieldKinds(std::move(a_fieldKinds)), m_schemaRegistry(&a_schemaRegistry)
+      m_fieldKinds(std::move(a_fieldKinds)),
+      m_generationToken(a_schemaRegistry.generation_token())
 {
 }
 
@@ -720,7 +721,8 @@ std::span<const FieldKindBinding> ComponentValueSchema::field_kinds() const noex
 ComponentValueSchemaRegistry::ComponentValueSchemaRegistry(
     std::vector<ComponentValueSchema> a_schemas,
     const schema::SchemaRegistry &a_schemaRegistry) noexcept
-    : m_schemas(std::move(a_schemas)), m_schemaRegistry(&a_schemaRegistry)
+    : m_schemas(std::move(a_schemas)),
+      m_generationToken(a_schemaRegistry.generation_token())
 {
 }
 
@@ -754,7 +756,7 @@ Result<ComponentValueSchemaRegistry> ComponentValueSchemaRegistry::create(
     }
     for (const auto &schema : a_schemas)
     {
-        if (schema.m_schemaRegistry != &a_schemaRegistry)
+        if (!(schema.m_generationToken == a_schemaRegistry.generation_token()))
         {
             return Result<ComponentValueSchemaRegistry>::failure(make_scene_error(
                 a_assertContext, SceneError::InvalidComponentData,
@@ -768,7 +770,7 @@ Result<ComponentValueSchemaRegistry> ComponentValueSchemaRegistry::create(
 bool ComponentValueSchemaRegistry::is_bound_to(
     const schema::SchemaRegistry &a_schemaRegistry) const noexcept
 {
-    return m_schemaRegistry == &a_schemaRegistry;
+    return m_generationToken == a_schemaRegistry.generation_token();
 }
 
 const ComponentValueSchema *ComponentValueSchemaRegistry::find(

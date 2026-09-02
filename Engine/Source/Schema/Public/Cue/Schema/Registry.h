@@ -14,6 +14,41 @@
 
 namespace cue::schema
 {
+class SchemaRegistry;
+
+/// @brief 一つのIdentity Source内のImmutable Registry世代を値で識別するToken
+///
+/// 発行元SchemaRegistryIdentitySourceはTokenより長く生存させる。
+class SchemaRegistryGenerationToken final
+{
+  public:
+    /// @brief 無効な未発行Tokenを作らせないため既定構築を禁止する
+    SchemaRegistryGenerationToken() = delete;
+    /// @brief Registry世代Identityを複製する
+    SchemaRegistryGenerationToken(const SchemaRegistryGenerationToken &) noexcept = default;
+    /// @brief Registry世代Identityを複製代入する
+    SchemaRegistryGenerationToken &operator=(const SchemaRegistryGenerationToken &) noexcept = default;
+    /// @brief Registry世代Identityを移動する
+    SchemaRegistryGenerationToken(SchemaRegistryGenerationToken &&) noexcept = default;
+    /// @brief Registry世代Identityを移動代入する
+    SchemaRegistryGenerationToken &operator=(SchemaRegistryGenerationToken &&) noexcept = default;
+    /// @brief Registry世代Identity値を破棄する
+    ~SchemaRegistryGenerationToken() noexcept = default;
+
+    /// @brief 発行元と世代が一致するか比較する
+    [[nodiscard]] bool operator==(const SchemaRegistryGenerationToken &) const noexcept = default;
+
+  private:
+    friend class SchemaRegistry;
+
+    /// @brief Registryだけが発行元とnon-zero世代を束ねる
+    SchemaRegistryGenerationToken(const SchemaRegistryIdentitySource &a_source,
+                                  std::uint64_t a_generation) noexcept;
+
+    const SchemaRegistryIdentitySource *m_source;
+    std::uint64_t m_generation;
+};
+
 /// @brief DLL 境界を含む Process 全体で Registry Generation を一意発行する明示所有 Source
 class SchemaRegistryIdentitySource final
 {
@@ -99,6 +134,8 @@ class SchemaRegistry final
         TypeId a_id, const AssertContext &a_assertContext) const noexcept;
     /// @brief TypeId が削除済み Tombstone として予約されているか返す
     [[nodiscard]] bool is_tombstoned(TypeId a_id) const noexcept;
+    /// @brief Registry Object寿命に依存しない発行元付きGeneration Tokenを返す
+    [[nodiscard]] SchemaRegistryGenerationToken generation_token() const noexcept;
 
   private:
     friend class SchemaRegistryBuilder;

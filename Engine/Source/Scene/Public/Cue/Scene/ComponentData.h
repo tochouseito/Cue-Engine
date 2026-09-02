@@ -126,7 +126,7 @@ class ComponentValueSchema final
     schema::TypeId m_typeId;
     schema::SchemaVersion m_version;
     std::vector<FieldKindBinding> m_fieldKinds;
-    const schema::SchemaRegistry *m_schemaRegistry;
+    schema::SchemaRegistryGenerationToken m_generationToken;
 };
 
 /// @brief TypeIdごとに一つのComponent Value Schemaを所有するImmutable Registry
@@ -167,7 +167,7 @@ class ComponentValueSchemaRegistry final
         const schema::SchemaRegistry &a_schemaRegistry) noexcept;
 
     std::vector<ComponentValueSchema> m_schemas;
-    const schema::SchemaRegistry *m_schemaRegistry;
+    schema::SchemaRegistryGenerationToken m_generationToken;
 };
 
 /// @brief Stable FieldIdと型付きValueを所有する既知Field Data
