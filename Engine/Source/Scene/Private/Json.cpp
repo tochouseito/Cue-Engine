@@ -150,6 +150,10 @@ class Parser final
     /// @brief 現在位置のJSON Valueを解析する
     [[nodiscard]] bool parse_value(cue::scene_private::JsonValue &a_value, std::size_t a_depth)
     {
+        if (!consume_node())
+        {
+            return false;
+        }
         if (m_offset >= m_input.size())
         {
             return fail("JSON value is missing");
@@ -216,6 +220,10 @@ class Parser final
             if (a_value.members.size() >= cue::scene::k_maximumSceneContainerElements)
             {
                 return fail("JSON object exceeds member limit");
+            }
+            if (!consume_node())
+            {
+                return false;
             }
             std::string name;
             if (!parse_string(name) || std::ranges::any_of(a_value.members, [&name](const auto &a_member) noexcept
@@ -476,6 +484,17 @@ class Parser final
         }
     }
 
+    /// @brief JSON Tree全体のValueとObject Member累積Budgetを一つ消費する
+    [[nodiscard]] bool consume_node() noexcept
+    {
+        if (m_nodeCount >= cue::scene::k_maximumSceneJsonNodes)
+        {
+            return fail("JSON tree exceeds node limit");
+        }
+        ++m_nodeCount;
+        return true;
+    }
+
     /// @brief 最初のErrorだけを保存してfalseを返す
     [[nodiscard]] bool fail(std::string_view a_error) noexcept
     {
@@ -488,6 +507,7 @@ class Parser final
 
     std::string_view m_input;
     std::size_t m_offset = 0U;
+    std::size_t m_nodeCount = 0U;
     std::string_view m_error;
 };
 } // namespace

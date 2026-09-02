@@ -420,6 +420,30 @@ void test_serialization() noexcept
     auto parsed = cue::scene::parse_scene_document(k_sceneJson, *registry, valueRegistry, migrations,
                                                    componentMigrations, assertContext);
     require(parsed.has_value());
+    std::string excessiveNodeJson("[");
+    for (std::size_t outer = 0U; outer < 64U; ++outer)
+    {
+        if (outer > 0U)
+        {
+            excessiveNodeJson.push_back(',');
+        }
+        excessiveNodeJson.push_back('[');
+        for (std::size_t inner = 0U;
+             inner < cue::scene::k_maximumSceneContainerElements; ++inner)
+        {
+            if (inner > 0U)
+            {
+                excessiveNodeJson.push_back(',');
+            }
+            excessiveNodeJson.push_back('0');
+        }
+        excessiveNodeJson.push_back(']');
+    }
+    excessiveNodeJson.push_back(']');
+    require(!cue::scene::parse_scene_document(
+                 excessiveNodeJson, *registry, valueRegistry, migrations,
+                 componentMigrations, assertContext)
+                 .has_value());
     cue::schema::SchemaRegistryIdentitySource mismatchedIdentitySource;
     auto mismatchedRegistry = make_registry(mismatchedIdentitySource, 1U, assertContext);
     auto mismatched = cue::scene::parse_scene_document(k_sceneJson, *mismatchedRegistry, valueRegistry, migrations,

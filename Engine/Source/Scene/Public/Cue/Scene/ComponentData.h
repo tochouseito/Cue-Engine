@@ -23,6 +23,8 @@ inline constexpr std::size_t k_maximumSceneBytes = 16U * 1024U * 1024U;
 inline constexpr std::size_t k_maximumSceneContainerElements = 4096U;
 /// @brief Scene File内のRootから数えるJSON Container最大Nesting Depth
 inline constexpr std::size_t k_maximumSceneNestingDepth = 64U;
+/// @brief JSON Tree全体が所有できるValueとObject Memberの合計上限
+inline constexpr std::size_t k_maximumSceneJsonNodes = 256U * 1024U;
 
 /// @brief Scene Wire Dataで解釈可能なField Valueの意味Kind
 enum class FieldValueKind : std::uint8_t
