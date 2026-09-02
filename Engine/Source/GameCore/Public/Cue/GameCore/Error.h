@@ -20,7 +20,10 @@ enum class GameCoreError : std::int64_t
     ComponentNotFound = 3,
     ComponentTypeConflict = 4,
     UnregisteredComponent = 5,
-    CapacityExceeded = 6
+    CapacityExceeded = 6,
+    InvalidQuery = 7,
+    DependencyFailed = 8,
+    InvalidCommandBuffer = 9
 };
 
 /// @brief GameCore Error を診断 Summary と共に生成する

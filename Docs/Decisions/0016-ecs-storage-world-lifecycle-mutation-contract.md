@@ -185,6 +185,11 @@ Safe Point前提への違反であり、Programmer ErrorとしてAssertする。
 Query中に構造変更が必要な場合は`StructuralCommandBuffer`へCommandを記録する。BufferはWorld Owner Threadだけが使用し、登録順を
 保持する。Safe PointはActive Queryがなく、WorldがShutdown中でない時点である。Issue #146は次の適用規則を実装する。
 
+M10の公開APIは、単一または2 Componentの`query_read`／`query_write`をCallback-scoped Queryとして提供する。
+`StructuralCommandBuffer`は既存`EntityHandle`またはBuffer-local `PendingEntityId`を対象にCreate／Destroy／Add／Removeを記録し、
+`World::flush_commands`が全結果を`StructuralCommandReport`へFIFO順で返す。3 Component以上のQuery Builder、動的Query、並列Queryは
+実測と利用要件が揃うまで後続Researchとする。
+
 - CommandはFIFOで一件ずつ適用する
 - 一つのCommandは成功して全変更を公開するか、失敗してそのCommandの変更を公開しない
 - 失敗しても後続Commandを評価し、全Commandの結果を順序付きReportで返す

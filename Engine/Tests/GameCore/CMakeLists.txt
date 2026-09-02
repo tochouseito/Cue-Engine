@@ -40,19 +40,45 @@ add_custom_target(Cue.GameCore.Tests DEPENDS ${cueGameCoreTestTargets})
 
 add_test(NAME Cue.GameCore.Storage COMMAND CueGameCoreTests)
 add_test(NAME Cue.GameCore.PublicHeaders COMMAND CueGameCorePublicHeaderTest)
+foreach(processMode IN ITEMS
+        StructuralReentry
+        QueryMutation
+        NestedQuery
+        NestedEmptyQuery
+        QueryDestruction
+        QueryException
+)
+    add_test(
+        NAME Cue.GameCore.Process.${processMode}
+        COMMAND
+            ${CMAKE_COMMAND}
+            -DTEST_EXECUTABLE=$<TARGET_FILE:CueGameCoreProcessTests>
+            -DTEST_MODE=${processMode}
+            -DEXPECTED_EXIT_CODE=42
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyProcessExit.cmake
+    )
+endforeach()
+
 add_test(
-    NAME Cue.GameCore.StructuralMutation.Reentry
+    NAME Cue.GameCore.Process.WrongThread
     COMMAND
         ${CMAKE_COMMAND}
         -DTEST_EXECUTABLE=$<TARGET_FILE:CueGameCoreProcessTests>
-        -DEXPECTED_EXIT_CODE=42
+        -DTEST_MODE=WrongThread
+        -DEXPECTED_EXIT_CODE=$<IF:$<CONFIG:Release>,0,42>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/VerifyProcessExit.cmake
 )
 
 set_tests_properties(
     Cue.GameCore.Storage
     Cue.GameCore.PublicHeaders
-    Cue.GameCore.StructuralMutation.Reentry
+    Cue.GameCore.Process.StructuralReentry
+    Cue.GameCore.Process.QueryMutation
+    Cue.GameCore.Process.NestedQuery
+    Cue.GameCore.Process.NestedEmptyQuery
+    Cue.GameCore.Process.QueryDestruction
+    Cue.GameCore.Process.QueryException
+    Cue.GameCore.Process.WrongThread
     PROPERTIES
         LABELS GameCore
         TIMEOUT 30

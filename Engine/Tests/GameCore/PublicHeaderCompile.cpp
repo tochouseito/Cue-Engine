@@ -1,3 +1,4 @@
+#include <Cue/GameCore/CommandBuffer.h>
 #include <Cue/GameCore/Entity.h>
 #include <Cue/GameCore/Error.h>
 #include <Cue/GameCore/World.h>

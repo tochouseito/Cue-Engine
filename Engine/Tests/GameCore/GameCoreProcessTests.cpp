@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <memory>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -35,8 +36,9 @@ class ReentrantDestructorComponent final
   public:
     /// @brief Component 破棄中に同じ World の Structural API を呼ぶ検証対象を構築する
     ReentrantDestructorComponent(cue::game_core::World &a_world,
-                                 cue::game_core::EntityHandle a_entity) noexcept
-        : m_world(&a_world), m_entity(a_entity), m_isOwner(true)
+                                 bool a_reenterOnDestruction) noexcept
+        : m_world(&a_world), m_isOwner(true),
+          m_reenterOnDestruction(a_reenterOnDestruction)
     {
     }
 
@@ -47,8 +49,8 @@ class ReentrantDestructorComponent final
 
     /// @brief Storageへの移動時に再入検証責任を一度だけ移す
     ReentrantDestructorComponent(ReentrantDestructorComponent &&a_other) noexcept
-        : m_world(a_other.m_world), m_entity(a_other.m_entity),
-          m_isOwner(a_other.m_isOwner)
+        : m_world(a_other.m_world), m_isOwner(a_other.m_isOwner),
+          m_reenterOnDestruction(a_other.m_reenterOnDestruction)
     {
         a_other.m_isOwner = false;
     }
@@ -59,7 +61,7 @@ class ReentrantDestructorComponent final
     /// @brief 破棄中の再入が成功する誤実装を Process 成功として露出させる
     ~ReentrantDestructorComponent() noexcept
     {
-        if (m_isOwner)
+        if (m_isOwner && m_reenterOnDestruction)
         {
             auto result = m_world->create_entity();
             static_cast<void>(result);
@@ -68,8 +70,12 @@ class ReentrantDestructorComponent final
 
   private:
     cue::game_core::World *m_world;
-    cue::game_core::EntityHandle m_entity;
     bool m_isOwner;
+    bool m_reenterOnDestruction;
+};
+
+struct EmptyComponent final
+{
 };
 
 /// @brief Test用の検証済みTypeIdを生成する
@@ -86,8 +92,8 @@ class ReentrantDestructorComponent final
     return std::move(*result.try_value());
 }
 
-/// @brief Component DestructorからのStructural Mutation再入拒否をProcess単位で検証する
-[[nodiscard]] int run_reentrant_destructor_test() noexcept
+/// @brief 指定ScenarioのQuery、Mutation、Thread違反をProcess単位で検証する
+[[nodiscard]] int run_process_test(std::string_view a_mode) noexcept
 {
     ProcessFatalHandler fatalHandler;
     std::vector<std::unique_ptr<cue::LogSink>> sinks;
@@ -107,11 +113,32 @@ class ReentrantDestructorComponent final
     std::vector<cue::schema::FieldId> reservedFieldIds;
     const auto typeId = make_type_id(
         "30000000-0000-4000-8000-000000000003", assertContext);
+    const auto emptyTypeId = make_type_id(
+        "40000000-0000-4000-8000-000000000004", assertContext);
     auto descriptor = cue::schema::create_type_descriptor(
         typeId, "Cue.Test.ReentrantDestructor", std::move(*version.try_value()),
         std::move(fields), std::move(reservedFieldIds), assertContext);
 
     if (!descriptor || !builder.add_type(std::move(*descriptor.try_value())))
+    {
+        return 4;
+    }
+
+    auto emptyVersion = cue::schema::SchemaVersion::create(1U, assertContext);
+    std::vector<cue::schema::FieldDescriptor> emptyFields;
+    std::vector<cue::schema::FieldId> emptyReservedFieldIds;
+
+    if (!emptyVersion)
+    {
+        return 4;
+    }
+
+    auto emptyDescriptor = cue::schema::create_type_descriptor(
+        emptyTypeId, "Cue.Test.Empty", std::move(*emptyVersion.try_value()),
+        std::move(emptyFields), std::move(emptyReservedFieldIds), assertContext);
+
+    if (!emptyDescriptor ||
+        !builder.add_type(std::move(*emptyDescriptor.try_value())))
     {
         return 4;
     }
@@ -134,30 +161,141 @@ class ReentrantDestructorComponent final
 
     auto componentType = (*world.try_value())->register_component<
         ReentrantDestructorComponent>(typeId);
+    auto emptyComponentType =
+        (*world.try_value())->register_component<EmptyComponent>(emptyTypeId);
     auto entity = (*world.try_value())->create_entity();
 
-    if (!componentType || !entity)
+    if (!componentType || !emptyComponentType || !entity)
     {
         return 7;
     }
 
     auto component = (*world.try_value())->add_component(
         *componentType.try_value(), *entity.try_value(), **world.try_value(),
-        *entity.try_value());
+        a_mode == "StructuralReentry");
 
     if (!component)
     {
         return 8;
     }
 
-    auto destroy = (*world.try_value())->destroy_entity(*entity.try_value());
-    static_cast<void>(destroy);
-    return 0;
+    if (a_mode == "StructuralReentry")
+    {
+        auto destroy = (*world.try_value())->destroy_entity(*entity.try_value());
+        static_cast<void>(destroy);
+        return 0;
+    }
+
+    if (a_mode == "QueryMutation")
+    {
+        /// @brief Query中に直接Structural Mutationを試行する
+        auto callback = [&world](cue::game_core::EntityHandle,
+                                 const ReentrantDestructorComponent &) noexcept
+        {
+            auto created = (*world.try_value())->create_entity();
+            static_cast<void>(created);
+        };
+        auto query = (*world.try_value())->query_read(
+            *componentType.try_value(), callback);
+        static_cast<void>(query);
+        return 0;
+    }
+
+    if (a_mode == "NestedQuery")
+    {
+        /// @brief Nested Query内側でComponentを観測する
+        auto innerCallback = [](cue::game_core::EntityHandle,
+                                const ReentrantDestructorComponent &) noexcept
+        {
+        };
+        /// @brief Query Callbackから同じWorldのQueryを再入する
+        auto outerCallback = [&world, &componentType, &innerCallback](
+                                 cue::game_core::EntityHandle,
+                                 const ReentrantDestructorComponent &) noexcept
+        {
+            auto nested = (*world.try_value())->query_read(
+                *componentType.try_value(), innerCallback);
+            static_cast<void>(nested);
+        };
+        auto query = (*world.try_value())->query_read(
+            *componentType.try_value(), outerCallback);
+        static_cast<void>(query);
+        return 0;
+    }
+
+    if (a_mode == "NestedEmptyQuery")
+    {
+        /// @brief Storage 未生成の Nested Query が早期 return せず拒否されることを検証する
+        auto innerCallback = [](cue::game_core::EntityHandle,
+                                const EmptyComponent &) noexcept
+        {
+        };
+        /// @brief Query Callback から同じ World の空 Storage Query へ再入する
+        auto outerCallback = [&world, &emptyComponentType, &innerCallback](
+                                 cue::game_core::EntityHandle,
+                                 const ReentrantDestructorComponent &) noexcept
+        {
+            auto nested = (*world.try_value())->query_read(
+                *emptyComponentType.try_value(), innerCallback);
+            static_cast<void>(nested);
+        };
+        auto query = (*world.try_value())->query_read(
+            *componentType.try_value(), outerCallback);
+        static_cast<void>(query);
+        return 0;
+    }
+
+    if (a_mode == "QueryDestruction")
+    {
+        /// @brief Query Callback 中の World 破棄が Storage 解放前に拒否されることを検証する
+        auto callback = [&world](cue::game_core::EntityHandle,
+                                 const ReentrantDestructorComponent &) noexcept
+        {
+            (*world.try_value()).reset();
+        };
+        auto query = (*world.try_value())->query_read(
+            *componentType.try_value(), callback);
+        static_cast<void>(query);
+        return 0;
+    }
+
+    if (a_mode == "QueryException")
+    {
+        /// @brief Query Callback 例外が Guard の Stack Unwind 後に Fatal へ移ることを検証する
+        auto callback = [](cue::game_core::EntityHandle,
+                           const ReentrantDestructorComponent &)
+        {
+            throw 1;
+        };
+        auto query = (*world.try_value())->query_read(
+            *componentType.try_value(), callback);
+        static_cast<void>(query);
+        return 0;
+    }
+
+    if (a_mode == "WrongThread")
+    {
+        /// @brief World Owner以外のThreadからStructural APIを呼び出す
+        std::thread worker([&world]() noexcept
+        {
+            auto created = (*world.try_value())->create_entity();
+            static_cast<void>(created);
+        });
+        worker.join();
+        return 0;
+    }
+
+    return 9;
 }
 } // namespace
 
 /// @brief GameCoreのProcess終了を伴う失敗契約を検証する
-int main()
+int main(int a_argumentCount, char **a_arguments)
 {
-    return run_reentrant_destructor_test();
+    if (a_argumentCount != 2)
+    {
+        return 10;
+    }
+
+    return run_process_test(a_arguments[1]);
 }
