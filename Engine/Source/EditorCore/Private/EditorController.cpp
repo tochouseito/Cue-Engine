@@ -44,7 +44,7 @@ std::unique_ptr<EditorController> EditorController::create(ProjectDescriptor &&a
 {
     try
     {
-        return std::unique_ptr<EditorController>(new EditorController(std::move(a_descriptor), a_assertContext));
+        return std::make_unique<EditorController>(ConstructionKey{}, std::move(a_descriptor), a_assertContext);
     }
     catch (const std::bad_alloc &)
     {
@@ -58,7 +58,8 @@ std::unique_ptr<EditorController> EditorController::create(ProjectDescriptor &&a
     std::terminate();
 }
 
-EditorController::EditorController(ProjectDescriptor &&a_descriptor, const AssertContext &a_assertContext)
+EditorController::EditorController(ConstructionKey, ProjectDescriptor &&a_descriptor,
+                                   const AssertContext &a_assertContext)
     : m_stateOrigin(std::make_shared<DocumentStateOrigin>()), m_session(std::move(a_descriptor)),
       m_assertContext(&a_assertContext), m_ownerThread(std::this_thread::get_id())
 {

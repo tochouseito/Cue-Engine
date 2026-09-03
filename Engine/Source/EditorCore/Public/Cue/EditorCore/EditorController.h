@@ -49,6 +49,12 @@ class ProjectWorkspaceSession final
 /// Controller、返したSession View、Document Viewは作成Threadだけで使用する
 class EditorController final
 {
+  private:
+    /// @brief make_unique経由のFactory構築だけを許可する非公開Key
+    struct ConstructionKey final
+    {
+    };
+
   public:
     EditorController(const EditorController &) = delete;
     EditorController &operator=(const EditorController &) = delete;
@@ -60,6 +66,9 @@ class EditorController final
     /// @param a_assertContext Controllerより長く生存させる診断Context
     [[nodiscard]] static std::unique_ptr<EditorController> create(ProjectDescriptor &&a_descriptor,
                                                                   const AssertContext &a_assertContext) noexcept;
+
+    /// @brief Factory PasskeyとProject DescriptorからControllerを構築する
+    EditorController(ConstructionKey, ProjectDescriptor &&a_descriptor, const AssertContext &a_assertContext);
 
     /// @brief Controller破棄まで有効なProject Workspace SessionのRead-only Viewを返す
     [[nodiscard]] const ProjectWorkspaceSession &session() const noexcept;
@@ -89,8 +98,6 @@ class EditorController final
                                                               CloseDecision a_decision) noexcept;
 
   private:
-    /// @brief Project DescriptorとOwner Thread契約を保持する
-    EditorController(ProjectDescriptor &&a_descriptor, const AssertContext &a_assertContext);
     /// @brief Document Identityに対応する可変Documentを返す
     [[nodiscard]] EditorDocument *find_document(EditorDocumentId a_id) noexcept;
     /// @brief Closed Documentの所有DataをSessionから解放する
