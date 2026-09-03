@@ -479,6 +479,7 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
     }
     const DocumentStateId savedState = document->m_currentStateId;
     scene::SceneDocumentCheckpoint candidateCheckpoint = document->m_document.create_checkpoint();
+    const std::uint64_t candidateByteSize = static_cast<std::uint64_t>(candidateText.try_value()->size());
     const std::uint64_t candidateDigest = digest_text(*candidateText.try_value());
     scene::SceneSaveOutcome outcome = scene::save_scene_document_if_unchanged(
         *m_sourceAssetsRoot, *lease.try_value(), a_locator, expectedFingerprint, document->m_document,
@@ -503,13 +504,28 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
         {
             document->m_persistenceState = DocumentPersistenceState::SaveUncertain;
             document->m_pendingSave.emplace(EditorDocument::PendingSaveRecord{
-                savedState, std::move(a_locator), expectedFingerprint, std::move(candidateCheckpoint), candidateDigest,
-                EditorDocument::PendingSaveReason::VerificationFailed, a_switchDestination});
+                savedState, std::move(a_locator), expectedFingerprint, std::move(candidateCheckpoint),
+                candidateByteSize, candidateDigest, EditorDocument::PendingSaveReason::VerificationFailed,
+                a_switchDestination});
             if (document->m_closeState == DocumentCloseState::SaveRequested)
             {
                 document->m_closeState = DocumentCloseState::AwaitingDecision;
             }
             return Result<scene::SceneSaveOutcome>::failure(std::move(*committedFingerprint.try_error()));
+        }
+        if (!committedFingerprint.try_value()->exists ||
+            committedFingerprint.try_value()->byteSize != candidateByteSize ||
+            committedFingerprint.try_value()->contentDigest != candidateDigest)
+        {
+            document->m_externalChangeState =
+                committedFingerprint.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed;
+            if (document->m_closeState == DocumentCloseState::SaveRequested)
+            {
+                document->m_closeState = DocumentCloseState::AwaitingDecision;
+            }
+            return Result<scene::SceneSaveOutcome>::failure(make_editor_document_error(
+                *m_assertContext, EditorCoreError::ExternalConflict,
+                "Committed scene destination differs from the saved candidate", a_documentId.value()));
         }
         if (a_switchDestination)
         {
@@ -536,8 +552,8 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
                     ? EditorDocument::PendingSaveReason::DurabilityUnknown
                     : EditorDocument::PendingSaveReason::VerificationFailed;
             document->m_pendingSave.emplace(EditorDocument::PendingSaveRecord{
-                savedState, std::move(a_locator), expectedFingerprint, std::move(candidateCheckpoint), candidateDigest,
-                reason, a_switchDestination});
+                savedState, std::move(a_locator), expectedFingerprint, std::move(candidateCheckpoint),
+                candidateByteSize, candidateDigest, reason, a_switchDestination});
         }
         if (document->m_closeState == DocumentCloseState::SaveRequested)
         {
@@ -633,6 +649,7 @@ Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocu
         return Result<scene::SceneSaveStatus>::failure(std::move(*currentText.try_error()));
     }
     if (currentScene.try_value()->document().scene_asset_id() != document->m_document.scene_asset_id() ||
+        static_cast<std::uint64_t>(currentText.try_value()->size()) != record.candidateByteSize ||
         digest_text(*currentText.try_value()) != record.candidateDigest)
     {
         document->m_externalChangeState = ExternalChangeState::Modified;
@@ -692,6 +709,16 @@ Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocu
         if (!currentFingerprint)
         {
             return Result<scene::SceneSaveStatus>::failure(std::move(*currentFingerprint.try_error()));
+        }
+        if (!currentFingerprint.try_value()->exists ||
+            currentFingerprint.try_value()->byteSize != record.candidateByteSize ||
+            currentFingerprint.try_value()->contentDigest != record.candidateDigest)
+        {
+            document->m_externalChangeState =
+                currentFingerprint.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed;
+            return Result<scene::SceneSaveStatus>::failure(make_editor_document_error(
+                *m_assertContext, EditorCoreError::ExternalConflict,
+                "Committed retry destination differs from the recorded candidate", a_documentId.value()));
         }
     }
 
@@ -1003,6 +1030,12 @@ Result<DocumentStateId> EditorController::recover_document(EditorDocumentId a_do
         return Result<DocumentStateId>::failure(
             make_editor_document_error(*m_assertContext, EditorCoreError::RevisionExhausted,
                                        "Recovery requires an available document state identity", a_documentId.value()));
+    }
+    if (document->m_pendingSave.has_value())
+    {
+        return Result<DocumentStateId>::failure(make_editor_document_error(
+            *m_assertContext, EditorCoreError::InvalidDocumentState,
+            "Save Uncertain must be retried or discarded before recovery", a_documentId.value()));
     }
     if (document->m_closeState != DocumentCloseState::Open)
     {

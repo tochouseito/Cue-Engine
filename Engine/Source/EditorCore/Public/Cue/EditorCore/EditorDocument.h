@@ -210,6 +210,7 @@ class EditorDocument final
         RelativePath destination;
         SceneFileFingerprint expectedFingerprint;
         scene::SceneDocumentCheckpoint candidateCheckpoint;
+        std::uint64_t candidateByteSize;
         std::uint64_t candidateDigest;
         PendingSaveReason reason;
         bool switchDestination;

@@ -274,8 +274,11 @@ Byte列のDigestをCandidate Digestと比較してよい。DigestとScene Identi
 External Conflictへ遷移し、RecordとCandidate Checkpointを保持したままReload、Save As、Retry Save／Verification、Cancelの
 明示Intentを要求する。
 明示的なDiscardまたはSession CloseまでRecordを破棄しない。
+通常SaveとDurability Retryは、`Committed`後に取得した最終Fingerprintの存在、Byte Size、Content DigestをCandidateと照合する。
+非協調Writerにより一致しない場合はSaved Stateを更新せずExternal Conflictとし、Memory上の編集をDirtyのまま維持する。
 Save Uncertain中の通常SaveとReloadはRecordを暗黙破棄またはClean化し得るため拒否する。`retry_uncertain_save`または
-`discard_uncertain_save`の明示Intentを先に要求し、DiscardはDocument、History、Dirtyを変更しない。
+`discard_uncertain_save`の明示Intentを先に要求し、DiscardはDocument、History、Dirtyを変更しない。Recovery適用も同じRecordを
+孤立させ得るため、RetryまたはDiscardでSave Uncertainを解決するまで拒否する。
 
 File Fingerprintは最終更新時刻だけに依存せず、File SizeとContent Digestを含む。外部変更を検出した場合は暗黙に上書きせず、
 Reload、Save As、Cancelの明示Intentを要求する。

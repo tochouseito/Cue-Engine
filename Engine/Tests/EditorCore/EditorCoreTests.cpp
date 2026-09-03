@@ -111,6 +111,13 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
         m_verificationFailurePath = std::string(a_path);
     }
 
+    /// @brief Publish後ReadがCandidateを返した直後に外部変更を注入する
+    void mutate_after_verification_read(std::string_view a_path, std::string_view a_text)
+    {
+        m_armPostVerificationMutationPath = std::string(a_path);
+        m_armPostVerificationMutationText = std::string(a_text);
+    }
+
     /// @brief Memory上のEntry種別を返す
     [[nodiscard]] cue::Result<cue::EntryType> query_entry(const cue::RelativePath &a_path) noexcept override
     {
@@ -140,7 +147,14 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
             return cue::Result<std::vector<std::byte>>::failure(
                 cue::make_io_error(*m_assertContext, cue::IoError::CapacityExceeded, "Memory file exceeds limit"));
         }
-        return cue::Result<std::vector<std::byte>>::success(std::vector<std::byte>(found->second));
+        std::vector<std::byte> result(found->second);
+        if (a_path.text() == m_postVerificationMutationPath)
+        {
+            set(m_postVerificationMutationPath, m_postVerificationMutationText);
+            m_postVerificationMutationPath.clear();
+            m_postVerificationMutationText.clear();
+        }
+        return cue::Result<std::vector<std::byte>>::success(std::move(result));
     }
 
     /// @brief Memory TestではDirectory作成を副作用なしで成功させる
@@ -159,6 +173,13 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
                 cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Injected atomic write failure"));
         }
         m_files[std::string(a_path.text())] = std::vector<std::byte>(a_bytes.begin(), a_bytes.end());
+        if (a_path.text() == m_armPostVerificationMutationPath)
+        {
+            m_postVerificationMutationPath = std::move(m_armPostVerificationMutationPath);
+            m_postVerificationMutationText = std::move(m_armPostVerificationMutationText);
+            m_armPostVerificationMutationPath.clear();
+            m_armPostVerificationMutationText.clear();
+        }
         if (a_path.text() == m_verificationFailurePath)
         {
             m_corruptNextReadPath = m_verificationFailurePath;
@@ -262,6 +283,10 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
     std::string m_failedRemovePath;
     std::string m_verificationFailurePath;
     std::string m_corruptNextReadPath;
+    std::string m_armPostVerificationMutationPath;
+    std::string m_armPostVerificationMutationText;
+    std::string m_postVerificationMutationPath;
+    std::string m_postVerificationMutationText;
     const cue::AssertContext *m_assertContext;
 };
 
@@ -1067,8 +1092,8 @@ void test_scene_persistence_workflow() noexcept
     auto secondScene = make_scene_document("00000000-0000-4000-8000-000000000702", assertContext);
     const auto secondSceneAssetId = secondScene.scene_asset_id();
     require(secondScene.add_object(secondRootId, "Second", true, std::nullopt, cue::math::Transform{}).has_value());
-    sourceAssets.set("Scenes/Second.cuescene",
-                     take_value(cue::scene::serialize_scene_document(secondScene, assertContext)));
+    const auto secondOriginalJson = take_value(cue::scene::serialize_scene_document(secondScene, assertContext));
+    sourceAssets.set("Scenes/Second.cuescene", secondOriginalJson);
     const auto secondDocumentId = take_value(controller->open_document_from_storage(
         take_value(cue::RelativePath::parse("Scenes/Second.cuescene", assertContext))));
     require(controller
@@ -1092,6 +1117,8 @@ void test_scene_persistence_workflow() noexcept
                     secondDocumentId, secondSceneAssetId,
                     cue::editor_core::RenameObjectCommand{secondRootId, "Uncertain Publish"}})
                 .has_value());
+    const auto uncertainCandidateJson = take_value(cue::scene::serialize_scene_document(
+        controller->session().find_document(secondDocumentId)->scene_document(), assertContext));
     sourceAssets.make_write_uncertain("Scenes/Second.cuescene", true);
     auto uncertainSave = controller->save_document(secondDocumentId);
     require(uncertainSave.has_value());
@@ -1105,6 +1132,16 @@ void test_scene_persistence_workflow() noexcept
     secondDocument = controller->session().find_document(secondDocumentId);
     require(secondDocument != nullptr && secondDocument->is_dirty());
     require(secondDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::SaveUncertain);
+    sourceAssets.mutate_after_verification_read("Scenes/Second.cuescene", secondOriginalJson);
+    const auto racedRetry = controller->retry_uncertain_save(secondDocumentId);
+    require(!racedRetry.has_value());
+    require(racedRetry.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::ExternalConflict));
+    secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr && secondDocument->is_dirty());
+    require(secondDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::SaveUncertain);
+    require(sourceAssets.text("Scenes/Second.cuescene") == secondOriginalJson);
+    sourceAssets.set("Scenes/Second.cuescene", uncertainCandidateJson);
     require(take_value(controller->retry_uncertain_save(secondDocumentId)) == cue::scene::SceneSaveStatus::Committed);
     secondDocument = controller->session().find_document(secondDocumentId);
     require(secondDocument != nullptr && !secondDocument->is_dirty());
@@ -1164,6 +1201,21 @@ void test_scene_persistence_workflow() noexcept
 
     require(controller
                 ->execute_command(cue::editor_core::SceneCommandRequest{
+                    secondDocumentId, secondSceneAssetId,
+                    cue::editor_core::RenameObjectCommand{secondRootId, "Post Commit Race"}})
+                .has_value());
+    sourceAssets.mutate_after_verification_read("Scenes/Second-Renamed.cuescene", secondOriginalJson);
+    const auto postCommitRace = controller->save_document(secondDocumentId);
+    require(!postCommitRace.has_value());
+    require(postCommitRace.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::ExternalConflict));
+    secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr && secondDocument->is_dirty());
+    require(secondDocument->external_change_state() == cue::editor_core::ExternalChangeState::Modified);
+    require(sourceAssets.text("Scenes/Second-Renamed.cuescene") == secondOriginalJson);
+
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
                     documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "Recovered Content"}})
                 .has_value());
     document = controller->session().find_document(documentId);
@@ -1194,6 +1246,23 @@ void test_scene_persistence_workflow() noexcept
     require(recoveryMetadata.format_version() == 1U);
     require(recoveryMetadata.source_state_value() == recoverySourceState);
     require(recoveryMetadata.source_locator().text() == "Scenes/Renamed.cuescene");
+
+    require(restarted
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    restartedId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "Pending Recover"}})
+                .has_value());
+    sourceAssets.make_write_uncertain("Scenes/Renamed.cuescene", true);
+    const auto pendingRecoverySave = restarted->save_document(restartedId);
+    require(pendingRecoverySave.has_value());
+    require(pendingRecoverySave.try_value()->status() == cue::scene::SceneSaveStatus::PublishedButDurabilityUnknown);
+    sourceAssets.make_write_uncertain("Scenes/Renamed.cuescene", false);
+    require(!restarted->recover_document(restartedId).has_value());
+    restartedDocument = restarted->session().find_document(restartedId);
+    require(restartedDocument != nullptr);
+    require(restartedDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::SaveUncertain);
+    require(restarted->discard_uncertain_save(restartedId).has_value());
+    sourceAssets.set("Scenes/Renamed.cuescene", canonicalBeforeRecovery);
+    require(restarted->reload_document(restartedId).has_value());
 
     auto recoveryConflictScene = make_scene_document("00000000-0000-4000-8000-000000000701", assertContext);
     require(
