@@ -1367,6 +1367,24 @@ SceneSaveOutcome save_scene_document_internal(
                                                                 "Scene candidate differs after parse-back"));
         }
 
+        if (a_expected != nullptr)
+        {
+            auto beforeBackup = fingerprint_file(a_filesystem, a_path, k_maximumSceneBytes, a_assertContext);
+            if (!beforeBackup)
+            {
+                return SceneSaveOutcome::not_published(storage_error(
+                    a_assertContext, SceneError::StorageNotPublished, "Failed to inspect scene before backup",
+                    std::move(*beforeBackup.try_error())));
+            }
+            if (*beforeBackup.try_value() != *a_expected)
+            {
+                return SceneSaveOutcome::not_published(storage_error(
+                    a_assertContext, SceneError::StorageNotPublished, "Scene changed before backup",
+                    make_io_error(a_assertContext, IoError::PreconditionFailed,
+                                  "Scene fingerprint changed before backup")));
+            }
+        }
+
         auto entry = a_filesystem.query_entry(a_path);
         if (!entry)
         {
@@ -1382,6 +1400,19 @@ SceneSaveOutcome save_scene_document_internal(
                 return SceneSaveOutcome::not_published(storage_error(a_assertContext, SceneError::StorageNotPublished,
                                                                      "Failed to read scene before backup",
                                                                      std::move(*original.try_error())));
+            }
+            if (a_expected != nullptr)
+            {
+                const FileFingerprint originalFingerprint{
+                    true, static_cast<std::uint64_t>(original.try_value()->size()),
+                    file_content_digest(*original.try_value())};
+                if (originalFingerprint != *a_expected)
+                {
+                    return SceneSaveOutcome::not_published(storage_error(
+                        a_assertContext, SceneError::StorageNotPublished, "Scene changed while reading backup source",
+                        make_io_error(a_assertContext, IoError::PreconditionFailed,
+                                      "Scene content changed before backup")));
+                }
             }
             std::string backupText(a_path.text());
             backupText.append(".backup");

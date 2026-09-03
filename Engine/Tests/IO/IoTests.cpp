@@ -17,6 +17,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -500,6 +501,30 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     if (!afterStale || *afterStale.try_value() != std::vector<std::byte>(first.begin(), first.end()))
     {
         return false;
+    }
+    auto crossThreadExpected = cue::fingerprint_file(a_filesystem, *file.try_value(), 16U, a_assertContext);
+    auto crossThreadLease = a_filesystem.acquire_file_write_lease(*file.try_value());
+    if (!crossThreadExpected || !crossThreadLease)
+    {
+        return false;
+    }
+    bool crossThreadWritten = false;
+    std::thread leaseThread(
+        [&a_filesystem, &file, &crossThreadExpected, &first, &crossThreadWritten,
+         lease = std::move(*crossThreadLease.try_value())]() mutable
+        {
+            crossThreadWritten = a_filesystem
+                                     .write_file_atomic_if_unchanged(lease, *file.try_value(),
+                                                                     *crossThreadExpected.try_value(), 16U, first)
+                                     .has_value();
+        });
+    leaseThread.join();
+    {
+        auto leaseAfterThreadMove = a_filesystem.acquire_file_write_lease(*file.try_value());
+        if (!crossThreadWritten || !leaseAfterThreadMove)
+        {
+            return false;
+        }
     }
     const std::wstring hardLinkPath = a_directory.child_path(L"Data\\Nested\\StateAlias.bin");
     if (CreateHardLinkW(hardLinkPath.c_str(), nativePath.c_str(), nullptr) == FALSE)

@@ -105,6 +105,14 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
         m_mutationText = std::string(a_text);
     }
 
+    /// @brief 指定回数のFingerprint Read後、次のRead直前に外部変更を注入する
+    void mutate_before_read(std::string_view a_path, std::string_view a_text, std::size_t a_matchingReadsToSkip)
+    {
+        m_preReadMutationPath = std::string(a_path);
+        m_preReadMutationText = std::string(a_text);
+        m_preReadMutationSkips = a_matchingReadsToSkip;
+    }
+
     /// @brief 指定PathのFile削除失敗注入を切り替える
     void fail_remove(std::string_view a_path, bool a_fail)
     {
@@ -135,6 +143,19 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
     [[nodiscard]] cue::Result<std::vector<std::byte>> read_file(const cue::RelativePath &a_path,
                                                                 std::size_t a_maxBytes) noexcept override
     {
+        if (a_path.text() == m_preReadMutationPath)
+        {
+            if (m_preReadMutationSkips == 0U)
+            {
+                set(m_preReadMutationPath, m_preReadMutationText);
+                m_preReadMutationPath.clear();
+                m_preReadMutationText.clear();
+            }
+            else
+            {
+                --m_preReadMutationSkips;
+            }
+        }
         if (a_path.text() == m_corruptNextReadPath)
         {
             m_corruptNextReadPath.clear();
@@ -292,6 +313,9 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
     std::string m_uncertainPath;
     std::string m_mutationPath;
     std::string m_mutationText;
+    std::string m_preReadMutationPath;
+    std::string m_preReadMutationText;
+    std::size_t m_preReadMutationSkips = 0U;
     std::string m_failedRemovePath;
     std::string m_verificationFailurePath;
     std::string m_corruptNextReadPath;
@@ -1038,6 +1062,28 @@ void test_scene_persistence_workflow() noexcept
     document = controller->session().find_document(documentId);
     require(document != nullptr && !document->is_dirty());
 
+    const std::string committedBeforeBackupRace(sourceAssets.text("Scenes/Main.cuescene"));
+    const std::string backupBeforeBackupRace(sourceAssets.text("Scenes/Main.cuescene.backup"));
+    auto backupRaceScene = make_scene_document("00000000-0000-4000-8000-000000000701", assertContext);
+    require(backupRaceScene.add_object(rootId, "External Before Backup", true, std::nullopt, cue::math::Transform{})
+                .has_value());
+    const auto backupRaceJson = take_value(cue::scene::serialize_scene_document(backupRaceScene, assertContext));
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "Backup Race"}})
+                .has_value());
+    sourceAssets.mutate_before_read("Scenes/Main.cuescene", backupRaceJson, 2U);
+    const auto backupRaceSave = controller->save_document(documentId);
+    require(!backupRaceSave.has_value());
+    require(backupRaceSave.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::ExternalConflict));
+    require(sourceAssets.text("Scenes/Main.cuescene.backup") == backupBeforeBackupRace);
+    sourceAssets.set("Scenes/Main.cuescene", committedBeforeBackupRace);
+    require(take_value(controller->poll_external_change(documentId)) == cue::editor_core::ExternalChangeState::None);
+    auto recoveredBackupRaceSave = controller->save_document(documentId);
+    require(recoveredBackupRaceSave.has_value() &&
+            recoveredBackupRaceSave.try_value()->status() == cue::scene::SceneSaveStatus::Committed);
+
     require(controller
                 ->execute_command(cue::editor_core::SceneCommandRequest{
                     documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "Local Conflict"}})
@@ -1058,7 +1104,7 @@ void test_scene_persistence_workflow() noexcept
     const auto failedReload = controller->reload_document(documentId);
     require(!failedReload.has_value());
     document = controller->session().find_document(documentId);
-    require(document != nullptr && document->is_dirty() && document->history_entry_count() == 2U);
+    require(document != nullptr && document->is_dirty() && document->history_entry_count() == 3U);
     require(document->scene_document().find_object(rootId)->name() == "Local Conflict");
     sourceAssets.set("Scenes/Main.cuescene", externalJson);
 
@@ -1178,6 +1224,30 @@ void test_scene_persistence_workflow() noexcept
     require(secondDocument != nullptr && secondDocument->is_dirty());
     require(secondDocument->scene_locator().text() == "Scenes/Second.cuescene");
     require(!controller->reload_document(secondDocumentId).has_value());
+    sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene", false);
+    sourceAssets.set("Scenes/Second-Renamed.cuescene", secondOriginalJson);
+    const auto conflictingSaveAsRetry = controller->retry_uncertain_save(secondDocumentId);
+    require(!conflictingSaveAsRetry.has_value());
+    require(conflictingSaveAsRetry.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::ExternalConflict));
+    secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr && secondDocument->is_dirty());
+    require(secondDocument->scene_locator().text() == "Scenes/Second.cuescene");
+    require(secondDocument->external_change_state() == cue::editor_core::ExternalChangeState::None);
+    require(controller->discard_uncertain_save(secondDocumentId).has_value());
+    auto originalAfterSaveAsRetry = controller->save_document(secondDocumentId);
+    require(originalAfterSaveAsRetry.has_value() &&
+            originalAfterSaveAsRetry.try_value()->status() == cue::scene::SceneSaveStatus::Committed);
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    secondDocumentId, secondSceneAssetId,
+                    cue::editor_core::RenameObjectCommand{secondRootId, "Uncertain Save As Retry"}})
+                .has_value());
+    sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene", true);
+    auto retriedUncertainSaveAs = controller->save_document_as(
+        secondDocumentId, take_value(cue::RelativePath::parse("Scenes/Second-Renamed.cuescene", assertContext)));
+    require(retriedUncertainSaveAs.has_value());
+    require(retriedUncertainSaveAs.try_value()->status() == cue::scene::SceneSaveStatus::PublishedButDurabilityUnknown);
     sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene", false);
     require(take_value(controller->retry_uncertain_save(secondDocumentId)) == cue::scene::SceneSaveStatus::Committed);
     secondDocument = controller->session().find_document(secondDocumentId);

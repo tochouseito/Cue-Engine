@@ -655,8 +655,11 @@ Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocu
                                    *m_sceneMigrations, *m_componentMigrations, *m_assertContext);
     if (!currentScene)
     {
-        document->m_externalChangeState =
-            currentFingerprint.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed;
+        if (!record.switchDestination)
+        {
+            document->m_externalChangeState =
+                currentFingerprint.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed;
+        }
         return Result<scene::SceneSaveStatus>::failure(
             make_editor_document_error(*m_assertContext, EditorCoreError::ExternalConflict,
                                        "Save Uncertain destination cannot be validated", a_documentId.value()));
@@ -670,7 +673,10 @@ Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocu
         static_cast<std::uint64_t>(currentText.try_value()->size()) != record.candidateByteSize ||
         digest_text(*currentText.try_value()) != record.candidateDigest)
     {
-        document->m_externalChangeState = ExternalChangeState::Modified;
+        if (!record.switchDestination)
+        {
+            document->m_externalChangeState = ExternalChangeState::Modified;
+        }
         return Result<scene::SceneSaveStatus>::failure(make_editor_document_error(
             *m_assertContext, EditorCoreError::ExternalConflict,
             "Save Uncertain destination differs from the recorded candidate", a_documentId.value()));
@@ -684,7 +690,10 @@ Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocu
         }
         if (*verifiedFingerprint.try_value() != *currentFingerprint.try_value())
         {
-            document->m_externalChangeState = ExternalChangeState::Modified;
+            if (!record.switchDestination)
+            {
+                document->m_externalChangeState = ExternalChangeState::Modified;
+            }
             return Result<scene::SceneSaveStatus>::failure(make_editor_document_error(
                 *m_assertContext, EditorCoreError::ExternalConflict,
                 "Save Uncertain destination changed during verification", a_documentId.value()));
@@ -710,7 +719,10 @@ Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocu
             retry.try_error()->root_code().domain() == "Cue.IO" &&
             retry.try_error()->root_code().value() == static_cast<std::int64_t>(IoError::PreconditionFailed))
         {
-            document->m_externalChangeState = ExternalChangeState::Modified;
+            if (!record.switchDestination)
+            {
+                document->m_externalChangeState = ExternalChangeState::Modified;
+            }
             return Result<scene::SceneSaveStatus>::failure(make_editor_document_error(
                 *m_assertContext, EditorCoreError::ExternalConflict,
                 "Save Uncertain destination changed immediately before retry publish", a_documentId.value()));
@@ -732,8 +744,11 @@ Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocu
             currentFingerprint.try_value()->byteSize != record.candidateByteSize ||
             currentFingerprint.try_value()->contentDigest != record.candidateDigest)
         {
-            document->m_externalChangeState =
-                currentFingerprint.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed;
+            if (!record.switchDestination)
+            {
+                document->m_externalChangeState = currentFingerprint.try_value()->exists ? ExternalChangeState::Modified
+                                                                                         : ExternalChangeState::Removed;
+            }
             return Result<scene::SceneSaveStatus>::failure(make_editor_document_error(
                 *m_assertContext, EditorCoreError::ExternalConflict,
                 "Committed retry destination differs from the recorded candidate", a_documentId.value()));
