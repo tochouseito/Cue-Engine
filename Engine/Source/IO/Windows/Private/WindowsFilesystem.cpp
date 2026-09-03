@@ -358,6 +358,19 @@ struct NativePublishOutcome final
     return separator == std::string_view::npos ? std::string_view{} : a_path.substr(0, separator);
 }
 
+/// @brief Scene本文と連鎖するSibling Backupを同じLease Keyへ正規化する
+[[nodiscard]] std::string write_lease_path_key(const cue::RelativePath &a_path,
+                                               const cue::AssertContext &a_context) noexcept
+{
+    std::string key = a_path.comparison_key(a_context);
+    constexpr std::string_view backupSuffix = ".backup";
+    while (key.size() > backupSuffix.size() && key.ends_with(backupSuffix))
+    {
+        key.resize(key.size() - backupSuffix.size());
+    }
+    return key;
+}
+
 /// @brief Parent と Child Segment を `/` で結合する
 [[nodiscard]] std::string join_relative(std::string_view a_parent, std::string_view a_child,
                                         const cue::AssertContext &a_context) noexcept
@@ -958,7 +971,8 @@ cue::Result<cue::FileWriteLease> WindowsFilesystemRoot::acquire_file_write_lease
 
     try
     {
-        std::string sidecarText(a_path.text());
+        std::string pathKey = write_lease_path_key(a_path, *m_assertContext);
+        std::string sidecarText(pathKey);
         sidecarText.append(".cuelock");
         cue::Result<cue::RelativePath> sidecar = cue::RelativePath::parse(sidecarText, *m_assertContext);
         if (!sidecar)
@@ -1023,8 +1037,7 @@ cue::Result<cue::FileWriteLease> WindowsFilesystemRoot::acquire_file_write_lease
             }
         }
 
-        auto state = std::make_unique<WindowsFileWriteLeaseState>(this, a_path.comparison_key(*m_assertContext),
-                                                                  std::move(sidecarHandle));
+        auto state = std::make_unique<WindowsFileWriteLeaseState>(this, std::move(pathKey), std::move(sidecarHandle));
         return cue::Result<cue::FileWriteLease>::success(make_file_write_lease(std::move(state)));
     }
     catch (...)
@@ -1090,8 +1103,8 @@ cue::Result<void> WindowsFilesystemRoot::write_file_atomic_internal(const cue::R
     if (a_lease != nullptr)
     {
         auto *state = dynamic_cast<WindowsFileWriteLeaseState *>(file_write_lease_state(*a_lease));
-        if (state == nullptr || state->owner != this || state->pathKey != a_path.comparison_key(*m_assertContext) ||
-            !state->handle.is_valid())
+        if (state == nullptr || state->owner != this ||
+            state->pathKey != write_lease_path_key(a_path, *m_assertContext) || !state->handle.is_valid())
         {
             return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::PreconditionFailed,
                                                                  "Atomic write lease does not own destination"));

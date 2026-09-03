@@ -217,6 +217,8 @@ Sidecar削除失敗は本文Saveの成否を変更せずSecondary診断とする
 
 M12の同期実装では、Owner Thread限定の`EditorController` Save WorkflowがSession内Coordinatorを担い、`Cue.IO`のMove-only
 `FileWriteLease`をSave結果の状態記録まで保持する。Windows Adapterは`.cuelock` Sidecarを共有なし・Delete-on-close Handleで所有する。
+Lease Keyは末尾に連鎖する`.backup`を除いた本文Comparison Keyから構築し、本文、Sibling Backup、BackupをScene Locatorとして
+扱うWriterを同じCross-process排他範囲へ束ねる。
 `write_file_atomic_if_unchanged`はLease所有PathとExpected FingerprintをTemporary FileのPublish直前に再検査し、`Missing`期待では
 Replace Flagを使用しない。既存File期待では再検査後に限りReplaceし、上記の非協調Writerに対する残存競合窓を許容する。
 
@@ -349,6 +351,7 @@ AwaitingDecision --Cancel--> Open
 Save完了後は、同期／非同期の実装方式にかかわらず、Closeを確定する直前に`currentStateId == savedStateId`かつ
 Save Uncertainが存在しないことを再確認する。保存開始後に編集が進んだ場合やUncertainが残る場合はDocumentを閉じず、
 新しい状態に対するSave、Discard、Cancelを選択する`AwaitingDecision`へ戻す。
+Lease取得、Fingerprint取得、Serializationを含む保存前の失敗も`SaveRequested`へ留めず、同じ`AwaitingDecision`へ戻す。
 
 DiscardはMemory上のEditorDocumentを閉じるだけで、正本FileやRecovery Fileを削除しない。Recovery削除は別の明示Intentとする。
 

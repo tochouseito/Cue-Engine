@@ -383,11 +383,6 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
                                                                    bool a_switchDestination) noexcept
 {
     assert_owner_thread();
-    auto services = require_persistence_services();
-    if (!services)
-    {
-        return Result<scene::SceneSaveOutcome>::failure(std::move(*services.try_error()));
-    }
     EditorDocument *document = find_document(a_documentId);
     if (document == nullptr)
     {
@@ -401,11 +396,24 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
             make_editor_document_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
                                        "Closed document cannot be saved", a_documentId.value()));
     }
+    const auto failSave = [document](Error &&a_error) noexcept
+    {
+        if (document->m_closeState == DocumentCloseState::SaveRequested)
+        {
+            document->m_closeState = DocumentCloseState::AwaitingDecision;
+        }
+        return Result<scene::SceneSaveOutcome>::failure(std::move(a_error));
+    };
+    auto services = require_persistence_services();
+    if (!services)
+    {
+        return failSave(std::move(*services.try_error()));
+    }
     if (document->m_pendingSave.has_value())
     {
-        return Result<scene::SceneSaveOutcome>::failure(make_editor_document_error(
-            *m_assertContext, EditorCoreError::InvalidDocumentState,
-            "Save Uncertain must be retried or discarded before another save", a_documentId.value()));
+        return failSave(make_editor_document_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
+                                                   "Save Uncertain must be retried or discarded before another save",
+                                                   a_documentId.value()));
     }
 
     if (a_switchDestination)
@@ -415,15 +423,15 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
         {
             if (other.id() != a_documentId && other.scene_locator().comparison_key(*m_assertContext) == destinationKey)
             {
-                return Result<scene::SceneSaveOutcome>::failure(make_editor_document_error(
-                    *m_assertContext, EditorCoreError::DuplicateLocator,
-                    "Save As destination is already open in another document", a_documentId.value()));
+                return failSave(make_editor_document_error(*m_assertContext, EditorCoreError::DuplicateLocator,
+                                                           "Save As destination is already open in another document",
+                                                           a_documentId.value()));
             }
         }
     }
     else if (!document->m_hasSavedDestination || !document->m_baseFingerprint.has_value())
     {
-        return Result<scene::SceneSaveOutcome>::failure(make_editor_document_error(
+        return failSave(make_editor_document_error(
             *m_assertContext, EditorCoreError::PersistenceUnavailable,
             "Normal save requires a destination with a captured base fingerprint", a_documentId.value()));
     }
@@ -431,7 +439,7 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
     auto destinationFingerprint = fingerprint_scene_file(*m_sourceAssetsRoot, a_locator, *m_assertContext);
     if (!destinationFingerprint)
     {
-        return Result<scene::SceneSaveOutcome>::failure(std::move(*destinationFingerprint.try_error()));
+        return failSave(std::move(*destinationFingerprint.try_error()));
     }
     if (!a_switchDestination && (document->m_externalChangeState != ExternalChangeState::None ||
                                  *destinationFingerprint.try_value() != *document->m_baseFingerprint))
@@ -452,12 +460,12 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
     auto lease = m_sourceAssetsRoot->acquire_file_write_lease(a_locator);
     if (!lease)
     {
-        return Result<scene::SceneSaveOutcome>::failure(std::move(*lease.try_error()));
+        return failSave(std::move(*lease.try_error()));
     }
     auto leasedFingerprint = fingerprint_scene_file(*m_sourceAssetsRoot, a_locator, *m_assertContext);
     if (!leasedFingerprint)
     {
-        return Result<scene::SceneSaveOutcome>::failure(std::move(*leasedFingerprint.try_error()));
+        return failSave(std::move(*leasedFingerprint.try_error()));
     }
     if (*leasedFingerprint.try_value() != expectedFingerprint)
     {
@@ -475,7 +483,7 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
     auto candidateText = scene::serialize_scene_document(document->m_document, *m_assertContext);
     if (!candidateText)
     {
-        return Result<scene::SceneSaveOutcome>::failure(std::move(*candidateText.try_error()));
+        return failSave(std::move(*candidateText.try_error()));
     }
     const DocumentStateId savedState = document->m_currentStateId;
     scene::SceneDocumentCheckpoint candidateCheckpoint = document->m_document.create_checkpoint();
@@ -538,7 +546,7 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
         auto marked = mark_saved(a_documentId, savedState);
         if (!marked)
         {
-            return Result<scene::SceneSaveOutcome>::failure(std::move(*marked.try_error()));
+            return failSave(std::move(*marked.try_error()));
         }
     }
     else

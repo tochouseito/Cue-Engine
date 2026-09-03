@@ -451,7 +451,8 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
 
     auto expected = cue::fingerprint_file(a_filesystem, *file.try_value(), 16U, a_assertContext);
     auto competingRoot = cue::create_windows_filesystem_root(a_directory.utf8_path(), a_assertContext);
-    if (!expected || !competingRoot)
+    auto backup = cue::RelativePath::parse("Data/Nested/State.bin.backup", a_assertContext);
+    if (!expected || !competingRoot || !backup)
     {
         return false;
     }
@@ -462,7 +463,8 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
             return false;
         }
         auto busy = (*competingRoot.try_value())->acquire_file_write_lease(*file.try_value());
-        if (!has_io_error(busy, cue::IoError::Busy) ||
+        auto backupBusy = (*competingRoot.try_value())->acquire_file_write_lease(*backup.try_value());
+        if (!has_io_error(busy, cue::IoError::Busy) || !has_io_error(backupBusy, cue::IoError::Busy) ||
             !a_filesystem.write_file_atomic_if_unchanged(*lease.try_value(), *file.try_value(), *expected.try_value(),
                                                          16U, first))
         {

@@ -86,6 +86,12 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
         m_failedPath = a_fail ? std::string(a_path) : std::string{};
     }
 
+    /// @brief 指定PathのWrite Lease取得失敗注入を切り替える
+    void fail_lease(std::string_view a_path, bool a_fail)
+    {
+        m_failedLeasePath = a_fail ? std::string(a_path) : std::string{};
+    }
+
     /// @brief 指定Pathの次回Writeを公開済みDurability不明として報告する
     void make_write_uncertain(std::string_view a_path, bool a_uncertain)
     {
@@ -197,6 +203,11 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
     [[nodiscard]] cue::Result<cue::FileWriteLease> acquire_file_write_lease(
         const cue::RelativePath &a_path) noexcept override
     {
+        if (a_path.text() == m_failedLeasePath)
+        {
+            return cue::Result<cue::FileWriteLease>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::Busy, "Injected write lease contention"));
+        }
         auto state = std::make_unique<MemoryFileWriteLeaseState>(this, std::string(a_path.text()));
         return cue::Result<cue::FileWriteLease>::success(make_file_write_lease(std::move(state)));
     }
@@ -277,6 +288,7 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
 
     std::map<std::string, std::vector<std::byte>> m_files;
     std::string m_failedPath;
+    std::string m_failedLeasePath;
     std::string m_uncertainPath;
     std::string m_mutationPath;
     std::string m_mutationText;
@@ -1327,6 +1339,15 @@ void test_scene_persistence_workflow() noexcept
                 .has_value());
     require(take_value(verification->request_close(verificationId)) ==
             cue::editor_core::DocumentCloseState::AwaitingDecision);
+    require(take_value(verification->respond_to_close(verificationId, cue::editor_core::CloseDecision::Save)) ==
+            cue::editor_core::DocumentCloseState::SaveRequested);
+    sourceAssets.fail_lease("Scenes/Renamed.cuescene", true);
+    const auto failedCloseSave = verification->save_document(verificationId);
+    require(!failedCloseSave.has_value());
+    verifiedDocument = verification->session().find_document(verificationId);
+    require(verifiedDocument != nullptr);
+    require(verifiedDocument->close_state() == cue::editor_core::DocumentCloseState::AwaitingDecision);
+    sourceAssets.fail_lease("Scenes/Renamed.cuescene", false);
     require(take_value(verification->respond_to_close(verificationId, cue::editor_core::CloseDecision::Save)) ==
             cue::editor_core::DocumentCloseState::SaveRequested);
     auto closeSave = verification->save_document(verificationId);
