@@ -5,6 +5,7 @@
 #include <Cue/Scene/Instantiation.h>
 #include <Cue/Schema/Descriptor.h>
 
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <optional>
@@ -162,13 +163,13 @@ class TestComponentBuilder final
     : public cue::scene::RuntimeComponentBuilder
 {
   public:
-    /// @brief Runtime Tokenと失敗注入Flagを保持するBuilderを生成する
+    /// @brief Runtime Tokenと失敗させるBuild回数を保持するBuilderを生成する
     TestComponentBuilder(
         cue::schema::TypeId a_typeId,
         cue::game_core::ComponentType<TestRuntimeComponent> a_componentType,
-        bool a_shouldFail) noexcept
+        std::uint32_t a_failureBuild) noexcept
         : m_typeId(a_typeId), m_componentType(a_componentType),
-          m_shouldFail(a_shouldFail)
+          m_failureBuild(a_failureBuild)
     {
     }
 
@@ -203,14 +204,16 @@ class TestComponentBuilder final
         return cue::Result<void>::success();
     }
 
-    /// @brief Test値42を追加するかRollback検証用の失敗を返す
+    /// @brief 指定回数目なら失敗し、それ以外はTest値42を追加する
     [[nodiscard]] cue::Result<void> build(
         const cue::scene::KnownComponentData &,
         cue::game_core::World &a_world,
         cue::game_core::EntityHandle a_entity,
         const cue::AssertContext &a_assertContext) noexcept override
     {
-        if (m_shouldFail)
+        ++m_buildCount;
+
+        if (m_failureBuild != 0U && m_buildCount == m_failureBuild)
         {
             return cue::Result<void>::failure(cue::scene::make_scene_error(
                 a_assertContext,
@@ -233,7 +236,8 @@ class TestComponentBuilder final
   private:
     cue::schema::TypeId m_typeId;
     cue::game_core::ComponentType<TestRuntimeComponent> m_componentType;
-    bool m_shouldFail;
+    std::uint32_t m_failureBuild;
+    std::uint32_t m_buildCount = 0U;
 };
 
 /// @brief RuntimeWorldを生成してCore Transformを初期化する
@@ -304,7 +308,7 @@ void test_successful_instantiation() noexcept
     TestComponentBuilder builder(
         make_type_id("20000000-0000-4000-8000-000000000002",
                      assertContext),
-        customType, false);
+        customType, 0U);
     std::vector<cue::scene::RuntimeComponentBuilder *> builders{&builder};
     auto instance = take_value(cue::scene::SceneInstantiator::instantiate(
         snapshot, *runtime, stateType, builders, assertContext));
@@ -373,6 +377,8 @@ void test_failure_and_world_identity() noexcept
     SequentialIdentitySource sceneIdentitySource;
     const auto objectId = take_value(cue::scene::ObjectId::generate(
         sceneIdentitySource, assertContext));
+    const auto secondObjectId = take_value(cue::scene::ObjectId::generate(
+        sceneIdentitySource, assertContext));
     auto document = cue::scene::SceneDocument::create(
         take_value(cue::scene::SceneAssetId::generate(
             sceneIdentitySource, assertContext)),
@@ -380,11 +386,21 @@ void test_failure_and_world_identity() noexcept
     require(document.add_object(objectId, "Object", true, std::nullopt,
                                 cue::math::Transform{})
                 .has_value());
+    require(document.add_object(secondObjectId, "Second", true,
+                                std::nullopt, cue::math::Transform{})
+                .has_value());
     require(document.add_component(
                         objectId, cue::scene::SceneComponent::known(
                                       make_known_component(
                                           sceneIdentitySource, *registry,
                                           valueRegistry, assertContext)))
+                .has_value());
+    require(document.add_component(
+                        secondObjectId,
+                        cue::scene::SceneComponent::known(
+                            make_known_component(
+                                sceneIdentitySource, *registry,
+                                valueRegistry, assertContext)))
                 .has_value());
     auto snapshot = take_value(cue::scene::create_scene_snapshot(
         document, assertContext));
@@ -404,7 +420,7 @@ void test_failure_and_world_identity() noexcept
     TestComponentBuilder failingBuilder(
         make_type_id("20000000-0000-4000-8000-000000000002",
                      assertContext),
-        customType, true);
+        customType, 2U);
     std::vector<cue::scene::RuntimeComponentBuilder *> failingBuilders{
         &failingBuilder};
     const auto entityCountBefore = world->entity_count();
@@ -425,7 +441,7 @@ void test_failure_and_world_identity() noexcept
     TestComponentBuilder builder(
         make_type_id("20000000-0000-4000-8000-000000000002",
                      assertContext),
-        customType, false);
+        customType, 0U);
     std::vector<cue::scene::RuntimeComponentBuilder *> builders{&builder};
     auto instance = take_value(cue::scene::SceneInstantiator::instantiate(
         snapshot, *runtime, stateType, builders, assertContext));

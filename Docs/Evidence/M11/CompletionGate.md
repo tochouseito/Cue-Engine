@@ -28,8 +28,8 @@ M11対象の`Scene` Label 9 Testは全構成で実行され、成功した。
 | Unknown Data Round-trip | `Cue.Scene.Serialization`がScene Extensionと未知Fieldを再保存後も保持することを検証 |
 | Atomic Save失敗 | `Cue.Scene.Serialization`が書込失敗時の元File／Backup維持、Durability Unknown、保存後検証失敗の状態区別を検証 |
 | Malformed Input | `Cue.Scene.Serialization`が空入力、BOM、構文不正、重複Key、Trailing Data、不正UTF-8、過剰Nest／Object／Container／File Sizeを拒否し、既存Documentを維持することを検証 |
-| Runtime Instantiation | `Cue.Scene.Instantiation`がObjectIdからEntityIdへの対応、Hierarchy、Transform、既知Component、決定的構築順、空Sceneを検証 |
-| Rollbackと寿命 | `Cue.Scene.Instantiation`が途中失敗時の全Entity Rollback、World不一致拒否、明示終了、Destructor／Move契約を検証 |
+| Runtime Instantiation | `Cue.Scene.Instantiation`がObjectIdからSession-localなEntityHandleへの対応、Hierarchy、Transform、既知Component、決定的構築順、空Sceneを検証 |
+| Rollbackと寿命 | `Cue.Scene.Instantiation`が2件目のObject実体化失敗時に先行Entityも含めてRollbackすること、World不一致拒否、明示終了、Destructor／Move契約を検証 |
 | Process境界 | `Cue.Scene.Process.*` 4 Testがlive所有権を残した破棄／Move代入のfail-fastと、明示終了後／moved-fromのDestructorが無害であることを別Processで検証 |
 
 SceneDocumentは編集・保存の正本、SceneSnapshotはRuntime実体化の入力、RuntimeWorldは実行状態として分離される。
@@ -45,11 +45,13 @@ RuntimeWorldはSceneDocumentへの生Pointerを保持せず、DocumentとRuntime
 - `ctest --preset windows-vs2026-debug --output-on-failure`
 - `ctest --preset windows-vs2026-development --output-on-failure`
 - `ctest --preset windows-vs2026-release --output-on-failure`
+- `cmake --build --preset windows-vs2026-<configuration> --target CueSceneInstantiationTests --parallel`
+- `ctest --preset windows-vs2026-<configuration> -L Scene --output-on-failure`
 - `git diff --check`
 
-BuildとCTestはSource Commit `bf53d581a34bc0ce595b1e9c65659320d956e96c`に対して実行した。
-本Issueの変更はこの検証結果を記録する文書だけであり、Source、Test、Build設定は変更していない。
-Pull Requestの最新HeadはWindows CIで同じ3構成を再検証する。
+全TargetのBuildと全191 TestはGate開始時のSource Commit `bf53d581a34bc0ce595b1e9c65659320d956e96c`に対して実行した。
+Reviewで不足が判明した複数Entity生成後のRollback Testを追加し、変更対象TargetのBuildと`Scene` Label 9 TestをDebug／Development／Releaseで再実行した。
+Pull Requestの最新HeadはWindows CIで全Targetと全Testを同じ3構成で再検証する。
 
 ## Not Run
 
