@@ -279,7 +279,7 @@ SceneInstance::~SceneInstance() noexcept
 /// @brief 一つ以上のRuntime Entityを現在所有している場合にtrueを返す
 bool SceneInstance::is_live() const noexcept
 {
-    return !m_creationOrder.empty();
+    return m_worldId.has_value();
 }
 
 /// @brief 元Scene Identityまたは終了済み状態のnullptrを返す
@@ -394,6 +394,13 @@ Result<SceneInstance> SceneInstantiator::instantiate(
     std::span<RuntimeComponentBuilder *const> a_componentBuilders,
     const AssertContext &a_assertContext) noexcept
 {
+    if (a_runtimeWorld.state() != game_core::RuntimeWorldState::Running)
+    {
+        return Result<SceneInstance>::failure(make_scene_error(
+            a_assertContext, SceneError::RuntimeInstantiationFailed,
+            "Scene instantiation requires a running runtime world"));
+    }
+
     auto *world = a_runtimeWorld.try_world();
     const auto *transformType = a_runtimeWorld.try_transform_type();
 

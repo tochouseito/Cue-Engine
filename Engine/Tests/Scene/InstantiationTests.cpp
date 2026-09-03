@@ -340,6 +340,22 @@ void test_successful_instantiation() noexcept
     auto repeatedEnd = instance.end(*runtime, assertContext);
     require(repeatedEnd.has_value() && repeatedEnd.try_value()->succeeded());
     require(world->entity_count() == 0U);
+
+    auto emptyDocument = cue::scene::SceneDocument::create(
+        take_value(cue::scene::SceneAssetId::generate(
+            sceneIdentitySource, assertContext)),
+        assertContext);
+    auto emptySnapshot = take_value(cue::scene::create_scene_snapshot(
+        emptyDocument, assertContext));
+    auto emptyInstance = take_value(
+        cue::scene::SceneInstantiator::instantiate(
+            emptySnapshot, *runtime, stateType, builders, assertContext));
+    require(emptyInstance.is_live());
+    require(emptyInstance.try_scene_asset_id() != nullptr);
+    require(emptyInstance.entity_count() == 0U);
+    require(emptyInstance.end(*runtime, assertContext).has_value());
+    require(!emptyInstance.is_live());
+    require(emptyInstance.try_scene_asset_id() == nullptr);
     require(runtime->shutdown().has_value());
     require(document.find_object(rootId) != nullptr);
 }
@@ -422,7 +438,15 @@ void test_failure_and_world_identity() noexcept
                 cue::scene::SceneError::RuntimeWorldMismatch));
     require(instance.is_live());
     require(instance.end(*runtime, assertContext).has_value());
-    require(runtime->shutdown().has_value());
+    require(runtime->request_stop().has_value());
+    auto stoppingInstantiation =
+        cue::scene::SceneInstantiator::instantiate(
+            snapshot, *runtime, stateType, builders, assertContext);
+    require(!stoppingInstantiation.has_value());
+    require(stoppingInstantiation.try_error()->code().value() ==
+            static_cast<std::int64_t>(
+                cue::scene::SceneError::RuntimeInstantiationFailed));
+    require(runtime->tick().has_value());
     require(otherRuntime->shutdown().has_value());
 }
 } // namespace

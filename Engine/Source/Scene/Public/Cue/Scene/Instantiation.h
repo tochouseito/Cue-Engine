@@ -133,6 +133,7 @@ class SceneInstanceEndReport final
 /// @brief 一回のScene実体化が生成したRuntime Entity集合とStable ID対応を所有するHandle
 ///
 /// live状態のDestructorとlive状態を上書きするMove代入はEmergencyHandlerでProcessを停止する。
+/// instantiateへ渡すAssertContextのFatalHandler Ownerは、移動元と終了済み状態を含む全Instanceより長く生存させる。
 class SceneInstance final
 {
   public:
@@ -188,6 +189,7 @@ class SceneInstantiator final
   public:
     /// @brief Safe Point上でSnapshot全体を検証し、成功時だけSceneInstanceを返す
     /// @details 途中失敗時は本Operationで生成した全生存Entityを逆順にRollbackする
+    /// @param a_assertContext FatalHandler Ownerを返されたSceneInstanceより長く生存させる診断Context
     [[nodiscard]] static Result<SceneInstance> instantiate(
         const SceneSnapshot &a_snapshot,
         game_core::RuntimeWorld &a_runtimeWorld,
