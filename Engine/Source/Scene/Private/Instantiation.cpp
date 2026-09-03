@@ -276,7 +276,7 @@ SceneInstance::~SceneInstance() noexcept
     }
 }
 
-/// @brief 一つ以上のRuntime Entityを現在所有している場合にtrueを返す
+/// @brief 空Sceneを含めRuntime Worldとの未終了の関連付けがある場合にtrueを返す
 bool SceneInstance::is_live() const noexcept
 {
     return m_worldId.has_value();

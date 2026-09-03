@@ -148,11 +148,13 @@ class SceneInstance final
     /// @brief 終了済み状態を破棄し、live状態ならFatal終了する
     ~SceneInstance() noexcept;
 
-    /// @brief 一つ以上のRuntime Entityを現在所有している場合にtrueを返す
+    /// @brief 空Sceneを含めRuntime Worldとの未終了の関連付けがある場合にtrueを返す
     [[nodiscard]] bool is_live() const noexcept;
     /// @brief live状態なら元Scene Identityを、終了済み状態ならnullptrを返す
+    /// @details 返却Pointerは全Entityを終了したend、InstanceのMove、またはInstance破棄で無効になる
     [[nodiscard]] const SceneAssetId *try_scene_asset_id() const noexcept;
     /// @brief ObjectIdに対応する現在生存所有Entityまたはnullptrを返す
+    /// @details 返却Pointerはendの呼び出し、InstanceのMove、またはInstance破棄で無効になる
     [[nodiscard]] const game_core::EntityHandle *find_entity(
         const ObjectId &a_objectId) const noexcept;
     /// @brief 現在生存している所有Entity数を返す
