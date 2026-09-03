@@ -136,13 +136,14 @@ Result<void> EditorController::set_selection(EditorDocumentId a_documentId,
     EditorDocument *document = find_document(a_documentId);
     if (document == nullptr)
     {
-        return Result<void>::failure(make_editor_core_error(*m_assertContext, EditorCoreError::DocumentNotFound,
-                                                            "Editor document was not found"));
+        return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                                                "Editor document was not found", a_documentId.value()));
     }
     if (document->m_closeState != DocumentCloseState::Open)
     {
-        return Result<void>::failure(make_editor_core_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
-                                                            "Selection can change only while the document is open"));
+        return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
+                                                                "Selection can change only while the document is open",
+                                                                a_documentId.value()));
     }
 
     std::vector<scene::ObjectId> nextSelection;
@@ -195,8 +196,8 @@ Result<void> EditorController::reconcile_selection(EditorDocumentId a_documentId
     EditorDocument *document = find_document(a_documentId);
     if (document == nullptr)
     {
-        return Result<void>::failure(make_editor_core_error(*m_assertContext, EditorCoreError::DocumentNotFound,
-                                                            "Editor document was not found"));
+        return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                                                "Editor document was not found", a_documentId.value()));
     }
 
     return set_selection(a_documentId, document->m_selection, document->try_primary_selection());
@@ -208,18 +209,21 @@ Result<DocumentStateId> EditorController::record_persistent_change(EditorDocumen
     EditorDocument *document = find_document(a_documentId);
     if (document == nullptr)
     {
-        return Result<DocumentStateId>::failure(make_editor_core_error(
-            *m_assertContext, EditorCoreError::DocumentNotFound, "Editor document was not found"));
+        return Result<DocumentStateId>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                       "Editor document was not found", a_documentId.value()));
     }
     if (document->m_closeState != DocumentCloseState::Open)
     {
-        return Result<DocumentStateId>::failure(make_editor_core_error(
-            *m_assertContext, EditorCoreError::InvalidDocumentState, "Persistent changes require an open document"));
+        return Result<DocumentStateId>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
+                                       "Persistent changes require an open document", a_documentId.value()));
     }
     if (document->m_nextStateId == std::numeric_limits<std::uint64_t>::max())
     {
-        return Result<DocumentStateId>::failure(make_editor_core_error(
-            *m_assertContext, EditorCoreError::RevisionExhausted, "Editor document state identity space is exhausted"));
+        return Result<DocumentStateId>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::RevisionExhausted,
+                                       "Editor document state identity space is exhausted", a_documentId.value()));
     }
 
     document->m_currentStateId = DocumentStateId(document->m_nextStateId);
@@ -240,14 +244,15 @@ Result<void> EditorController::mark_saved(EditorDocumentId a_documentId, Documen
     EditorDocument *document = find_document(a_documentId);
     if (document == nullptr)
     {
-        return Result<void>::failure(make_editor_core_error(*m_assertContext, EditorCoreError::DocumentNotFound,
-                                                            "Editor document was not found"));
+        return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                                                "Editor document was not found", a_documentId.value()));
     }
     if (document->m_closeState == DocumentCloseState::Closed || a_savedStateId.value() == 0U ||
         a_savedStateId.value() >= document->m_nextStateId)
     {
-        return Result<void>::failure(make_editor_core_error(*m_assertContext, EditorCoreError::InvalidSavedState,
-                                                            "Saved state identity was not issued by this document"));
+        return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::InvalidSavedState,
+                                                                "Saved state identity was not issued by this document",
+                                                                a_documentId.value()));
     }
 
     document->m_savedStateId = a_savedStateId;
@@ -262,13 +267,14 @@ Result<void> EditorController::set_external_change_state(EditorDocumentId a_docu
     EditorDocument *document = find_document(a_documentId);
     if (document == nullptr)
     {
-        return Result<void>::failure(make_editor_core_error(*m_assertContext, EditorCoreError::DocumentNotFound,
-                                                            "Editor document was not found"));
+        return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                                                "Editor document was not found", a_documentId.value()));
     }
     if (document->m_closeState == DocumentCloseState::Closed)
     {
-        return Result<void>::failure(make_editor_core_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
-                                                            "Closed document cannot receive external change state"));
+        return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
+                                                                "Closed document cannot receive external change state",
+                                                                a_documentId.value()));
     }
 
     document->m_externalChangeState = a_state;
@@ -281,8 +287,9 @@ Result<DocumentCloseState> EditorController::request_close(EditorDocumentId a_do
     EditorDocument *document = find_document(a_documentId);
     if (document == nullptr)
     {
-        return Result<DocumentCloseState>::failure(make_editor_core_error(
-            *m_assertContext, EditorCoreError::DocumentNotFound, "Editor document was not found"));
+        return Result<DocumentCloseState>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                       "Editor document was not found", a_documentId.value()));
     }
     if (document->m_closeState != DocumentCloseState::Open)
     {
@@ -307,13 +314,15 @@ Result<DocumentCloseState> EditorController::respond_to_close(EditorDocumentId a
     EditorDocument *document = find_document(a_documentId);
     if (document == nullptr)
     {
-        return Result<DocumentCloseState>::failure(make_editor_core_error(
-            *m_assertContext, EditorCoreError::DocumentNotFound, "Editor document was not found"));
+        return Result<DocumentCloseState>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                       "Editor document was not found", a_documentId.value()));
     }
     if (document->m_closeState != DocumentCloseState::AwaitingDecision)
     {
-        return Result<DocumentCloseState>::failure(make_editor_core_error(
-            *m_assertContext, EditorCoreError::InvalidCloseTransition, "Close decision requires an awaiting document"));
+        return Result<DocumentCloseState>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::InvalidCloseTransition,
+                                       "Close decision requires an awaiting document", a_documentId.value()));
     }
 
     switch (a_decision)

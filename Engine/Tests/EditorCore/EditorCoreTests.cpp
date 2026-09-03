@@ -42,6 +42,19 @@ void require(bool a_condition) noexcept
     }
 }
 
+/// @brief Errorが指定した診断Contextを含むか判定する
+[[nodiscard]] bool has_error_context(const cue::Error &a_error, std::string_view a_expected) noexcept
+{
+    for (const cue::ErrorContext &context : a_error.contexts())
+    {
+        if (context.message() == a_expected)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// @brief 成功Resultから所有Valueを取り出す
 template <typename T> T take_value(cue::Result<T> &&a_result) noexcept
 {
@@ -150,6 +163,13 @@ void test_revision_and_dirty() noexcept
     require(!invalidSave.has_value());
     require(invalidSave.try_error()->code().value() ==
             static_cast<std::int64_t>(cue::editor_core::EditorCoreError::InvalidSavedState));
+    require(has_error_context(*invalidSave.try_error(), "EditorDocumentId=1"));
+
+    const auto missingDocument = controller->mark_saved(cue::editor_core::EditorDocumentId(999U), secondState);
+    require(!missingDocument.has_value());
+    require(missingDocument.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::DocumentNotFound));
+    require(has_error_context(*missingDocument.try_error(), "EditorDocumentId=999"));
 }
 
 /// @brief SelectionがStable ObjectIdだけを順序付き集合として保持することを検証する

@@ -28,4 +28,8 @@ enum class EditorCoreError : std::int64_t
 /// @brief Editor Core Errorを診断Summaryと共に生成する
 [[nodiscard]] Error make_editor_core_error(const AssertContext &a_assertContext, EditorCoreError a_code,
                                            std::string_view a_summary) noexcept;
+
+/// @brief Document単位のEditor Core Errorへ対象EditorDocumentId Contextを付加する
+[[nodiscard]] Error make_editor_document_error(const AssertContext &a_assertContext, EditorCoreError a_code,
+                                               std::string_view a_summary, std::uint64_t a_documentId) noexcept;
 } // namespace cue::editor_core
