@@ -134,6 +134,8 @@ class SceneInstanceEndReport final
 ///
 /// live状態のDestructorとlive状態を上書きするMove代入はEmergencyHandlerでProcessを停止する。
 /// instantiateへ渡すAssertContextのFatalHandler Ownerは、移動元と終了済み状態を含む全Instanceより長く生存させる。
+/// live Instanceは、関連付けられたRuntimeWorldのshutdownまたは破棄より先にendで終了する。
+/// RuntimeWorldを先に終了するとendはRuntimeWorldMismatchとなり、残ったlive InstanceのDestructorはProcessを停止する。
 class SceneInstance final
 {
   public:
@@ -161,6 +163,7 @@ class SceneInstance final
     [[nodiscard]] std::size_t entity_count() const noexcept;
 
     /// @brief 同じRuntime World上の所有Entityを逆生成順に終了して結果を返す
+    /// @details RuntimeWorldのOwner ThreadかつStructural Safe Pointでのみ呼び出す。違反は回復可能なResultではなくFatalとなる
     /// @details 既に破棄済みのEntityは成功扱いし、失敗して生存するEntityだけを所有集合へ残す
     [[nodiscard]] Result<SceneInstanceEndReport> end(
         game_core::RuntimeWorld &a_runtimeWorld,
@@ -190,6 +193,7 @@ class SceneInstantiator final
 {
   public:
     /// @brief Safe Point上でSnapshot全体を検証し、成功時だけSceneInstanceを返す
+    /// @details RuntimeWorldのOwner ThreadかつStructural Safe Pointで呼び出し、返却InstanceをRuntimeWorld終了前にendする
     /// @details 途中失敗時は本Operationで生成した全生存Entityを逆順にRollbackする
     /// @param a_assertContext FatalHandler Ownerを返されたSceneInstanceより長く生存させる診断Context
     [[nodiscard]] static Result<SceneInstance> instantiate(
