@@ -260,6 +260,11 @@ Top-level `formatVersion`をComponentの`SchemaVersion`として代用しない�
 固定Schema Objectの未知Memberと重複Memberを拒否する。`extensions`と未知Component／Field用Opaque Payloadだけは
 意味解釈せず所有し、再保存で失わない。Opaque JSONも構文、重複Member、Nesting、String、Container、File Size上限を適用する。
 
+Format Version 1のResource上限は、Scene Fileまたは単一Opaque JSONを16 MiB、復号済み一Stringを256 KiB、
+一Container、Scene Object、一Object内Component、一Component内Fieldをそれぞれ4096要素、JSON Nestingを64、
+JSON ValueとObject Memberの合計を262144 Node、Authoring HierarchyをRoot込み256段とする。公開Mutationは上限到達後の
+追加を状態変更前に`ResourceLimitExceeded`で拒否し、Loadは完全検証済みの新Documentだけを成功値として返す。
+
 SerializerはObjectを`ObjectId`、Componentを`ComponentInstanceId`、Fieldを`FieldId`のcanonical文字列表現で昇順に出力する。
 JSON ObjectのMember順は固定する。有限数だけを受理し、NaN、Infinity、locale依存表現、非決定的な浮動小数点整形を保存しない。
 

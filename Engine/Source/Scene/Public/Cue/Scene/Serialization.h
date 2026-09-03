@@ -193,6 +193,7 @@ class SceneSaveOutcome final
                                                            const AssertContext &a_assertContext) noexcept;
 
 /// @brief JSONをMigration後に現在Schemaと照合して新しいSceneDocumentへParseする
+/// @details File Sizeまたは意味別Resource上限超過を診断付きで拒否し、入力と既存Documentを変更しない
 /// @param a_assertContext 返却SceneDocumentより長く生存する非所有診断Context
 [[nodiscard]] Result<SceneLoadResult> parse_scene_document(std::string_view a_json,
                                                            const schema::SchemaRegistry &a_schemaRegistry,

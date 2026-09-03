@@ -1245,7 +1245,13 @@ Result<SceneLoadResult> parse_scene_document(std::string_view a_json, const sche
                                              const ComponentMigrationRegistry &a_componentMigrations,
                                              const AssertContext &a_assertContext) noexcept
 {
-    if (a_json.empty() || a_json.size() > k_maximumSceneBytes || a_json.starts_with("\xEF\xBB\xBF"))
+    if (a_json.size() > k_maximumSceneBytes)
+    {
+        return Result<SceneLoadResult>::failure(format_error(
+            a_assertContext, SceneError::ResourceLimitExceeded,
+            "Scene file exceeds the 16 MiB input limit"));
+    }
+    if (a_json.empty() || a_json.starts_with("\xEF\xBB\xBF"))
     {
         return Result<SceneLoadResult>::failure(format_error(a_assertContext, SceneError::InvalidFormat,
                                                              "Scene must be non-empty BOM-less UTF-8 within 16 MiB"));

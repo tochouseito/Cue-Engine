@@ -21,6 +21,12 @@ inline constexpr std::size_t k_maximumSceneStringBytes = 256U * 1024U;
 inline constexpr std::size_t k_maximumSceneBytes = 16U * 1024U * 1024U;
 /// @brief Scene File内の一ObjectまたはArrayが所有できる最大要素数
 inline constexpr std::size_t k_maximumSceneContainerElements = 4096U;
+/// @brief 一つのSceneDocumentが所有できるObject数上限
+inline constexpr std::size_t k_maximumSceneObjectCount = k_maximumSceneContainerElements;
+/// @brief 一つのScene Objectが所有できるComponent数上限
+inline constexpr std::size_t k_maximumSceneComponentsPerObject = k_maximumSceneContainerElements;
+/// @brief 一つのScene Componentが所有できる既知・未知Field合計数上限
+inline constexpr std::size_t k_maximumSceneFieldsPerComponent = k_maximumSceneContainerElements;
 /// @brief Scene File内のRootから数えるJSON Container最大Nesting Depth
 inline constexpr std::size_t k_maximumSceneNestingDepth = 64U;
 /// @brief JSON Tree全体が所有できるValueとObject Memberの合計上限
@@ -371,6 +377,7 @@ class SceneComponent final
     const AssertContext &a_assertContext) noexcept;
 
 /// @brief Immutable Value Schema Registryと照合して既知Componentを生成する
+/// @details 既知・未知Field合計の上限超過時はResourceLimitExceededを返す
 [[nodiscard]] Result<KnownComponentData> create_known_component(
     ComponentInstanceId a_instanceId, schema::TypeId a_typeId,
     schema::SchemaVersion a_schemaVersion,

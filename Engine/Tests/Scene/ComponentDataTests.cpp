@@ -391,11 +391,109 @@ void test_component_data() noexcept
     require(document.find_object(objectId)->components().size() == 2U);
 }
 
+/// @brief ComponentとFieldのAuthoring上限超過を診断付きで拒否することを検証する
+void test_authoring_resource_limits() noexcept
+{
+    TestFatalHandler fatalHandler;
+    std::vector<std::unique_ptr<cue::LogSink>> sinks;
+    cue::Logger logger(fatalHandler, std::move(sinks));
+    cue::AssertContext assertContext(logger, fatalHandler);
+    cue::schema::SchemaRegistryIdentitySource registryIdentitySource;
+    auto registry = make_registry(registryIdentitySource, assertContext);
+    SequentialIdentitySource sceneIdentitySource;
+
+    auto document = cue::scene::SceneDocument::create(
+        take_value(cue::scene::SceneAssetId::generate(
+            sceneIdentitySource, assertContext)),
+        assertContext);
+    const auto objectId = take_value(cue::scene::ObjectId::generate(
+        sceneIdentitySource, assertContext));
+    require(document.add_object(objectId, "Limited", true, std::nullopt,
+                                cue::math::Transform{})
+                .has_value());
+    const auto unknownTypeId = take_value(cue::schema::TypeId::parse(
+        "20000000-0000-4000-8000-000000000001", assertContext));
+    const auto schemaVersion = make_version(assertContext);
+
+    for (std::size_t index = 0U;
+         index < cue::scene::k_maximumSceneComponentsPerObject; ++index)
+    {
+        auto componentId = take_value(
+            cue::scene::ComponentInstanceId::generate(
+                sceneIdentitySource, assertContext));
+        auto opaque = take_value(cue::scene::OpaqueComponentData::create(
+            std::move(componentId), unknownTypeId, schemaVersion, "{}",
+            *registry, assertContext));
+        require(document.add_component(
+                            objectId,
+                            cue::scene::SceneComponent::opaque(
+                                std::move(opaque)))
+                    .has_value());
+    }
+
+    auto rejectedComponentId = take_value(
+        cue::scene::ComponentInstanceId::generate(
+            sceneIdentitySource, assertContext));
+    auto rejectedOpaque = take_value(cue::scene::OpaqueComponentData::create(
+        std::move(rejectedComponentId), unknownTypeId, schemaVersion, "{}",
+        *registry, assertContext));
+    const auto rejectedComponent = document.add_component(
+        objectId,
+        cue::scene::SceneComponent::opaque(std::move(rejectedOpaque)));
+    require(!rejectedComponent.has_value());
+    require(rejectedComponent.try_error()->code().value() ==
+            static_cast<std::int64_t>(
+                cue::scene::SceneError::ResourceLimitExceeded));
+    require(!rejectedComponent.try_error()->summary().empty());
+    require(document.find_object(objectId)->components().size() ==
+            cue::scene::k_maximumSceneComponentsPerObject);
+    require(document.validate().has_value());
+
+    const auto fieldId = make_field_id(99U, assertContext);
+    std::vector<cue::scene::OpaqueFieldData> excessiveFields;
+    excessiveFields.reserve(cue::scene::k_maximumSceneFieldsPerComponent +
+                            1U);
+    for (std::size_t index = 0U;
+         index <= cue::scene::k_maximumSceneFieldsPerComponent; ++index)
+    {
+        excessiveFields.push_back(
+            take_value(cue::scene::OpaqueFieldData::create(
+                fieldId, "null", assertContext)));
+    }
+    std::vector<cue::scene::FieldKindBinding> bindings{
+        {make_field_id(1U, assertContext),
+         cue::scene::FieldValueKind::SignedInteger},
+        {make_field_id(2U, assertContext),
+         cue::scene::FieldValueKind::String}};
+    std::vector<cue::scene::ComponentValueSchema> valueSchemas;
+    valueSchemas.push_back(
+        take_value(cue::scene::create_component_value_schema(
+            make_type_id(assertContext), schemaVersion, std::move(bindings),
+            *registry, assertContext)));
+    auto valueRegistry = take_value(
+        cue::scene::ComponentValueSchemaRegistry::create(
+            std::move(valueSchemas), *registry, assertContext));
+    std::vector<cue::scene::KnownFieldData> noKnownFields;
+    auto excessiveFieldComponentId = take_value(
+        cue::scene::ComponentInstanceId::generate(
+            sceneIdentitySource, assertContext));
+    const auto rejectedFields = cue::scene::create_known_component(
+        std::move(excessiveFieldComponentId), make_type_id(assertContext),
+        schemaVersion, std::move(noKnownFields), std::move(excessiveFields),
+        *registry, valueRegistry, assertContext);
+    require(!rejectedFields.has_value());
+    require(rejectedFields.try_error()->code().value() ==
+            static_cast<std::int64_t>(
+                cue::scene::SceneError::ResourceLimitExceeded));
+    require(!rejectedFields.try_error()->summary().empty());
+}
+
 } // namespace
 
 /// @brief Cue.SceneのSchema駆動Component Data Testを実行する
 int main()
 {
     test_component_data();
+    test_authoring_resource_limits();
     return 0;
 }

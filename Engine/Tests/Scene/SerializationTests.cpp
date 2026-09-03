@@ -318,6 +318,81 @@ template <typename Value> Value take_value(cue::Result<Value> &&a_result) noexce
         cue::scene::ComponentValueSchemaRegistry::create(std::move(schemas), a_registry, a_assertContext));
 }
 
+/// @brief 指定した未知Extension Objectを持つ最小の現行Scene JSONを生成する
+[[nodiscard]] std::string make_empty_scene_with_extensions(
+    std::string_view a_extensions)
+{
+    std::string result =
+        "{\"formatVersion\":1,\"sceneAssetId\":"
+        "\"00000000-0000-4000-8000-000000000041\","
+        "\"objects\":[],\"extensions\":";
+    result.append(a_extensions);
+    result.push_back('}');
+    return result;
+}
+
+/// @brief 指定Member数の未知Top-level Extension Objectを生成する
+[[nodiscard]] std::string make_extension_object(std::size_t a_memberCount)
+{
+    std::string result("{");
+    for (std::size_t index = 0U; index < a_memberCount; ++index)
+    {
+        if (index > 0U)
+        {
+            result.push_back(',');
+        }
+        result.append("\"future");
+        result.append(std::to_string(index));
+        result.append("\":");
+        result.append(std::to_string(index));
+    }
+    result.push_back('}');
+    return result;
+}
+
+/// @brief Root Envelope内で指定段数だけ未知Objectを入れ子にしたScene JSONを生成する
+[[nodiscard]] std::string make_nested_extension_scene(std::size_t a_depth)
+{
+    std::string extension;
+    for (std::size_t depth = 0U; depth < a_depth; ++depth)
+    {
+        extension.append("{\"nested\":");
+    }
+    extension.append("null");
+    extension.append(a_depth, '}');
+    return make_empty_scene_with_extensions(extension);
+}
+
+/// @brief 指定Object Entry数のScene JSONを生成してContainer上限を検証可能にする
+[[nodiscard]] std::string make_object_count_scene(std::size_t a_objectCount)
+{
+    std::string result =
+        "{\"formatVersion\":1,\"sceneAssetId\":"
+        "\"00000000-0000-4000-8000-000000000042\",\"objects\":[";
+    for (std::size_t index = 0U; index < a_objectCount; ++index)
+    {
+        if (index > 0U)
+        {
+            result.push_back(',');
+        }
+        result.append("{}");
+    }
+    result.append("],\"extensions\":{}}");
+    return result;
+}
+
+/// @brief Scene Parse失敗が期待Codeと開発者向け診断を持つことを検証する
+void require_scene_failure(
+    cue::Result<cue::scene::SceneLoadResult> &&a_result,
+    cue::scene::SceneError a_expectedCode) noexcept
+{
+    require(!a_result.has_value());
+    require(a_result.try_error() != nullptr);
+    require(a_result.try_error()->code().value() ==
+            static_cast<std::int64_t>(a_expectedCode));
+    require(!a_result.try_error()->summary().empty());
+}
+
 /// @brief 各Container上限内の小さい値を多数持つJSON Array Fixtureを生成する
 [[nodiscard]] std::string make_dense_json_array(
     std::size_t a_outerCount,
@@ -572,20 +647,43 @@ void test_serialization() noexcept
     auto invalidNameId = take_value(cue::scene::ObjectId::parse(
         "00000000-0000-4000-8000-000000000022", assertContext));
     const std::string invalidUtf8(1U, static_cast<char>(0xC3U));
+    const auto invalidName = invalidNameDocument.add_object(
+        invalidNameId, invalidUtf8, true, std::nullopt,
+        cue::math::Transform{});
+    require(!invalidName.has_value());
+    require(invalidName.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::scene::SceneError::InvalidName));
+    require(invalidNameDocument.object_count() == 0U);
+    std::string oversizedName(cue::scene::k_maximumSceneStringBytes + 1U,
+                              'n');
+    const auto oversizedAdd = invalidNameDocument.add_object(
+        invalidNameId, oversizedName, true, std::nullopt,
+        cue::math::Transform{});
+    require(!oversizedAdd.has_value());
+    require(oversizedAdd.try_error()->code().value() ==
+            static_cast<std::int64_t>(
+                cue::scene::SceneError::ResourceLimitExceeded));
+    require(invalidNameDocument.object_count() == 0U);
     require(invalidNameDocument
-                .add_object(invalidNameId, invalidUtf8, true, std::nullopt,
+                .add_object(invalidNameId, "Valid", true, std::nullopt,
                             cue::math::Transform{})
                 .has_value());
-    require(!cue::scene::serialize_scene_document(invalidNameDocument,
-                                                  assertContext)
-                 .has_value());
-    std::string oversizedName(256U * 1024U + 1U, 'n');
-    require(invalidNameDocument
-                .rename_object(invalidNameId, oversizedName)
+    const auto invalidRename =
+        invalidNameDocument.rename_object(invalidNameId, invalidUtf8);
+    require(!invalidRename.has_value());
+    require(invalidRename.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::scene::SceneError::InvalidName));
+    require(invalidNameDocument.find_object(invalidNameId)->name() == "Valid");
+    const auto oversizedRename =
+        invalidNameDocument.rename_object(invalidNameId, oversizedName);
+    require(!oversizedRename.has_value());
+    require(oversizedRename.try_error()->code().value() ==
+            static_cast<std::int64_t>(
+                cue::scene::SceneError::ResourceLimitExceeded));
+    require(invalidNameDocument.find_object(invalidNameId)->name() == "Valid");
+    require(cue::scene::serialize_scene_document(invalidNameDocument,
+                                                 assertContext)
                 .has_value());
-    require(!cue::scene::serialize_scene_document(invalidNameDocument,
-                                                  assertContext)
-                 .has_value());
 
     const std::string future = std::string("{\"formatVersion\":2,\"sceneAssetId\":") +
                                "\"00000000-0000-4000-8000-000000000001\",\"objects\":[],"
@@ -697,11 +795,112 @@ void test_serialization() noexcept
     require(verificationFilesystem.text("Scenes/Main.cuescene") != "verification-original");
     require(verificationFilesystem.text("Scenes/Main.cuescene.backup") == "verification-original");
 }
+
+/// @brief 破損Scene、入力上限、未知Data保持、既存Document不変契約をまとめて検証する
+void test_malformed_scene_inputs() noexcept
+{
+    TestFatalHandler fatalHandler;
+    std::vector<std::unique_ptr<cue::LogSink>> sinks;
+    cue::Logger logger(fatalHandler, std::move(sinks));
+    cue::AssertContext assertContext(logger, fatalHandler);
+    cue::schema::SchemaRegistryIdentitySource identitySource;
+    auto registry = make_registry(identitySource, 1U, assertContext);
+    auto valueRegistry = make_value_registry(*registry, 1U, assertContext);
+    cue::scene::SceneMigrationRegistry migrations;
+    cue::scene::ComponentMigrationRegistry componentMigrations;
+
+    /// @brief 同じRegistry集合で一つのMalformed Fixtureを解析する
+    auto parse = [&](std::string_view a_json) noexcept
+    {
+        return cue::scene::parse_scene_document(
+            a_json, *registry, valueRegistry, migrations,
+            componentMigrations, assertContext);
+    };
+
+    require_scene_failure(parse(""), cue::scene::SceneError::InvalidFormat);
+    std::string bomScene("\xEF\xBB\xBF");
+    bomScene.append("{}");
+    require_scene_failure(parse(bomScene),
+                          cue::scene::SceneError::InvalidFormat);
+    require_scene_failure(parse("{"), cue::scene::SceneError::InvalidFormat);
+    require_scene_failure(
+        parse("{\"formatVersion\":1,\"formatVersion\":1,"
+              "\"sceneAssetId\":\"00000000-0000-4000-8000-000000000041\","
+              "\"objects\":[],\"extensions\":{}}"),
+        cue::scene::SceneError::InvalidFormat);
+    auto trailingScene = make_empty_scene_with_extensions("{}");
+    trailingScene.push_back('x');
+    require_scene_failure(parse(trailingScene),
+                          cue::scene::SceneError::InvalidFormat);
+    auto invalidUtf8Scene = make_empty_scene_with_extensions(
+        "{\"future\":\"valid\"}");
+    const std::size_t validText = invalidUtf8Scene.find("valid");
+    require(validText != std::string::npos);
+    invalidUtf8Scene[validText] = static_cast<char>(0xC3U);
+    invalidUtf8Scene.erase(validText + 1U, 4U);
+    require_scene_failure(parse(invalidUtf8Scene),
+                          cue::scene::SceneError::InvalidFormat);
+
+    const auto overNested = make_nested_extension_scene(
+        cue::scene::k_maximumSceneNestingDepth + 1U);
+    require_scene_failure(parse(overNested),
+                          cue::scene::SceneError::InvalidFormat);
+    const auto excessiveObjects = make_object_count_scene(
+        cue::scene::k_maximumSceneObjectCount + 1U);
+    require_scene_failure(parse(excessiveObjects),
+                          cue::scene::SceneError::InvalidFormat);
+    std::string oversizedScene(cue::scene::k_maximumSceneBytes + 1U, 'x');
+    require_scene_failure(parse(oversizedScene),
+                          cue::scene::SceneError::ResourceLimitExceeded);
+
+    const auto maximumExtensions = make_extension_object(
+        cue::scene::k_maximumSceneContainerElements);
+    const auto maximumUnknownScene =
+        make_empty_scene_with_extensions(maximumExtensions);
+    auto preservedUnknown = parse(maximumUnknownScene);
+    require(preservedUnknown.has_value());
+    auto preservedText = cue::scene::serialize_scene_document(
+        preservedUnknown.try_value()->document(), assertContext);
+    require(preservedText.has_value());
+    const auto lastExtensionIndex =
+        cue::scene::k_maximumSceneContainerElements - 1U;
+    const auto lastExtension = std::string("\"future") +
+                               std::to_string(lastExtensionIndex) + "\":" +
+                               std::to_string(lastExtensionIndex);
+    require(preservedText.try_value()->find(lastExtension) !=
+            std::string::npos);
+    const auto excessiveExtensions = make_extension_object(
+        cue::scene::k_maximumSceneContainerElements + 1U);
+    require_scene_failure(
+        parse(make_empty_scene_with_extensions(excessiveExtensions)),
+        cue::scene::SceneError::InvalidFormat);
+
+    auto existing = parse(k_sceneJson);
+    require(existing.has_value());
+    auto before = cue::scene::serialize_scene_document(
+        existing.try_value()->document(), assertContext);
+    require(before.has_value());
+    MemoryFilesystemRoot filesystem(assertContext);
+    filesystem.set("Scenes/Malformed.cuescene", overNested);
+    const auto path = take_value(cue::RelativePath::parse(
+        "Scenes/Malformed.cuescene", assertContext));
+    auto failedLoad = cue::scene::load_scene_document(
+        filesystem, path, *registry, valueRegistry, migrations,
+        componentMigrations, assertContext);
+    require_scene_failure(std::move(failedLoad),
+                          cue::scene::SceneError::InvalidFormat);
+    auto after = cue::scene::serialize_scene_document(
+        existing.try_value()->document(), assertContext);
+    require(after.has_value());
+    require(*before.try_value() == *after.try_value());
+    require(filesystem.text("Scenes/Malformed.cuescene") == overNested);
+}
 } // namespace
 
 /// @brief Cue.Scene SerializerのRound-tripとStorage契約Testを実行する
 int main()
 {
     test_serialization();
+    test_malformed_scene_inputs();
     return 0;
 }

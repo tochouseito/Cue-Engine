@@ -219,6 +219,43 @@ void test_hierarchy_depth_limit() noexcept
     require(document.find_object(subtreeRootId)->try_parent_id() == nullptr);
     require(document.validate().has_value());
 }
+
+/// @brief Object上限到達後の追加を診断付きで拒否しDocumentを維持することを検証する
+void test_object_count_limit() noexcept
+{
+    TestFatalHandler fatalHandler;
+    std::vector<std::unique_ptr<cue::LogSink>> sinks;
+    cue::Logger logger(fatalHandler, std::move(sinks));
+    cue::AssertContext assertContext(logger, fatalHandler);
+    SequentialIdentitySource identitySource;
+    auto document = cue::scene::SceneDocument::create(
+        take_value(cue::scene::SceneAssetId::generate(
+            identitySource, assertContext)),
+        assertContext);
+
+    for (std::size_t index = 0U;
+         index < cue::scene::k_maximumSceneObjectCount; ++index)
+    {
+        auto objectId = take_value(cue::scene::ObjectId::generate(
+            identitySource, assertContext));
+        require(document.add_object(objectId, "Object", true, std::nullopt,
+                                    cue::math::Transform{})
+                    .has_value());
+    }
+
+    auto rejectedId = take_value(cue::scene::ObjectId::generate(
+        identitySource, assertContext));
+    const auto rejected = document.add_object(
+        rejectedId, "Rejected", true, std::nullopt, cue::math::Transform{});
+    require(!rejected.has_value());
+    require(rejected.try_error()->code().value() ==
+            static_cast<std::int64_t>(
+                cue::scene::SceneError::ResourceLimitExceeded));
+    require(!rejected.try_error()->summary().empty());
+    require(document.object_count() == cue::scene::k_maximumSceneObjectCount);
+    require(document.find_object(rejectedId) == nullptr);
+    require(document.validate().has_value());
+}
 } // namespace
 
 /// @brief Cue.Scene Stable IDとSceneDocumentのUnit Testを実行する
@@ -227,5 +264,6 @@ int main()
     test_scene_document();
     test_identity_validation();
     test_hierarchy_depth_limit();
+    test_object_count_limit();
     return 0;
 }
