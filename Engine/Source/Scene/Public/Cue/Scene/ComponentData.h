@@ -48,6 +48,17 @@ enum class FieldValueKind : std::uint8_t
 class AssetReferenceValue final
 {
   public:
+    /// @brief 検証済み Token を複製する
+    AssetReferenceValue(const AssetReferenceValue &) = default;
+    /// @brief 検証済み Token を複製代入する
+    AssetReferenceValue &operator=(const AssetReferenceValue &) = default;
+    /// @brief Token を移動し、移動元を空の無効状態へ確定する
+    AssetReferenceValue(AssetReferenceValue &&a_other) noexcept;
+    /// @brief Token を移動代入し、移動元を空の無効状態へ確定する
+    AssetReferenceValue &operator=(AssetReferenceValue &&a_other) noexcept;
+    /// @brief 所有する Token を破棄する
+    ~AssetReferenceValue() noexcept = default;
+
     /// @brief 空でないStable Asset参照Tokenを検証して返す
     [[nodiscard]] static Result<AssetReferenceValue> create(
         std::string_view a_token,

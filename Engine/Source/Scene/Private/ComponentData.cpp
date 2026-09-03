@@ -644,6 +644,22 @@ AssetReferenceValue::AssetReferenceValue(std::string a_token) noexcept
 {
 }
 
+AssetReferenceValue::AssetReferenceValue(AssetReferenceValue &&a_other) noexcept
+    : m_token(std::move(a_other.m_token))
+{
+    a_other.m_token.clear();
+}
+
+AssetReferenceValue &AssetReferenceValue::operator=(AssetReferenceValue &&a_other) noexcept
+{
+    if (this != &a_other)
+    {
+        m_token = std::move(a_other.m_token);
+        a_other.m_token.clear();
+    }
+    return *this;
+}
+
 Result<AssetReferenceValue> AssetReferenceValue::create(
     std::string_view a_token,
     const AssertContext &a_assertContext) noexcept
