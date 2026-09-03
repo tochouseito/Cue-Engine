@@ -5,10 +5,13 @@
 #include <Cue/Foundation/Log.h>
 #include <Cue/Math/Transform.h>
 #include <Cue/Project/Descriptor.h>
+#include <Cue/Scene/Error.h>
 #include <Cue/Scene/Identity.h>
 #include <Cue/Scene/SceneDocument.h>
+#include <Cue/Schema/Descriptor.h>
 
 #include <array>
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <string_view>
@@ -83,6 +86,141 @@ cue::scene::SceneDocument make_scene_document(std::string_view a_sceneId,
 cue::scene::ObjectId make_object_id(std::string_view a_objectId, const cue::AssertContext &a_assertContext) noexcept
 {
     return take_value(cue::scene::ObjectId::parse(a_objectId, a_assertContext));
+}
+
+/// @brief 固定 Identity から Component Instance ID を生成する
+cue::scene::ComponentInstanceId make_component_id(std::string_view a_componentId,
+                                                  const cue::AssertContext &a_assertContext) noexcept
+{
+    return take_value(cue::scene::ComponentInstanceId::parse(a_componentId, a_assertContext));
+}
+
+/// @brief Scene Command Test 用 Stable Component Type Identity を生成する
+cue::schema::TypeId make_component_type_id(const cue::AssertContext &a_assertContext) noexcept
+{
+    return take_value(cue::schema::TypeId::parse("10000000-0000-4000-8000-000000000001", a_assertContext));
+}
+
+/// @brief Scene Command Test 用 Stable Field Identity を生成する
+cue::schema::FieldId make_health_field_id(const cue::AssertContext &a_assertContext) noexcept
+{
+    return take_value(cue::schema::FieldId::create(1U, a_assertContext));
+}
+
+/// @brief Scene Command Test 用 Asset Reference Field Identity を生成する
+cue::schema::FieldId make_asset_field_id(const cue::AssertContext &a_assertContext) noexcept
+{
+    return take_value(cue::schema::FieldId::create(2U, a_assertContext));
+}
+
+/// @brief Scene Command Test 用 Schema Version を生成する
+cue::schema::SchemaVersion make_component_version(const cue::AssertContext &a_assertContext) noexcept
+{
+    return take_value(cue::schema::SchemaVersion::create(1U, a_assertContext));
+}
+
+/// @brief Health Field を持つ Scene Command Test 用 Schema Registry を構築する
+std::unique_ptr<cue::schema::SchemaRegistry> make_component_registry(
+    cue::schema::SchemaRegistryIdentitySource &a_identitySource, const cue::AssertContext &a_assertContext) noexcept
+{
+    std::vector<cue::schema::FieldDescriptor> fields;
+    fields.push_back(take_value(
+        cue::schema::create_field_descriptor(make_health_field_id(a_assertContext), "health", a_assertContext)));
+    fields.push_back(take_value(
+        cue::schema::create_field_descriptor(make_asset_field_id(a_assertContext), "asset", a_assertContext)));
+    std::vector<cue::schema::FieldId> reserved;
+    auto descriptor = take_value(cue::schema::create_type_descriptor(
+        make_component_type_id(a_assertContext), "Cue.EditorCore.TestComponent",
+        make_component_version(a_assertContext), std::move(fields), std::move(reserved), a_assertContext));
+    cue::schema::SchemaRegistryBuilder builder(a_identitySource, a_assertContext);
+    require(builder.add_type(std::move(descriptor)).has_value());
+    return take_value(builder.seal());
+}
+
+/// @brief Health Field の値 Kind を固定する Scene Component Value Registry を構築する
+cue::scene::ComponentValueSchemaRegistry make_component_value_registry(
+    const cue::schema::SchemaRegistry &a_registry, const cue::AssertContext &a_assertContext) noexcept
+{
+    std::vector<cue::scene::FieldKindBinding> bindings{
+        {make_health_field_id(a_assertContext), cue::scene::FieldValueKind::SignedInteger},
+        {make_asset_field_id(a_assertContext), cue::scene::FieldValueKind::AssetReference}};
+    std::vector<cue::scene::ComponentValueSchema> schemas;
+    schemas.push_back(take_value(cue::scene::create_component_value_schema(
+        make_component_type_id(a_assertContext), make_component_version(a_assertContext), std::move(bindings),
+        a_registry, a_assertContext)));
+    return take_value(
+        cue::scene::ComponentValueSchemaRegistry::create(std::move(schemas), a_registry, a_assertContext));
+}
+
+/// @brief 指定 Stable Identity と Health 値を持つ既知 Component を生成する
+cue::scene::SceneComponent make_health_component(cue::scene::ComponentInstanceId a_componentId, std::int64_t a_health,
+                                                 const cue::schema::SchemaRegistry &a_registry,
+                                                 const cue::scene::ComponentValueSchemaRegistry &a_valueRegistry,
+                                                 const cue::AssertContext &a_assertContext) noexcept
+{
+    std::vector<cue::scene::KnownFieldData> fields;
+    fields.push_back(take_value(cue::scene::create_known_field(
+        make_health_field_id(a_assertContext), cue::scene::FieldValue::signed_integer(a_health),
+        cue::scene::FieldValueKind::SignedInteger, a_assertContext)));
+    auto assetReference = take_value(cue::scene::AssetReferenceValue::create("asset://default", a_assertContext));
+    fields.push_back(take_value(cue::scene::create_known_field(
+        make_asset_field_id(a_assertContext), cue::scene::FieldValue::asset_reference(std::move(assetReference)),
+        cue::scene::FieldValueKind::AssetReference, a_assertContext)));
+    std::vector<cue::scene::OpaqueFieldData> unknownFields;
+    auto component = take_value(cue::scene::create_known_component(
+        std::move(a_componentId), make_component_type_id(a_assertContext), make_component_version(a_assertContext),
+        std::move(fields), std::move(unknownFields), a_registry, a_valueRegistry, a_assertContext));
+    return cue::scene::SceneComponent::known(std::move(component));
+}
+
+/// @brief Object 内の指定 Component から Health 値を取得する
+std::int64_t component_health(const cue::scene::SceneObject &a_object,
+                              const cue::scene::ComponentInstanceId &a_componentId) noexcept
+{
+    for (const cue::scene::SceneComponent &component : a_object.components())
+    {
+        if (component.instance_id() != a_componentId)
+        {
+            continue;
+        }
+        const cue::scene::KnownComponentData *known = component.try_known();
+        require(known != nullptr);
+        for (const cue::scene::KnownFieldData &field : known->known_fields())
+        {
+            if (field.id().value() == 1U)
+            {
+                const std::int64_t *value = field.value().try_signed_integer();
+                require(value != nullptr);
+                return *value;
+            }
+        }
+    }
+    std::abort();
+}
+
+/// @brief Object 内の指定 Component から Asset Reference Token を取得する
+std::string_view component_asset_token(const cue::scene::SceneObject &a_object,
+                                       const cue::scene::ComponentInstanceId &a_componentId) noexcept
+{
+    for (const cue::scene::SceneComponent &component : a_object.components())
+    {
+        if (component.instance_id() != a_componentId)
+        {
+            continue;
+        }
+        const cue::scene::KnownComponentData *known = component.try_known();
+        require(known != nullptr);
+        for (const cue::scene::KnownFieldData &field : known->known_fields())
+        {
+            if (field.id().value() == 2U)
+            {
+                const cue::scene::AssetReferenceValue *value = field.value().try_asset_reference();
+                require(value != nullptr);
+                return value->token();
+            }
+        }
+    }
+    std::abort();
 }
 
 /// @brief Project Session と Scene Open の一意性を検証する
@@ -238,6 +376,198 @@ void test_selection_reconciliation() noexcept
     require(document->try_primary_selection() == nullptr);
 }
 
+/// @brief Scene 編集 Command の Stable ID、完全 Rollback、Subtree 操作を検証する
+void test_scene_commands() noexcept
+{
+    TestFatalHandler fatalHandler;
+    std::vector<std::unique_ptr<cue::LogSink>> sinks;
+    cue::Logger logger(fatalHandler, std::move(sinks));
+    cue::AssertContext assertContext(logger, fatalHandler);
+    cue::schema::SchemaRegistryIdentitySource registryIdentitySource;
+    auto registry = make_component_registry(registryIdentitySource, assertContext);
+    auto valueRegistry = make_component_value_registry(*registry, assertContext);
+    auto controller = cue::editor_core::EditorController::create(make_project_descriptor(assertContext), assertContext);
+
+    const auto opaqueId = make_component_id("00000000-0000-4000-8000-000000000523", assertContext);
+    const auto opaqueCopyId = make_component_id("00000000-0000-4000-8000-000000000524", assertContext);
+    auto futureVersion = take_value(cue::schema::SchemaVersion::create(2U, assertContext));
+    auto opaqueData = take_value(cue::scene::OpaqueComponentData::create(
+        opaqueId, make_component_type_id(assertContext), futureVersion, "{\"future\":true}", *registry, assertContext));
+    const auto opaqueDuplicate =
+        cue::scene::SceneComponent::opaque(std::move(opaqueData)).duplicate_with_identity(opaqueCopyId, assertContext);
+    require(!opaqueDuplicate.has_value());
+    require(opaqueDuplicate.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::scene::SceneError::UnsupportedComponentOperation));
+
+    auto scene = make_scene_document("00000000-0000-4000-8000-000000000501", assertContext);
+    const auto sceneAssetId = scene.scene_asset_id();
+    const auto rootId = make_object_id("00000000-0000-4000-8000-000000000511", assertContext);
+    const auto childId = make_object_id("00000000-0000-4000-8000-000000000512", assertContext);
+    const auto grandchildId = make_object_id("00000000-0000-4000-8000-000000000513", assertContext);
+    const auto componentId = make_component_id("00000000-0000-4000-8000-000000000521", assertContext);
+    const auto secondComponentId = make_component_id("00000000-0000-4000-8000-000000000525", assertContext);
+    require(scene.add_object(rootId, "Root", true, std::nullopt, cue::math::Transform{}).has_value());
+    require(scene.add_object(childId, "Child", true, rootId, cue::math::Transform{}).has_value());
+    require(
+        scene.add_component(childId, make_health_component(componentId, 100, *registry, valueRegistry, assertContext))
+            .has_value());
+    require(scene
+                .add_component(childId,
+                               make_health_component(secondComponentId, 50, *registry, valueRegistry, assertContext))
+                .has_value());
+
+    auto checkpoint = scene.create_checkpoint();
+    require(scene.remove_component(childId, componentId).has_value());
+    require(scene.restore_checkpoint(std::move(checkpoint)).has_value());
+    require(component_health(*scene.find_object(childId), componentId) == 100);
+
+    auto locator = take_value(cue::RelativePath::parse("Scenes/Commands.cuescene", assertContext));
+    const auto documentId = take_value(controller->open_document(std::move(scene), std::move(locator), true));
+
+    auto state = take_value(controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId,
+        cue::editor_core::AddObjectCommand{grandchildId, "Grandchild", true, childId, cue::math::Transform{}}}));
+    require(state.value() == 2U);
+    state = take_value(controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "Renamed Root"}}));
+    require(state.value() == 3U);
+    state = take_value(controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::ReparentObjectCommand{grandchildId, std::nullopt}}));
+    require(state.value() == 4U);
+    state = take_value(controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::ReparentObjectCommand{grandchildId, childId}}));
+    require(state.value() == 5U);
+
+    const auto cycle = controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::ReparentObjectCommand{rootId, childId}});
+    require(!cycle.has_value());
+    require(has_error_context(*cycle.try_error(), "EditorDocumentId=1"));
+    require(has_error_context(*cycle.try_error(), "ObjectId=00000000-0000-4000-8000-000000000511"));
+    const auto *document = controller->session().find_document(documentId);
+    require(document != nullptr);
+    require(document->current_state_id().value() == 5U);
+    require(document->scene_document().find_object(rootId)->try_parent_id() == nullptr);
+
+    state = take_value(controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId,
+        cue::editor_core::EditFieldCommand{childId, componentId, make_health_field_id(assertContext),
+                                           cue::scene::FieldValue::signed_integer(250)}}));
+    require(state.value() == 6U);
+    document = controller->session().find_document(documentId);
+    require(component_health(*document->scene_document().find_object(childId), componentId) == 250);
+
+    const auto fieldMismatch = controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId,
+        cue::editor_core::EditFieldCommand{childId, componentId, make_health_field_id(assertContext),
+                                           cue::scene::FieldValue::boolean(true)}});
+    require(!fieldMismatch.has_value());
+    document = controller->session().find_document(documentId);
+    require(document->current_state_id().value() == 6U);
+    require(component_health(*document->scene_document().find_object(childId), componentId) == 250);
+
+    auto movedAssetReference = take_value(cue::scene::AssetReferenceValue::create("asset://moved", assertContext));
+    const auto consumedAssetValue = cue::scene::FieldValue::asset_reference(std::move(movedAssetReference));
+    (void)consumedAssetValue;
+    auto invalidAssetValue = cue::scene::FieldValue::asset_reference(std::move(movedAssetReference));
+    require(!cue::scene::is_valid_field_value(invalidAssetValue));
+    const auto invalidAsset = controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId,
+        cue::editor_core::EditFieldCommand{childId, componentId, make_asset_field_id(assertContext),
+                                           std::move(invalidAssetValue)}});
+    require(!invalidAsset.has_value());
+    require(invalidAsset.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::scene::SceneError::FieldTypeMismatch));
+    document = controller->session().find_document(documentId);
+    require(document->current_state_id().value() == 6U);
+    require(component_asset_token(*document->scene_document().find_object(childId), componentId) == "asset://default");
+
+    state = take_value(controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::EditTransformCommand{childId, cue::math::Transform{}}}));
+    require(state.value() == 6U);
+
+    const auto rootComponentId = make_component_id("00000000-0000-4000-8000-000000000522", assertContext);
+    state = take_value(controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId,
+        cue::editor_core::AddComponentCommand{
+            rootId, make_health_component(rootComponentId, 10, *registry, valueRegistry, assertContext)}}));
+    require(state.value() == 7U);
+    state = take_value(controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::RemoveComponentCommand{rootId, rootComponentId}}));
+    require(state.value() == 8U);
+
+    const auto repeatedChildCopyId = make_object_id("00000000-0000-4000-8000-000000000535", assertContext);
+    const auto repeatedGrandchildCopyId = make_object_id("00000000-0000-4000-8000-000000000536", assertContext);
+    const auto repeatedComponentCopyId = make_component_id("00000000-0000-4000-8000-000000000537", assertContext);
+    std::vector<cue::editor_core::DuplicateObjectTarget> repeatedTargets;
+    repeatedTargets.push_back(
+        {childId, repeatedChildCopyId, "Child Copy", {repeatedComponentCopyId, repeatedComponentCopyId}});
+    repeatedTargets.push_back({grandchildId, repeatedGrandchildCopyId, "Grandchild Copy", {}});
+    const auto repeatedDuplicate = controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::DuplicateObjectCommand{childId, std::move(repeatedTargets)}});
+    require(!repeatedDuplicate.has_value());
+    document = controller->session().find_document(documentId);
+    require(document->current_state_id().value() == 8U);
+    require(document->scene_document().find_object(repeatedChildCopyId) == nullptr);
+
+    const auto failedChildCopyId = make_object_id("00000000-0000-4000-8000-000000000531", assertContext);
+    const auto failedGrandchildCopyId = make_object_id("00000000-0000-4000-8000-000000000532", assertContext);
+    const auto failedComponentCopyId = make_component_id("00000000-0000-4000-8000-000000000533", assertContext);
+    const auto failedSecondComponentCopyId = make_component_id("00000000-0000-4000-8000-000000000534", assertContext);
+    std::vector<cue::editor_core::DuplicateObjectTarget> failedTargets;
+    failedTargets.push_back(
+        {childId, failedChildCopyId, "Child Copy", {failedComponentCopyId, failedSecondComponentCopyId}});
+    failedTargets.push_back({grandchildId, failedGrandchildCopyId, "", {}});
+    const auto failedDuplicate = controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::DuplicateObjectCommand{childId, std::move(failedTargets)}});
+    require(!failedDuplicate.has_value());
+    document = controller->session().find_document(documentId);
+    require(document->current_state_id().value() == 8U);
+    require(document->scene_document().find_object(failedChildCopyId) == nullptr);
+    require(document->scene_document().find_object(failedGrandchildCopyId) == nullptr);
+    require(component_health(*document->scene_document().find_object(childId), componentId) == 250);
+
+    const auto childCopyId = make_object_id("00000000-0000-4000-8000-000000000541", assertContext);
+    const auto grandchildCopyId = make_object_id("00000000-0000-4000-8000-000000000542", assertContext);
+    const auto componentCopyId = make_component_id("00000000-0000-4000-8000-000000000543", assertContext);
+    const auto secondComponentCopyId = make_component_id("00000000-0000-4000-8000-000000000544", assertContext);
+    std::vector<cue::editor_core::DuplicateObjectTarget> targets;
+    targets.push_back({childId, childCopyId, "Child Copy", {componentCopyId, secondComponentCopyId}});
+    targets.push_back({grandchildId, grandchildCopyId, "Grandchild Copy", {}});
+    state = take_value(controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::DuplicateObjectCommand{childId, std::move(targets)}}));
+    require(state.value() == 9U);
+    document = controller->session().find_document(documentId);
+    const auto *childCopy = document->scene_document().find_object(childCopyId);
+    const auto *grandchildCopy = document->scene_document().find_object(grandchildCopyId);
+    require(childCopy != nullptr);
+    require(grandchildCopy != nullptr);
+    require(component_health(*childCopy, componentCopyId) == 250);
+    require(component_health(*childCopy, secondComponentCopyId) == 50);
+    require(grandchildCopy->try_parent_id() != nullptr && *grandchildCopy->try_parent_id() == childCopyId);
+
+    auto otherSceneId =
+        take_value(cue::scene::SceneAssetId::parse("00000000-0000-4000-8000-000000000599", assertContext));
+    const auto crossDocument = controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, otherSceneId, cue::editor_core::RenameObjectCommand{rootId, "Wrong Scene"}});
+    require(!crossDocument.has_value());
+    require(crossDocument.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::SceneMismatch));
+    document = controller->session().find_document(documentId);
+    require(document->scene_document().find_object(rootId)->name() == "Renamed Root");
+    require(document->current_state_id().value() == 9U);
+
+    const std::array selection{childId, grandchildId};
+    require(controller->set_selection(documentId, selection, &childId).has_value());
+    state = take_value(controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::DeleteObjectCommand{childId}}));
+    require(state.value() == 10U);
+    document = controller->session().find_document(documentId);
+    require(document->scene_document().find_object(childId) == nullptr);
+    require(document->scene_document().find_object(grandchildId) == nullptr);
+    require(document->selection().empty());
+    require(document->scene_document().find_object(childCopyId) != nullptr);
+}
+
 /// @brief 外部変更と Close 判断の状態遷移を検証する
 void test_external_change_and_close() noexcept
 {
@@ -331,6 +661,7 @@ int main()
     test_workspace_and_open();
     test_revision_and_dirty();
     test_selection_reconciliation();
+    test_scene_commands();
     test_external_change_and_close();
     return 0;
 }

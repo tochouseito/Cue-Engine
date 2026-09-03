@@ -13,6 +13,7 @@
 
 namespace cue::scene
 {
+class SceneDocument;
 class SceneDocumentSerializationAccess;
 
 /// @brief Scene File内の復号済み一String Valueが所有できる最大Byte数
@@ -47,6 +48,17 @@ enum class FieldValueKind : std::uint8_t
 class AssetReferenceValue final
 {
   public:
+    /// @brief 検証済み Token を複製する
+    AssetReferenceValue(const AssetReferenceValue &) = default;
+    /// @brief 検証済み Token を複製代入する
+    AssetReferenceValue &operator=(const AssetReferenceValue &) = default;
+    /// @brief Token を移動し、移動元を空の無効状態へ確定する
+    AssetReferenceValue(AssetReferenceValue &&a_other) noexcept;
+    /// @brief Token を移動代入し、移動元を空の無効状態へ確定する
+    AssetReferenceValue &operator=(AssetReferenceValue &&a_other) noexcept;
+    /// @brief 所有する Token を破棄する
+    ~AssetReferenceValue() noexcept = default;
+
     /// @brief 空でないStable Asset参照Tokenを検証して返す
     [[nodiscard]] static Result<AssetReferenceValue> create(
         std::string_view a_token,
@@ -200,6 +212,7 @@ class KnownFieldData final
     [[nodiscard]] const FieldValue &value() const noexcept;
 
   private:
+    friend class SceneDocument;
     friend Result<KnownFieldData> create_known_field(
         schema::FieldId, FieldValue, FieldValueKind,
         const AssertContext &) noexcept;
@@ -260,6 +273,7 @@ class KnownComponentData final
     [[nodiscard]] std::span<const OpaqueFieldData> unknown_fields() const noexcept;
 
   private:
+    friend class SceneDocument;
     friend class SceneComponent;
     friend Result<KnownComponentData> create_known_component(
         ComponentInstanceId, schema::TypeId, schema::SchemaVersion,
@@ -354,8 +368,13 @@ class SceneComponent final
     [[nodiscard]] const KnownComponentData *try_known() const noexcept;
     /// @brief Opaque Component Dataまたはnullptrを返す
     [[nodiscard]] const OpaqueComponentData *try_opaque() const noexcept;
+    /// @brief 既知 Component の値を新しい Stable Instance Identity へ複製する
+    /// @details Opaque Component は完全 Entry 内の Identity を安全に書き換えられないため拒否する
+    [[nodiscard]] Result<SceneComponent> duplicate_with_identity(
+        ComponentInstanceId a_instanceId, const AssertContext &a_assertContext) const noexcept;
 
   private:
+    friend class SceneDocument;
     using Storage = std::variant<KnownComponentData, OpaqueComponentData>;
 
     /// @brief 既知またはOpaque Componentの一方を所有する
@@ -363,6 +382,9 @@ class SceneComponent final
 
     Storage m_storage;
 };
+
+/// @brief Field Value の Kind と内部 Value が公開不変条件を満たすか判定する
+[[nodiscard]] bool is_valid_field_value(const FieldValue &a_value) noexcept;
 
 /// @brief Field ValueのKind一致を検証して既知Field Dataを生成する
 [[nodiscard]] Result<KnownFieldData> create_known_field(

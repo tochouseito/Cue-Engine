@@ -6,6 +6,7 @@ target_sources(
         Private/EditorController.cpp
         Private/EditorDocument.cpp
         Private/Error.cpp
+        Private/SceneCommand.cpp
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS Public
@@ -13,6 +14,7 @@ target_sources(
             Public/Cue/EditorCore/EditorController.h
             Public/Cue/EditorCore/EditorDocument.h
             Public/Cue/EditorCore/Error.h
+            Public/Cue/EditorCore/SceneCommand.h
 )
 
 target_compile_features(Cue.EditorCore PUBLIC cxx_std_20)

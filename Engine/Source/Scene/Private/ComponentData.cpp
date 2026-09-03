@@ -603,7 +603,7 @@ class JsonSyntaxValidator final
 }
 
 /// @brief FieldValueのKindと内部Valueが公開不変条件を満たすか判定する
-[[nodiscard]] bool is_valid_field_value(
+[[nodiscard]] bool is_valid_field_value_contents(
     const cue::scene::FieldValue &a_value) noexcept
 {
     using cue::scene::FieldValueKind;
@@ -634,9 +634,30 @@ class JsonSyntaxValidator final
 
 namespace cue::scene
 {
+bool is_valid_field_value(const FieldValue &a_value) noexcept
+{
+    return is_valid_field_value_contents(a_value);
+}
+
 AssetReferenceValue::AssetReferenceValue(std::string a_token) noexcept
     : m_token(std::move(a_token))
 {
+}
+
+AssetReferenceValue::AssetReferenceValue(AssetReferenceValue &&a_other) noexcept
+    : m_token(std::move(a_other.m_token))
+{
+    a_other.m_token.clear();
+}
+
+AssetReferenceValue &AssetReferenceValue::operator=(AssetReferenceValue &&a_other) noexcept
+{
+    if (this != &a_other)
+    {
+        m_token = std::move(a_other.m_token);
+    }
+    a_other.m_token.clear();
+    return *this;
 }
 
 Result<AssetReferenceValue> AssetReferenceValue::create(
@@ -1172,6 +1193,36 @@ const KnownComponentData *SceneComponent::try_known() const noexcept
 const OpaqueComponentData *SceneComponent::try_opaque() const noexcept
 {
     return std::get_if<OpaqueComponentData>(&m_storage);
+}
+
+Result<SceneComponent> SceneComponent::duplicate_with_identity(
+    ComponentInstanceId a_instanceId, const AssertContext &a_assertContext) const noexcept
+{
+    const auto *knownData = try_known();
+    if (knownData == nullptr)
+    {
+        return Result<SceneComponent>::failure(make_scene_error(
+            a_assertContext, SceneError::UnsupportedComponentOperation,
+            "Opaque component identity cannot be rewritten without changing its preserved entry"));
+    }
+    if (!knownData->m_isValid)
+    {
+        return Result<SceneComponent>::failure(make_scene_error(
+            a_assertContext, SceneError::InvalidComponentData,
+            "Moved-from component data cannot be duplicated"));
+    }
+
+    try
+    {
+        KnownComponentData duplicate = *knownData;
+        duplicate.m_instanceId = std::move(a_instanceId);
+        return Result<SceneComponent>::success(
+            SceneComponent::known(std::move(duplicate)));
+    }
+    catch (...)
+    {
+        terminate_scene_allocation(a_assertContext);
+    }
 }
 
 Result<KnownFieldData> create_known_field(

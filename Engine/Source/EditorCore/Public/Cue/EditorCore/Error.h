@@ -22,7 +22,9 @@ enum class EditorCoreError : std::int64_t
     RevisionExhausted = 5,
     InvalidSavedState = 6,
     InvalidDocumentState = 7,
-    InvalidCloseTransition = 8
+    InvalidCloseTransition = 8,
+    SceneMismatch = 9,
+    InvalidCommand = 10
 };
 
 /// @brief Editor Core Error を診断 Summary と共に生成する

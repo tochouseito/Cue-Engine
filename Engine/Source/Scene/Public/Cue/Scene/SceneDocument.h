@@ -19,6 +19,7 @@ namespace cue::scene
 {
 class SceneDocument;
 class SceneDocumentSerializationAccess;
+class SceneDocumentCheckpoint;
 
 /// @brief SceneDocumentが所有する永続Object Authoring Data
 ///
@@ -54,6 +55,37 @@ class SceneObject final
     std::optional<ObjectId> m_parentId;
     math::Transform m_transform;
     std::vector<SceneComponent> m_components;
+};
+
+/// @brief Runtime と Editor Session 状態を含まない完全な Authoring Scene 復元点
+class SceneDocumentCheckpoint final
+{
+  public:
+    /// @brief Authoring 復元点を複製する
+    SceneDocumentCheckpoint(const SceneDocumentCheckpoint &) = default;
+    /// @brief Authoring 復元点を複製代入する
+    SceneDocumentCheckpoint &operator=(const SceneDocumentCheckpoint &) = default;
+    /// @brief Authoring 復元点を移動し、移動元を消費済み状態へ確定する
+    SceneDocumentCheckpoint(SceneDocumentCheckpoint &&a_other) noexcept;
+    /// @brief Authoring 復元点を移動代入し、移動元を消費済み状態へ確定する
+    SceneDocumentCheckpoint &operator=(SceneDocumentCheckpoint &&a_other) noexcept;
+    /// @brief Authoring 復元点の所有 Data を破棄する
+    ~SceneDocumentCheckpoint() noexcept = default;
+
+    /// @brief 復元点が属する永続 Scene Identity を返す
+    [[nodiscard]] const SceneAssetId &scene_asset_id() const noexcept;
+
+  private:
+    friend class SceneDocument;
+
+    /// @brief 検証済み Authoring Scene 全体を復元用に所有する
+    SceneDocumentCheckpoint(SceneAssetId a_sceneAssetId, std::vector<SceneObject> a_objects,
+                            std::string a_extensionsJson) noexcept;
+
+    SceneAssetId m_sceneAssetId;
+    std::vector<SceneObject> m_objects;
+    std::string m_extensionsJson;
+    bool m_isValid = true;
 };
 
 /// @brief RuntimeとEditor一時状態を含まないAuthoring Sceneの編集・保存正本
@@ -95,6 +127,11 @@ class SceneDocument final
     [[nodiscard]] std::span<const SceneObject> objects() const noexcept;
     /// @brief Object Identityに対応し次の成功Mutation、Document Move、破棄まで有効な非所有Pointerを返す
     [[nodiscard]] const SceneObject *find_object(const ObjectId &a_id) const noexcept;
+    /// @brief 現在の完全な Authoring Scene 状態を Editor Transaction 用に複製する
+    [[nodiscard]] SceneDocumentCheckpoint create_checkpoint() const noexcept;
+    /// @brief 同じ Scene Identity の完全 Checkpoint から Authoring Scene 状態を復元する
+    /// @details Copy は再利用できるが Move 元は消費済みとなり、Identity 不一致または消費済みなら Document を変更しない
+    [[nodiscard]] Result<void> restore_checkpoint(SceneDocumentCheckpoint a_checkpoint) noexcept;
 
     /// @brief 検証済みStable IDとAuthoring DataでObjectを追加する
     /// @details Nameは空でない上限内UTF-8とし、Object上限を含む失敗時はDocumentを変更しない
@@ -117,6 +154,9 @@ class SceneDocument final
     /// @brief Stable Instance IDに対応するComponent DataをObjectから削除する
     [[nodiscard]] Result<void> remove_component(const ObjectId &a_objectId,
                                                 const ComponentInstanceId &a_componentId) noexcept;
+    /// @brief 既知 Component の Stable Field Value を同じ Kind の検証済み値へ置き換える
+    [[nodiscard]] Result<void> set_component_field(const ObjectId &a_objectId, const ComponentInstanceId &a_componentId,
+                                                   schema::FieldId a_fieldId, FieldValue a_value) noexcept;
 
     /// @brief Stable ID IndexとHierarchy Invariantを再検証する
     [[nodiscard]] Result<void> validate() const noexcept;
