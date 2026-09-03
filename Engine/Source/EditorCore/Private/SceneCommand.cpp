@@ -7,6 +7,7 @@
 #include <array>
 #include <charconv>
 #include <cstddef>
+#include <limits>
 #include <new>
 #include <span>
 #include <string_view>
@@ -471,74 +472,310 @@ Error add_request_context(Error a_error, const AssertContext &a_assertContext,
 
 Result<DocumentStateId> EditorController::execute_command(SceneCommandRequest a_request) noexcept
 {
+    try
+    {
+        EditorTransaction transaction{"Scene Edit", {}};
+        transaction.commands.push_back(std::move(a_request));
+        return execute_transaction(std::move(transaction));
+    }
+    catch (const std::bad_alloc &)
+    {
+        terminate_allocation();
+    }
+    catch (...)
+    {
+        terminate_exception();
+    }
+}
+
+Result<DocumentStateId> EditorController::execute_transaction(EditorTransaction a_transaction) noexcept
+{
     assert_owner_thread();
-    EditorDocument *document = find_document(a_request.documentId);
+    if (a_transaction.label.empty() || a_transaction.label.size() > scene::k_maximumSceneStringBytes ||
+        a_transaction.commands.empty())
+    {
+        return Result<DocumentStateId>::failure(make_editor_core_error(
+            *m_assertContext, EditorCoreError::InvalidTransaction,
+            "Editor transaction requires a non-empty bounded label and at least one command"));
+    }
+
+    const EditorDocumentId documentId = a_transaction.commands.front().documentId;
+    EditorDocument *document = find_document(documentId);
     if (document == nullptr)
     {
         return Result<DocumentStateId>::failure(
             make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
-                                       "Editor document was not found", a_request.documentId.value()));
+                                       "Editor document was not found", documentId.value()));
     }
     if (document->m_closeState != DocumentCloseState::Open)
     {
         return Result<DocumentStateId>::failure(
             make_editor_document_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
-                                       "Scene commands require an open editor document", a_request.documentId.value()));
+                                       "Scene transactions require an open editor document", documentId.value()));
     }
-    if (document->m_document.scene_asset_id() != a_request.sceneAssetId)
+    for (const SceneCommandRequest &request : a_transaction.commands)
     {
-        Error error = make_editor_document_error(*m_assertContext, EditorCoreError::SceneMismatch,
-                                                 "Scene command target does not match the editor document",
-                                                 a_request.documentId.value());
-        add_identity_context(error, *m_assertContext, "RequestedSceneAssetId=", a_request.sceneAssetId);
-        add_identity_context(error, *m_assertContext, "DocumentSceneAssetId=", document->m_document.scene_asset_id());
-        return Result<DocumentStateId>::failure(std::move(error));
-    }
-    if (is_noop_command(document->m_document, a_request.command))
-    {
-        DocumentStateId state = document->m_currentStateId;
-        return Result<DocumentStateId>::success(std::move(state));
+        if (request.documentId != documentId)
+        {
+            return Result<DocumentStateId>::failure(make_editor_core_error(
+                *m_assertContext, EditorCoreError::InvalidTransaction,
+                "Editor transaction commands must target one editor document"));
+        }
+        if (document->m_document.scene_asset_id() != request.sceneAssetId)
+        {
+            Error error = make_editor_document_error(*m_assertContext, EditorCoreError::SceneMismatch,
+                                                     "Scene command target does not match the editor document",
+                                                     documentId.value());
+            add_identity_context(error, *m_assertContext, "RequestedSceneAssetId=", request.sceneAssetId);
+            add_identity_context(error, *m_assertContext, "DocumentSceneAssetId=",
+                                 document->m_document.scene_asset_id());
+            return Result<DocumentStateId>::failure(std::move(error));
+        }
     }
 
-    scene::SceneDocumentCheckpoint checkpoint = document->m_document.create_checkpoint();
+    scene::SceneDocumentCheckpoint beforeCheckpoint = document->m_document.create_checkpoint();
+    const DocumentStateId beforeState = document->m_currentStateId;
     try
     {
-        auto applied = apply_command(document->m_document, a_request.command, *m_assertContext);
-        if (!applied)
+        bool hasPersistentChange = false;
+        for (SceneCommandRequest &request : a_transaction.commands)
         {
-            Error error = add_request_context(std::move(*applied.try_error()), *m_assertContext, a_request);
-            auto restored = document->m_document.restore_checkpoint(std::move(checkpoint));
-            if (!restored)
+            if (is_noop_command(document->m_document, request.command))
             {
-                m_assertContext->fatal_handler().terminate("Cue.EditorCore command rollback failed");
+                continue;
             }
-            return Result<DocumentStateId>::failure(std::move(error));
+            auto applied = apply_command(document->m_document, request.command, *m_assertContext);
+            if (!applied)
+            {
+                Error error = add_request_context(std::move(*applied.try_error()), *m_assertContext, request);
+                auto restored = document->m_document.restore_checkpoint(std::move(beforeCheckpoint));
+                if (!restored)
+                {
+                    m_assertContext->fatal_handler().terminate("Cue.EditorCore transaction rollback failed");
+                }
+                return Result<DocumentStateId>::failure(std::move(error));
+            }
+            hasPersistentChange = true;
+        }
+        if (!hasPersistentChange)
+        {
+            DocumentStateId state = document->m_currentStateId;
+            return Result<DocumentStateId>::success(std::move(state));
         }
 
         auto validated = document->m_document.validate();
         if (!validated)
         {
-            Error error = add_request_context(std::move(*validated.try_error()), *m_assertContext, a_request);
-            auto restored = document->m_document.restore_checkpoint(std::move(checkpoint));
+            Error error = std::move(*validated.try_error());
+            auto restored = document->m_document.restore_checkpoint(std::move(beforeCheckpoint));
             if (!restored)
             {
-                m_assertContext->fatal_handler().terminate("Cue.EditorCore command validation rollback failed");
+                m_assertContext->fatal_handler().terminate("Cue.EditorCore transaction validation rollback failed");
             }
             return Result<DocumentStateId>::failure(std::move(error));
         }
 
-        auto state = record_persistent_change(a_request.documentId);
+        scene::SceneDocumentCheckpoint afterCheckpoint = document->m_document.create_checkpoint();
+        auto state = issue_persistent_state(documentId, false);
         if (!state)
         {
             Error error = std::move(*state.try_error());
-            auto restored = document->m_document.restore_checkpoint(std::move(checkpoint));
+            auto restored = document->m_document.restore_checkpoint(std::move(beforeCheckpoint));
             if (!restored)
             {
-                m_assertContext->fatal_handler().terminate("Cue.EditorCore command revision rollback failed");
+                m_assertContext->fatal_handler().terminate("Cue.EditorCore transaction revision rollback failed");
             }
             return Result<DocumentStateId>::failure(std::move(error));
         }
+
+        std::size_t estimatedBytes = sizeof(EditorDocument::HistoryEntry);
+        /// @brief History Entry概算がOverflowした場合は上限超過値へ飽和させる
+        const auto add_estimate = [&estimatedBytes](std::size_t a_bytes) noexcept
+        {
+            if (a_bytes > std::numeric_limits<std::size_t>::max() - estimatedBytes)
+            {
+                estimatedBytes = std::numeric_limits<std::size_t>::max();
+                return;
+            }
+            estimatedBytes += a_bytes;
+        };
+        add_estimate(a_transaction.label.size());
+        add_estimate(beforeCheckpoint.estimated_byte_size());
+        add_estimate(afterCheckpoint.estimated_byte_size());
+
+        for (std::size_t index = document->m_historyCursor; index < document->m_history.size(); ++index)
+        {
+            document->m_historyBytes -= document->m_history[index].estimatedBytes;
+        }
+        document->m_history.erase(document->m_history.begin() +
+                                      static_cast<std::ptrdiff_t>(document->m_historyCursor),
+                                  document->m_history.end());
+        DocumentStateId afterState = *state.try_value();
+        document->m_history.push_back(EditorDocument::HistoryEntry{
+            std::move(a_transaction.label), std::move(beforeCheckpoint), std::move(afterCheckpoint), beforeState,
+            afterState, estimatedBytes});
+        if (estimatedBytes > std::numeric_limits<std::size_t>::max() - document->m_historyBytes)
+        {
+            document->m_historyBytes = std::numeric_limits<std::size_t>::max();
+        }
+        else
+        {
+            document->m_historyBytes += estimatedBytes;
+        }
+        document->m_historyCursor = document->m_history.size();
+
+        while (!document->m_history.empty() &&
+               (document->m_history.size() > EditorDocument::maximum_history_entries() ||
+                document->m_historyBytes > EditorDocument::maximum_history_bytes()))
+        {
+            const std::size_t evictedBytes = document->m_history.front().estimatedBytes;
+            document->m_history.erase(document->m_history.begin());
+            --document->m_historyCursor;
+            document->m_historyBytes = document->m_history.empty() ? 0U : document->m_historyBytes - evictedBytes;
+        }
         return state;
+    }
+    catch (const std::bad_alloc &)
+    {
+        terminate_allocation();
+    }
+    catch (...)
+    {
+        terminate_exception();
+    }
+}
+
+Result<DocumentStateId> EditorController::undo(EditorDocumentId a_documentId) noexcept
+{
+    assert_owner_thread();
+    EditorDocument *document = find_document(a_documentId);
+    if (document == nullptr)
+    {
+        return Result<DocumentStateId>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                       "Editor document was not found", a_documentId.value()));
+    }
+    if (document->m_closeState != DocumentCloseState::Open)
+    {
+        return Result<DocumentStateId>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
+                                       "Undo requires an open editor document", a_documentId.value()));
+    }
+    if (!document->can_undo())
+    {
+        return Result<DocumentStateId>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::UndoUnavailable,
+                                       "Editor document has no transaction to undo", a_documentId.value()));
+    }
+
+    try
+    {
+        const EditorDocument::HistoryEntry &entry = document->m_history[document->m_historyCursor - 1U];
+        scene::SceneDocumentCheckpoint currentCheckpoint = document->m_document.create_checkpoint();
+        const DocumentStateId currentState = document->m_currentStateId;
+        auto restored = document->m_document.restore_checkpoint(entry.beforeCheckpoint);
+        if (!restored)
+        {
+            return Result<DocumentStateId>::failure(std::move(*restored.try_error()));
+        }
+        auto validated = document->m_document.validate();
+        if (!validated)
+        {
+            Error error = std::move(*validated.try_error());
+            auto rollback = document->m_document.restore_checkpoint(std::move(currentCheckpoint));
+            if (!rollback)
+            {
+                m_assertContext->fatal_handler().terminate("Cue.EditorCore undo rollback failed");
+            }
+            return Result<DocumentStateId>::failure(std::move(error));
+        }
+        document->m_currentStateId = entry.beforeStateId;
+        auto reconciled = reconcile_selection(a_documentId);
+        if (!reconciled)
+        {
+            Error error = std::move(*reconciled.try_error());
+            auto rollback = document->m_document.restore_checkpoint(std::move(currentCheckpoint));
+            if (!rollback)
+            {
+                m_assertContext->fatal_handler().terminate("Cue.EditorCore undo selection rollback failed");
+            }
+            document->m_currentStateId = currentState;
+            return Result<DocumentStateId>::failure(std::move(error));
+        }
+        --document->m_historyCursor;
+        DocumentStateId state = document->m_currentStateId;
+        return Result<DocumentStateId>::success(std::move(state));
+    }
+    catch (const std::bad_alloc &)
+    {
+        terminate_allocation();
+    }
+    catch (...)
+    {
+        terminate_exception();
+    }
+}
+
+Result<DocumentStateId> EditorController::redo(EditorDocumentId a_documentId) noexcept
+{
+    assert_owner_thread();
+    EditorDocument *document = find_document(a_documentId);
+    if (document == nullptr)
+    {
+        return Result<DocumentStateId>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                       "Editor document was not found", a_documentId.value()));
+    }
+    if (document->m_closeState != DocumentCloseState::Open)
+    {
+        return Result<DocumentStateId>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
+                                       "Redo requires an open editor document", a_documentId.value()));
+    }
+    if (!document->can_redo())
+    {
+        return Result<DocumentStateId>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::RedoUnavailable,
+                                       "Editor document has no transaction to redo", a_documentId.value()));
+    }
+
+    try
+    {
+        const EditorDocument::HistoryEntry &entry = document->m_history[document->m_historyCursor];
+        scene::SceneDocumentCheckpoint currentCheckpoint = document->m_document.create_checkpoint();
+        const DocumentStateId currentState = document->m_currentStateId;
+        auto restored = document->m_document.restore_checkpoint(entry.afterCheckpoint);
+        if (!restored)
+        {
+            return Result<DocumentStateId>::failure(std::move(*restored.try_error()));
+        }
+        auto validated = document->m_document.validate();
+        if (!validated)
+        {
+            Error error = std::move(*validated.try_error());
+            auto rollback = document->m_document.restore_checkpoint(std::move(currentCheckpoint));
+            if (!rollback)
+            {
+                m_assertContext->fatal_handler().terminate("Cue.EditorCore redo rollback failed");
+            }
+            return Result<DocumentStateId>::failure(std::move(error));
+        }
+        document->m_currentStateId = entry.afterStateId;
+        auto reconciled = reconcile_selection(a_documentId);
+        if (!reconciled)
+        {
+            Error error = std::move(*reconciled.try_error());
+            auto rollback = document->m_document.restore_checkpoint(std::move(currentCheckpoint));
+            if (!rollback)
+            {
+                m_assertContext->fatal_handler().terminate("Cue.EditorCore redo selection rollback failed");
+            }
+            document->m_currentStateId = currentState;
+            return Result<DocumentStateId>::failure(std::move(error));
+        }
+        ++document->m_historyCursor;
+        DocumentStateId state = document->m_currentStateId;
+        return Result<DocumentStateId>::success(std::move(state));
     }
     catch (const std::bad_alloc &)
     {

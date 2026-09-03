@@ -98,6 +98,12 @@ class EditorController final
     /// @details Open 中の対象 Document と Scene Identity の一致を要求し、失敗時は Authoring Scene、Selection、
     /// Revision を呼び出し前の状態に維持する。同値更新は現在 Revision を返し新しい State を発行しない
     [[nodiscard]] Result<DocumentStateId> execute_command(SceneCommandRequest a_request) noexcept;
+    /// @brief 一つ以上のCommandを一つのRevisionとHistory EntryとしてAtomicに適用する
+    [[nodiscard]] Result<DocumentStateId> execute_transaction(EditorTransaction a_transaction) noexcept;
+    /// @brief 直前TransactionのBefore CheckpointとStateを復元する
+    [[nodiscard]] Result<DocumentStateId> undo(EditorDocumentId a_documentId) noexcept;
+    /// @brief Undo済みTransactionのAfter CheckpointとStateを再適用する
+    [[nodiscard]] Result<DocumentStateId> redo(EditorDocumentId a_documentId) noexcept;
     /// @brief Stable ObjectId だけを保持し、存在しない ID と重複を安全に除く
     [[nodiscard]] Result<void> set_selection(EditorDocumentId a_documentId,
                                              std::span<const scene::ObjectId> a_objectIds,
@@ -106,7 +112,8 @@ class EditorController final
     [[nodiscard]] Result<void> clear_selection(EditorDocumentId a_documentId) noexcept;
     /// @brief 現在 Scene に存在しない選択 ID を除去する
     [[nodiscard]] Result<void> reconcile_selection(EditorDocumentId a_documentId) noexcept;
-    /// @brief 成功した永続 Data 変更に一つの新しい State Identity を発行する
+    /// @brief History外で成功した永続 Data 変更に一つの新しい State Identity を発行する
+    /// @details Checkpointを持たない変更から古い状態へ遷移しないよう、成功時は既存Historyを破棄する
     [[nodiscard]] Result<DocumentStateId> record_persistent_change(EditorDocumentId a_documentId) noexcept;
     /// @brief 確定保存された発行済み State を保存地点として記録する
     /// @details SaveRequested 中は Clean かつ外部変更なしなら Close し、それ以外は AwaitingDecision へ戻す
@@ -129,6 +136,9 @@ class EditorController final
     [[nodiscard]] EditorDocument *find_document(EditorDocumentId a_id) noexcept;
     /// @brief Closed Document の所有 Data を Session から解放する
     void erase_closed_document(EditorDocumentId a_id) noexcept;
+    /// @brief 永続変更のStateを発行し、要求された場合はCheckpointを持たない既存Historyを破棄する
+    [[nodiscard]] Result<DocumentStateId> issue_persistent_state(EditorDocumentId a_documentId,
+                                                                 bool a_invalidateHistory) noexcept;
     /// @brief 現在 Thread が Controller 作成 Thread であることを全構成で検証する
     void assert_owner_thread() const noexcept;
     /// @brief Allocation 失敗を Fatal 境界へ変換する

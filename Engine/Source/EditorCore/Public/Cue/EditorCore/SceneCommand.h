@@ -103,4 +103,11 @@ struct SceneCommandRequest final
     scene::SceneAssetId sceneAssetId;
     SceneEditCommand command;
 };
+
+/// @brief 一つの利用者操作としてAtomicに適用するScene Command集合
+struct EditorTransaction final
+{
+    std::string label;
+    std::vector<SceneCommandRequest> commands;
+};
 } // namespace cue::editor_core

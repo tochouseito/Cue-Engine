@@ -72,4 +72,34 @@ bool EditorDocument::requires_close_decision() const noexcept
 {
     return is_dirty() || !m_hasSavedDestination || m_externalChangeState != ExternalChangeState::None;
 }
+
+bool EditorDocument::can_undo() const noexcept
+{
+    return m_historyCursor > 0U;
+}
+
+bool EditorDocument::can_redo() const noexcept
+{
+    return m_historyCursor < m_history.size();
+}
+
+std::string_view EditorDocument::undo_label() const noexcept
+{
+    return can_undo() ? std::string_view(m_history[m_historyCursor - 1U].label) : std::string_view{};
+}
+
+std::string_view EditorDocument::redo_label() const noexcept
+{
+    return can_redo() ? std::string_view(m_history[m_historyCursor].label) : std::string_view{};
+}
+
+std::size_t EditorDocument::history_entry_count() const noexcept
+{
+    return m_history.size();
+}
+
+std::size_t EditorDocument::history_byte_size() const noexcept
+{
+    return m_historyBytes;
+}
 } // namespace cue::editor_core
