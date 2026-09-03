@@ -6,6 +6,7 @@
 #include <Cue/Scene/Error.h>
 
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 namespace cue::scene
@@ -81,6 +82,58 @@ SceneDocumentCheckpoint &SceneDocumentCheckpoint::operator=(SceneDocumentCheckpo
 const SceneAssetId &SceneDocumentCheckpoint::scene_asset_id() const noexcept
 {
     return m_sceneAssetId;
+}
+
+std::size_t SceneDocumentCheckpoint::estimated_byte_size() const noexcept
+{
+    std::size_t result = sizeof(SceneDocumentCheckpoint);
+    /// @brief 概算加算がOverflowした場合は最大値へ飽和させる
+    const auto add = [&result](std::size_t a_bytes) noexcept
+    {
+        if (a_bytes > std::numeric_limits<std::size_t>::max() - result)
+        {
+            result = std::numeric_limits<std::size_t>::max();
+            return;
+        }
+        result += a_bytes;
+    };
+
+    add(m_extensionsJson.size());
+    add(m_objects.size() * sizeof(SceneObject));
+    for (const SceneObject &object : m_objects)
+    {
+        add(object.name().size());
+        add(object.components().size() * sizeof(SceneComponent));
+        for (const SceneComponent &component : object.components())
+        {
+            if (const KnownComponentData *known = component.try_known(); known != nullptr)
+            {
+                add(known->known_fields().size() * sizeof(KnownFieldData));
+                add(known->unknown_fields().size() * sizeof(OpaqueFieldData));
+                for (const KnownFieldData &field : known->known_fields())
+                {
+                    if (const std::string *text = field.value().try_string(); text != nullptr)
+                    {
+                        add(text->size());
+                    }
+                    if (const AssetReferenceValue *reference = field.value().try_asset_reference();
+                        reference != nullptr)
+                    {
+                        add(reference->token().size());
+                    }
+                }
+                for (const OpaqueFieldData &field : known->unknown_fields())
+                {
+                    add(field.raw_json().size());
+                }
+            }
+            if (const OpaqueComponentData *opaque = component.try_opaque(); opaque != nullptr)
+            {
+                add(opaque->raw_json().size());
+            }
+        }
+    }
+    return result;
 }
 
 SceneDocument::SceneDocument(SceneAssetId a_sceneAssetId, const AssertContext &a_assertContext) noexcept

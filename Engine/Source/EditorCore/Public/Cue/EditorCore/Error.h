@@ -24,7 +24,10 @@ enum class EditorCoreError : std::int64_t
     InvalidDocumentState = 7,
     InvalidCloseTransition = 8,
     SceneMismatch = 9,
-    InvalidCommand = 10
+    InvalidCommand = 10,
+    InvalidTransaction = 11,
+    UndoUnavailable = 12,
+    RedoUnavailable = 13
 };
 
 /// @brief Editor Core Error を診断 Summary と共に生成する

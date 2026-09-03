@@ -98,6 +98,12 @@ class EditorController final
     /// @details Open 中の対象 Document と Scene Identity の一致を要求し、失敗時は Authoring Scene、Selection、
     /// Revision を呼び出し前の状態に維持する。同値更新は現在 Revision を返し新しい State を発行しない
     [[nodiscard]] Result<DocumentStateId> execute_command(SceneCommandRequest a_request) noexcept;
+    /// @brief 一つ以上のCommandを一つのRevisionとHistory EntryとしてAtomicに適用する
+    [[nodiscard]] Result<DocumentStateId> execute_transaction(EditorTransaction a_transaction) noexcept;
+    /// @brief 直前TransactionのBefore CheckpointとStateを復元する
+    [[nodiscard]] Result<DocumentStateId> undo(EditorDocumentId a_documentId) noexcept;
+    /// @brief Undo済みTransactionのAfter CheckpointとStateを再適用する
+    [[nodiscard]] Result<DocumentStateId> redo(EditorDocumentId a_documentId) noexcept;
     /// @brief Stable ObjectId だけを保持し、存在しない ID と重複を安全に除く
     [[nodiscard]] Result<void> set_selection(EditorDocumentId a_documentId,
                                              std::span<const scene::ObjectId> a_objectIds,

@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -568,6 +569,139 @@ void test_scene_commands() noexcept
     require(document->scene_document().find_object(childCopyId) != nullptr);
 }
 
+/// @brief Transaction単位のUndo／Redo、分岐破棄、連続編集復元を検証する
+void test_transaction_history() noexcept
+{
+    TestFatalHandler fatalHandler;
+    std::vector<std::unique_ptr<cue::LogSink>> sinks;
+    cue::Logger logger(fatalHandler, std::move(sinks));
+    cue::AssertContext assertContext(logger, fatalHandler);
+    cue::schema::SchemaRegistryIdentitySource registryIdentitySource;
+    auto registry = make_component_registry(registryIdentitySource, assertContext);
+    auto valueRegistry = make_component_value_registry(*registry, assertContext);
+    auto controller = cue::editor_core::EditorController::create(make_project_descriptor(assertContext), assertContext);
+
+    auto scene = make_scene_document("00000000-0000-4000-8000-000000000601", assertContext);
+    const auto sceneAssetId = scene.scene_asset_id();
+    const auto rootId = make_object_id("00000000-0000-4000-8000-000000000611", assertContext);
+    const auto childId = make_object_id("00000000-0000-4000-8000-000000000612", assertContext);
+    const auto grandchildId = make_object_id("00000000-0000-4000-8000-000000000613", assertContext);
+    const auto componentId = make_component_id("00000000-0000-4000-8000-000000000621", assertContext);
+    require(scene.add_object(rootId, "Root", true, std::nullopt, cue::math::Transform{}).has_value());
+    auto locator = take_value(cue::RelativePath::parse("Scenes/History.cuescene", assertContext));
+    const auto documentId = take_value(controller->open_document(std::move(scene), std::move(locator), true));
+
+    cue::editor_core::EditorTransaction failedTransaction{"Fail Together", {}};
+    failedTransaction.commands.push_back(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "Partial Name"}});
+    failedTransaction.commands.push_back(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId,
+        cue::editor_core::AddObjectCommand{rootId, "Duplicate", true, std::nullopt, cue::math::Transform{}}});
+    require(!controller->execute_transaction(std::move(failedTransaction)).has_value());
+    const auto *document = controller->session().find_document(documentId);
+    require(document != nullptr && document->current_state_id().value() == 1U);
+    require(document->scene_document().find_object(rootId)->name() == "Root");
+    require(document->history_entry_count() == 0U);
+
+    cue::editor_core::EditorTransaction addTransaction{"Add Character", {}};
+    addTransaction.commands.push_back(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId,
+        cue::editor_core::AddObjectCommand{childId, "Child", true, rootId, cue::math::Transform{}}});
+    addTransaction.commands.push_back(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId,
+        cue::editor_core::AddComponentCommand{
+            childId, make_health_component(componentId, 77, *registry, valueRegistry, assertContext)}});
+    addTransaction.commands.push_back(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId,
+        cue::editor_core::AddObjectCommand{grandchildId, "Grandchild", false, childId, cue::math::Transform{}}});
+    auto state = take_value(controller->execute_transaction(std::move(addTransaction)));
+    require(state.value() == 2U);
+    document = controller->session().find_document(documentId);
+    require(document != nullptr && document->history_entry_count() == 1U && document->history_byte_size() > 0U);
+    require(document->history_byte_size() <= cue::editor_core::EditorDocument::maximum_history_bytes());
+    require(document->undo_label() == "Add Character");
+    require(component_health(*document->scene_document().find_object(childId), componentId) == 77);
+    require(document->scene_document().find_object(grandchildId)->try_parent_id() != nullptr);
+
+    state = take_value(controller->undo(documentId));
+    require(state.value() == 1U);
+    document = controller->session().find_document(documentId);
+    require(document->scene_document().find_object(childId) == nullptr);
+    require(!document->is_dirty() && document->can_redo());
+    require(document->redo_label() == "Add Character");
+    state = take_value(controller->redo(documentId));
+    require(state.value() == 2U);
+    document = controller->session().find_document(documentId);
+    require(component_health(*document->scene_document().find_object(childId), componentId) == 77);
+    require(document->is_dirty());
+
+    state = take_value(controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::DeleteObjectCommand{childId}}));
+    require(state.value() == 3U);
+    document = controller->session().find_document(documentId);
+    require(document->scene_document().find_object(childId) == nullptr);
+    state = take_value(controller->undo(documentId));
+    require(state.value() == 2U);
+    document = controller->session().find_document(documentId);
+    require(component_health(*document->scene_document().find_object(childId), componentId) == 77);
+    const auto *restoredGrandchild = document->scene_document().find_object(grandchildId);
+    require(restoredGrandchild != nullptr && restoredGrandchild->try_parent_id() != nullptr &&
+            *restoredGrandchild->try_parent_id() == childId);
+    require(take_value(controller->redo(documentId)).value() == 3U);
+    require(take_value(controller->undo(documentId)).value() == 2U);
+
+    state = take_value(controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::RemoveComponentCommand{childId, componentId}}));
+    require(state.value() == 4U);
+    document = controller->session().find_document(documentId);
+    require(document->scene_document().find_object(childId)->components().empty());
+    require(take_value(controller->undo(documentId)).value() == 2U);
+    document = controller->session().find_document(documentId);
+    require(component_health(*document->scene_document().find_object(childId), componentId) == 77);
+
+    state = take_value(controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "Branch Root"}}));
+    require(state.value() == 5U);
+    document = controller->session().find_document(documentId);
+    require(!document->can_redo());
+
+    for (std::size_t index = 0U; index < 100U; ++index)
+    {
+        const std::string_view name = index % 2U == 0U ? "Loop A" : "Loop B";
+        require(controller->execute_command(cue::editor_core::SceneCommandRequest{
+                    documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, std::string(name)}})
+                    .has_value());
+    }
+    document = controller->session().find_document(documentId);
+    require(document->current_state_id().value() == 105U);
+    for (std::size_t index = 0U; index < 100U; ++index)
+    {
+        require(controller->undo(documentId).has_value());
+    }
+    document = controller->session().find_document(documentId);
+    require(document->current_state_id().value() == 5U);
+    require(document->scene_document().find_object(rootId)->name() == "Branch Root");
+    for (std::size_t index = 0U; index < 100U; ++index)
+    {
+        require(controller->redo(documentId).has_value());
+    }
+    document = controller->session().find_document(documentId);
+    require(document->current_state_id().value() == 105U);
+    require(document->scene_document().find_object(rootId)->name() == "Loop B");
+    require(document->scene_document().validate().has_value());
+
+    for (std::size_t index = 0U; index < 160U; ++index)
+    {
+        const std::string_view name = index % 2U == 0U ? "Limit A" : "Limit B";
+        require(controller->execute_command(cue::editor_core::SceneCommandRequest{
+                    documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, std::string(name)}})
+                    .has_value());
+    }
+    document = controller->session().find_document(documentId);
+    require(document->history_entry_count() == cue::editor_core::EditorDocument::maximum_history_entries());
+    require(document->history_byte_size() <= cue::editor_core::EditorDocument::maximum_history_bytes());
+}
+
 /// @brief 外部変更と Close 判断の状態遷移を検証する
 void test_external_change_and_close() noexcept
 {
@@ -662,6 +796,7 @@ int main()
     test_revision_and_dirty();
     test_selection_reconciliation();
     test_scene_commands();
+    test_transaction_history();
     test_external_change_and_close();
     return 0;
 }

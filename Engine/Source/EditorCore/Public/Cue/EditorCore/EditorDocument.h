@@ -4,10 +4,13 @@
 #include <Cue/Scene/SceneDocument.h>
 
 #include <compare>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -151,9 +154,44 @@ class EditorDocument final
     [[nodiscard]] DocumentCloseState close_state() const noexcept;
     /// @brief Close 前に Save、Discard、Cancel の明示判断が必要か返す
     [[nodiscard]] bool requires_close_decision() const noexcept;
+    /// @brief 現在状態から一つ前のTransactionへ戻せるか返す
+    [[nodiscard]] bool can_undo() const noexcept;
+    /// @brief Undo後のTransactionを再適用できるか返す
+    [[nodiscard]] bool can_redo() const noexcept;
+    /// @brief 次にUndoするTransaction Labelまたは空Viewを返す
+    [[nodiscard]] std::string_view undo_label() const noexcept;
+    /// @brief 次にRedoするTransaction Labelまたは空Viewを返す
+    [[nodiscard]] std::string_view redo_label() const noexcept;
+    /// @brief 保持しているUndo／Redo Transaction総数を返す
+    [[nodiscard]] std::size_t history_entry_count() const noexcept;
+    /// @brief 保持Historyが所有する概算Byte数を返す
+    [[nodiscard]] std::size_t history_byte_size() const noexcept;
+
+    /// @brief 一Documentが保持するHistory Entry数上限を返す
+    [[nodiscard]] static constexpr std::size_t maximum_history_entries() noexcept
+    {
+        return 256U;
+    }
+
+    /// @brief 一Documentが保持するHistory概算Byte数上限を返す
+    [[nodiscard]] static constexpr std::size_t maximum_history_bytes() noexcept
+    {
+        return 64U * 1024U * 1024U;
+    }
 
   private:
     friend class EditorController;
+
+    /// @brief 一Transactionの表示名、完全復元点、前後Stateだけを所有する
+    struct HistoryEntry final
+    {
+        std::string label;
+        scene::SceneDocumentCheckpoint beforeCheckpoint;
+        scene::SceneDocumentCheckpoint afterCheckpoint;
+        DocumentStateId beforeStateId;
+        DocumentStateId afterStateId;
+        std::size_t estimatedBytes;
+    };
 
     /// @brief Open 済み Scene と初期 Session 状態を束ねる
     EditorDocument(EditorDocumentId a_id, std::shared_ptr<const DocumentStateOrigin> a_stateOrigin,
@@ -170,5 +208,8 @@ class EditorDocument final
     std::optional<scene::ObjectId> m_primarySelection;
     ExternalChangeState m_externalChangeState = ExternalChangeState::None;
     DocumentCloseState m_closeState = DocumentCloseState::Open;
+    std::vector<HistoryEntry> m_history;
+    std::size_t m_historyCursor = 0U;
+    std::size_t m_historyBytes = 0U;
 };
 } // namespace cue::editor_core

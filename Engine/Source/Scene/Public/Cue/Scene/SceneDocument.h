@@ -74,6 +74,8 @@ class SceneDocumentCheckpoint final
 
     /// @brief 復元点が属する永続 Scene Identity を返す
     [[nodiscard]] const SceneAssetId &scene_asset_id() const noexcept;
+    /// @brief History 上限判定に使用する所有 Data の概算 Byte 数を返す
+    [[nodiscard]] std::size_t estimated_byte_size() const noexcept;
 
   private:
     friend class SceneDocument;
