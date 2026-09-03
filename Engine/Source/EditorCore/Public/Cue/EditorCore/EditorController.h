@@ -104,8 +104,10 @@ class EditorController final
     /// @brief 成功した永続 Data 変更に一つの新しい State Identity を発行する
     [[nodiscard]] Result<DocumentStateId> record_persistent_change(EditorDocumentId a_documentId) noexcept;
     /// @brief 確定保存された発行済み State を保存地点として記録する
+    /// @details SaveRequested 中は Clean かつ外部変更なしなら Close し、それ以外は AwaitingDecision へ戻す
     [[nodiscard]] Result<void> mark_saved(EditorDocumentId a_documentId, DocumentStateId a_savedStateId) noexcept;
     /// @brief Close Save の失敗を通知して利用者判断待ちへ戻す
+    /// @details SaveRequested 以外では InvalidCloseTransition を返し、Document 状態を変更しない
     [[nodiscard]] Result<DocumentCloseState> report_save_failure(EditorDocumentId a_documentId) noexcept;
     /// @brief Scene 正本に対する外部変更の観測状態を更新する
     [[nodiscard]] Result<void> set_external_change_state(EditorDocumentId a_documentId,
@@ -113,6 +115,7 @@ class EditorController final
     /// @brief Document Close を開始し、明示判断の要否を状態として返す
     [[nodiscard]] Result<DocumentCloseState> request_close(EditorDocumentId a_documentId) noexcept;
     /// @brief AwaitingDecision 中の Save、Discard、Cancel 判断を適用する
+    /// @details 外部変更中の Save は InvalidCloseTransition を返し、AwaitingDecision を維持する
     [[nodiscard]] Result<DocumentCloseState> respond_to_close(EditorDocumentId a_documentId,
                                                               CloseDecision a_decision) noexcept;
 
