@@ -210,7 +210,7 @@ Scene Save／Save As／Recovery Publishを直列化し、Sceneごとの進行中
 `EditorDocument`はCoordinatorを所有せず、Session終了より長く参照しない。
 
 `SceneWriteLease`は本文Path、`.backup` Path、同じ親DirectoryのLock Sidecarを一つの排他範囲とする。Leaseは本文Entry確認前に取得し、
-旧Byte列読込、Backup公開、本文公開、再読込比較、結果状態の記録が完了するまで保持する。Windows Adapterは同じ物理Directoryと
+旧Byte列読込、Backup公開、本文公開、公開結果の検証、結果状態の記録が完了するまで保持する。Windows Adapterは同じ物理Directoryと
 File名へ解決されるLock Sidecarを、Write／Delete共有を許可しないNative Handleとして開き、Process終了時にもOSが解放する。
 別Rootから同じ実Fileへ到達するCueEngine Writerも同じSidecarで競合し、Lease取得失敗を待機または診断可能なBusyとして返す。
 Sidecar削除失敗は本文Saveの成否を変更せずSecondary診断とする。
@@ -221,8 +221,15 @@ Windows AdapterはLease取得後、Backup作成前にNative File InformationのL
 Cross-process Leaseを別Research Issueで決定する。
 
 協調しない外部ProcessはLease Protocolに参加しないため、CoordinatorはLease取得直後かつBackup作成直前にFile Fingerprintを再取得し、
-操作が保持するDestination Expected Fingerprintと一致しなければ本文を公開せずExternal Conflictへ遷移する。OSが許す競合Writerによる
-この再検査後の変更を完全には排除できないことは既知Riskとし、Publish後の再読込比較で検出する。
+操作が保持するDestination Expected Fingerprintと一致しなければ本文を公開せずExternal Conflictへ遷移する。Save Asで期待値が
+`Missing`の場合は、Destinationが存在しない場合だけ成功するCreate-new Publishを使用し、公開直前に作成されたEntryを置換しない。
+
+既存Destinationの置換について、WindowsのPath単位Fingerprint再検査と`MoveFileExW`による公開の間を、Lease Protocolへ参加しない
+Processに対してAtomicなCompare-and-Publishにはできない。Publish後の再読込はCandidateが公開されたことの検証であり、その間に上書きした
+外部変更を検出する競合検査として扱わない。M12で保証する同時Writerは`SceneWriteLease`へ参加するCueEngine Processだけとし、
+非協調Processによる再検査後の同時書込みは未対応の競合として明示する。外部変更の監視または事前Fingerprint不一致を検出したDocumentは
+Saveを開始せずExternal Conflictへ遷移し、Reload、Save As、Cancelを要求する。非協調Writerまで含む既存FileのCompare-and-Publishが
+必要になった場合は、Windows Native境界と復旧契約を別Research Issueで決定する。
 
 通常SaveのDestination Expected FingerprintはEditorDocumentのBase Fingerprintとする。Save Asでは選択した保存先のFingerprintを
 操作開始時に取得し、新規Fileなら明示的な`Missing`を期待値とする。Save As開始時にEditorDocumentのLocatorまたはBase Fingerprintを
@@ -243,15 +250,19 @@ Candidate Checkpointを`PendingSaveRecord`としてEditorDocumentが所有する
 Undoで開始時Stateへ戻ればCleanになる。M12の同期実装ではOwner ThreadをBlockしてよいが、将来非同期化してもこの契約を維持する。
 
 Save Uncertainの再確認は、Coordinatorが`PendingSaveRecord`のDestinationへ新しいLeaseを取得して行う。
-`PublishedButDurabilityUnknown`では、最初にDestination Fileと親Directoryに対するDurability Barrierを再試行する。
-Barrierが失敗した場合はByte列を再読込できてもUncertainを解除せず、Recordを保持する。Barrierが成功した場合、または元結果が
-`PublishedButVerificationFailed`でDurability成功済みの場合だけ、本文を上限付きで再読込し、完全Parse、Migration、Validationした
-Byte列のDigestをCandidate Digestと比較する。
+`PublishedButDurabilityUnknown`は、ADR-0014で定義したWindows Publish境界だけでは公開済みFileと親Directoryに対する独立した
+Durability Barrierを再試行できないため、Byte列の再読込一致では解除しない。Recordの同じCandidateをDestinationへ再保存し、
+`Cue.Scene`のAtomic Saveから新しい`Committed`を得た場合だけDurabilityを確定する。この場合はRecordの開始時Stateを
+`savedStateId`へ設定し、Destination Locatorと現在Fingerprintを記録してUncertainを解除する。再保存が失敗または再び
+`PublishedButDurabilityUnknown`になった場合はRecordとUncertainを維持する。
 
-DigestとScene Identityが一致した場合は、Recordの開始時Stateを`savedStateId`へ設定し、Destination Locatorと現在Fingerprintを記録して
-Uncertainを解除する。現在Stateが進んでいればDirtyは維持する。同じDestinationへ同じCandidateを再保存し、通常の`Committed`を得た場合も
-同じ状態へ遷移できる。一致しない、再読込できない、別Scene Identityである場合はExternal Conflictへ遷移し、Recordと
-Candidate Checkpointを保持したままReload、Save As、Retry Durability／Verification、Cancelの明示Intentを要求する。
+`PublishedButVerificationFailed`はDurability成功済みであるため、本文を上限付きで再読込し、完全Parse、Migration、Validationした
+Byte列のDigestをCandidate Digestと比較してよい。DigestとScene Identityが一致した場合は、Recordの開始時Stateを
+`savedStateId`へ設定し、Destination Locatorと現在Fingerprintを記録してUncertainを解除する。
+
+どちらの解除経路でも、現在Stateが進んでいればDirtyを維持する。再読込内容が一致しない、再読込できない、別Scene Identityである場合は
+External Conflictへ遷移し、RecordとCandidate Checkpointを保持したままReload、Save As、Retry Save／Verification、Cancelの
+明示Intentを要求する。
 明示的なDiscardまたはSession CloseまでRecordを破棄しない。
 
 File Fingerprintは最終更新時刻だけに依存せず、File SizeとContent Digestを含む。外部変更を検出した場合は暗黙に上書きせず、
@@ -288,9 +299,14 @@ CloseRequested
     v
 AwaitingDecision --Cancel--> Open
     |--Discard-------------> Closed
-    `--Save--> Saving --Committed--> Closed
-                    `--Failure-----> AwaitingDecision
+    `--Save--> Saving --Committed and clean, no uncertain--> Closed
+                    |--Committed but dirty / uncertain-----> AwaitingDecision
+                    `--Failure-----------------------------> AwaitingDecision
 ```
+
+Save完了後は、同期／非同期の実装方式にかかわらず、Closeを確定する直前に`currentStateId == savedStateId`かつ
+Save Uncertainが存在しないことを再確認する。保存開始後に編集が進んだ場合やUncertainが残る場合はDocumentを閉じず、
+新しい状態に対するSave、Discard、Cancelを選択する`AwaitingDecision`へ戻す。
 
 DiscardはMemory上のEditorDocumentを閉じるだけで、正本FileやRecovery Fileを削除しない。Recovery削除は別の明示Intentとする。
 
@@ -367,6 +383,7 @@ Buildの依存検証で、`Cue.EditorCore`から`Cue.RHI`、D3D12、Renderer、I
 - Core、Workflow、Presentationを分離するため、単純なUI Callbackより型と状態遷移が増える
 - Process境界ではProject情報を再検証するため、起動時I/Oが重複する
 - Save UncertainとExternal Conflictを区別するため、UIに追加の判断経路が必要になる
+- Windows上の非協調Writerに対する既存FileのAtomic Compare-and-PublishはM12で保証しない
 
 ### Mitigations
 
@@ -423,3 +440,4 @@ M12のHierarchy／Inspector／Project Hubは描画Runtime機能を必要とせ�
 - Viewport Rendering、Play Mode、Scriptingは後続MilestoneのResearchを先行する
 - 差分CheckpointやCommand Coalescingが必要な場合は、計測結果と復元同値Testを伴う別Issueで判断する
 - 複数Editor同時編集、Project Lock、Crash-safe Persistent Undoは別Research Issueで扱う
+- 非協調Writerを含む既存FileのCompare-and-Publishが必要な場合は、Windows Native境界をResearch Issueで決定する
