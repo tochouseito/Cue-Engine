@@ -316,6 +316,13 @@ void test_external_change_and_close() noexcept
     require(
         controller->set_external_change_state(changedId, cue::editor_core::ExternalChangeState::Modified).has_value());
     require(take_value(controller->request_close(changedId)) == cue::editor_core::DocumentCloseState::AwaitingDecision);
+    const auto conflictingSave = controller->respond_to_close(changedId, cue::editor_core::CloseDecision::Save);
+    require(!conflictingSave.has_value());
+    require(conflictingSave.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::InvalidCloseTransition));
+    const auto *changedDocument = controller->session().find_document(changedId);
+    require(changedDocument != nullptr);
+    require(changedDocument->close_state() == cue::editor_core::DocumentCloseState::AwaitingDecision);
 }
 } // namespace
 

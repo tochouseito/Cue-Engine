@@ -423,6 +423,12 @@ Result<DocumentCloseState> EditorController::respond_to_close(EditorDocumentId a
     switch (a_decision)
     {
     case CloseDecision::Save:
+        if (document->m_externalChangeState != ExternalChangeState::None)
+        {
+            return Result<DocumentCloseState>::failure(make_editor_document_error(
+                *m_assertContext, EditorCoreError::InvalidCloseTransition,
+                "External scene changes require reload, save as, or cancel before close", a_documentId.value()));
+        }
         document->m_closeState = DocumentCloseState::SaveRequested;
         break;
     case CloseDecision::Discard:
