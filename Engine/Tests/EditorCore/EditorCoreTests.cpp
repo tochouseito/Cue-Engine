@@ -159,12 +159,6 @@ void test_revision_and_dirty() noexcept
     require(document != nullptr);
     require(document->is_dirty());
 
-    const auto invalidSave = controller->mark_saved(documentId, cue::editor_core::DocumentStateId(documentId, 100U));
-    require(!invalidSave.has_value());
-    require(invalidSave.try_error()->code().value() ==
-            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::InvalidSavedState));
-    require(has_error_context(*invalidSave.try_error(), "EditorDocumentId=1"));
-
     const auto missingDocument = controller->mark_saved(cue::editor_core::EditorDocumentId(999U), secondState);
     require(!missingDocument.has_value());
     require(missingDocument.try_error()->code().value() ==
@@ -184,6 +178,23 @@ void test_revision_and_dirty() noexcept
     require(crossDocumentSave.try_error()->code().value() ==
             static_cast<std::int64_t>(cue::editor_core::EditorCoreError::InvalidSavedState));
     require(has_error_context(*crossDocumentSave.try_error(), "EditorDocumentId=2"));
+
+    auto secondController =
+        cue::editor_core::EditorController::create(make_project_descriptor(assertContext), assertContext);
+    auto nextSessionScene = make_scene_document("00000000-0000-4000-8000-000000000203", assertContext);
+    auto nextSessionLocator =
+        take_value(cue::RelativePath::parse("Scenes/NextSessionRevision.cuescene", assertContext));
+    const auto nextSessionDocumentId =
+        take_value(secondController->open_document(std::move(nextSessionScene), std::move(nextSessionLocator), true));
+    const auto nextSessionState = take_value(secondController->record_persistent_change(nextSessionDocumentId));
+    require(nextSessionDocumentId == documentId);
+    require(nextSessionState.value() == secondState.value());
+
+    const auto crossSessionSave = secondController->mark_saved(nextSessionDocumentId, secondState);
+    require(!crossSessionSave.has_value());
+    require(crossSessionSave.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::InvalidSavedState));
+    require(has_error_context(*crossSessionSave.try_error(), "EditorDocumentId=1"));
 }
 
 /// @brief SelectionがStable ObjectIdだけを順序付き集合として保持することを検証する

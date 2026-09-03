@@ -12,6 +12,11 @@
 
 namespace cue::editor_core
 {
+/// @brief DocumentStateIdを一つのController Sessionへ結び付ける内部Origin
+class DocumentStateOrigin final
+{
+};
+
 ProjectWorkspaceSession::ProjectWorkspaceSession(ProjectDescriptor &&a_descriptor) noexcept
     : m_descriptor(std::move(a_descriptor))
 {
@@ -53,8 +58,9 @@ std::unique_ptr<EditorController> EditorController::create(ProjectDescriptor &&a
     std::terminate();
 }
 
-EditorController::EditorController(ProjectDescriptor &&a_descriptor, const AssertContext &a_assertContext) noexcept
-    : m_session(std::move(a_descriptor)), m_assertContext(&a_assertContext), m_ownerThread(std::this_thread::get_id())
+EditorController::EditorController(ProjectDescriptor &&a_descriptor, const AssertContext &a_assertContext)
+    : m_stateOrigin(new DocumentStateOrigin()), m_session(std::move(a_descriptor)), m_assertContext(&a_assertContext),
+      m_ownerThread(std::this_thread::get_id())
 {
 }
 
@@ -113,7 +119,8 @@ Result<EditorDocumentId> EditorController::open_document(scene::SceneDocument &&
 
     try
     {
-        EditorDocument openedDocument(id, std::move(a_document), std::move(a_locator), a_hasSavedDestination);
+        EditorDocument openedDocument(id, m_stateOrigin, std::move(a_document), std::move(a_locator),
+                                      a_hasSavedDestination);
         m_session.m_documents.push_back(std::move(openedDocument));
     }
     catch (const std::bad_alloc &)
@@ -226,7 +233,7 @@ Result<DocumentStateId> EditorController::record_persistent_change(EditorDocumen
                                        "Editor document state identity space is exhausted", a_documentId.value()));
     }
 
-    document->m_currentStateId = DocumentStateId(a_documentId, document->m_nextStateId);
+    document->m_currentStateId = DocumentStateId(m_stateOrigin, a_documentId, document->m_nextStateId);
     ++document->m_nextStateId;
 
     auto reconciled = reconcile_selection(a_documentId);
@@ -247,8 +254,9 @@ Result<void> EditorController::mark_saved(EditorDocumentId a_documentId, Documen
         return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
                                                                 "Editor document was not found", a_documentId.value()));
     }
-    if (document->m_closeState == DocumentCloseState::Closed || a_savedStateId.document_id() != a_documentId ||
-        a_savedStateId.value() == 0U || a_savedStateId.value() >= document->m_nextStateId)
+    if (document->m_closeState == DocumentCloseState::Closed || a_savedStateId.m_origin != m_stateOrigin ||
+        a_savedStateId.document_id() != a_documentId || a_savedStateId.value() == 0U ||
+        a_savedStateId.value() >= document->m_nextStateId)
     {
         return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::InvalidSavedState,
                                                                 "Saved state identity was not issued by this document",

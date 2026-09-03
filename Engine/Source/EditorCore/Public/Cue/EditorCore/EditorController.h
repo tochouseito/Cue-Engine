@@ -90,7 +90,7 @@ class EditorController final
 
   private:
     /// @brief Project DescriptorとOwner Thread契約を保持する
-    EditorController(ProjectDescriptor &&a_descriptor, const AssertContext &a_assertContext) noexcept;
+    EditorController(ProjectDescriptor &&a_descriptor, const AssertContext &a_assertContext);
     /// @brief Document Identityに対応する可変Documentを返す
     [[nodiscard]] EditorDocument *find_document(EditorDocumentId a_id) noexcept;
     /// @brief Closed Documentの所有DataをSessionから解放する
@@ -102,6 +102,7 @@ class EditorController final
     /// @brief 予期しない例外をFatal境界へ変換する
     [[noreturn]] void terminate_exception() const noexcept;
 
+    std::shared_ptr<const DocumentStateOrigin> m_stateOrigin;
     ProjectWorkspaceSession m_session;
     const AssertContext *m_assertContext;
     std::thread::id m_ownerThread;

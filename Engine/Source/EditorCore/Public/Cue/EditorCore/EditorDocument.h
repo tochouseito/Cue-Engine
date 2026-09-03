@@ -5,12 +5,18 @@
 
 #include <compare>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace cue::editor_core
 {
+class EditorController;
+class EditorDocument;
+class DocumentStateOrigin;
+
 /// @brief Editor Process内で開いているDocumentを識別する一時Identity
 class EditorDocumentId final
 {
@@ -37,11 +43,11 @@ class EditorDocumentId final
 class DocumentStateId final
 {
   public:
-    /// @brief 発行元Documentと非永続Revision値を保持する
-    constexpr DocumentStateId(EditorDocumentId a_documentId, std::uint64_t a_value) noexcept
-        : m_documentId(a_documentId), m_value(a_value)
-    {
-    }
+    DocumentStateId(const DocumentStateId &) noexcept = default;
+    DocumentStateId &operator=(const DocumentStateId &) noexcept = default;
+    DocumentStateId(DocumentStateId &&) noexcept = default;
+    DocumentStateId &operator=(DocumentStateId &&) noexcept = default;
+    ~DocumentStateId() noexcept = default;
 
     /// @brief Stateを発行したEditor Document Identityを返す
     [[nodiscard]] constexpr EditorDocumentId document_id() const noexcept
@@ -56,9 +62,20 @@ class DocumentStateId final
     }
 
     /// @brief Authoring状態Identity値を比較する
-    [[nodiscard]] constexpr auto operator<=>(const DocumentStateId &) const noexcept = default;
+    [[nodiscard]] auto operator<=>(const DocumentStateId &) const noexcept = default;
 
   private:
+    friend class EditorController;
+    friend class EditorDocument;
+
+    /// @brief Controller固有Origin、発行元Document、非永続Revision値を保持する
+    DocumentStateId(std::shared_ptr<const DocumentStateOrigin> a_origin, EditorDocumentId a_documentId,
+                    std::uint64_t a_value) noexcept
+        : m_origin(std::move(a_origin)), m_documentId(a_documentId), m_value(a_value)
+    {
+    }
+
+    std::shared_ptr<const DocumentStateOrigin> m_origin;
     EditorDocumentId m_documentId;
     std::uint64_t m_value;
 };
@@ -87,8 +104,6 @@ enum class CloseDecision : std::uint8_t
     Discard,
     Cancel
 };
-
-class EditorController;
 
 /// @brief 一つのSceneDocumentとUI非依存Editor Session状態の一意Owner
 ///
@@ -131,8 +146,8 @@ class EditorDocument final
     friend class EditorController;
 
     /// @brief Open済みSceneと初期Session状態を束ねる
-    EditorDocument(EditorDocumentId a_id, scene::SceneDocument &&a_document, RelativePath &&a_locator,
-                   bool a_hasSavedDestination) noexcept;
+    EditorDocument(EditorDocumentId a_id, std::shared_ptr<const DocumentStateOrigin> a_stateOrigin,
+                   scene::SceneDocument &&a_document, RelativePath &&a_locator, bool a_hasSavedDestination) noexcept;
 
     EditorDocumentId m_id;
     scene::SceneDocument m_document;
