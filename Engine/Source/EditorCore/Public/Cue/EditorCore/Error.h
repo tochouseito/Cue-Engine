@@ -12,7 +12,7 @@ class AssertContext;
 
 namespace cue::editor_core
 {
-/// @brief Editor Coreの回復可能な失敗を分類するCode
+/// @brief Editor Core の回復可能な失敗を分類する Code
 enum class EditorCoreError : std::int64_t
 {
     DocumentNotFound = 1,
@@ -25,11 +25,11 @@ enum class EditorCoreError : std::int64_t
     InvalidCloseTransition = 8
 };
 
-/// @brief Editor Core Errorを診断Summaryと共に生成する
+/// @brief Editor Core Error を診断 Summary と共に生成する
 [[nodiscard]] Error make_editor_core_error(const AssertContext &a_assertContext, EditorCoreError a_code,
                                            std::string_view a_summary) noexcept;
 
-/// @brief Document単位のEditor Core Errorへ対象EditorDocumentId Contextを付加する
+/// @brief Document 単位の Editor Core Error へ対象 EditorDocumentId Context を付加する
 [[nodiscard]] Error make_editor_document_error(const AssertContext &a_assertContext, EditorCoreError a_code,
                                                std::string_view a_summary, std::uint64_t a_documentId) noexcept;
 } // namespace cue::editor_core

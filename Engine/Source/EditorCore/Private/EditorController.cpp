@@ -12,7 +12,7 @@
 
 namespace cue::editor_core
 {
-/// @brief DocumentStateIdを一つのController Sessionへ結び付ける内部Origin
+/// @brief DocumentStateId を一つの Controller Session へ結び付ける内部 Origin
 class DocumentStateOrigin final
 {
 };

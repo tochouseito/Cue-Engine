@@ -6,7 +6,7 @@
 
 namespace
 {
-/// @brief 匿名Braced InitでFactory Passkeyを回避できるか検査する
+/// @brief 匿名 Braced Init で Factory Passkey を回避できるか検査する
 template <typename T>
 concept SupportsAnonymousConstructionKey =
     requires(cue::ProjectDescriptor &&a_descriptor, const cue::AssertContext &a_assertContext) {
@@ -16,7 +16,7 @@ concept SupportsAnonymousConstructionKey =
 static_assert(!SupportsAnonymousConstructionKey<cue::editor_core::EditorController>);
 } // namespace
 
-/// @brief Cue.EditorCore Public Headerが自己完結してCompileできることを検証する
+/// @brief Cue.EditorCore Public Header が自己完結して Compile できることを検証する
 int main()
 {
     return 0;

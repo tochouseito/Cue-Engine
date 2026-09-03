@@ -20,20 +20,20 @@ namespace
 class TestFatalHandler final : public cue::FatalHandler
 {
   public:
-    /// @brief Test中の通常FatalをProcess失敗へ変換する
+    /// @brief Test 中の通常 Fatal を Process 失敗へ変換する
     [[noreturn]] void terminate() noexcept override
     {
         std::abort();
     }
 
-    /// @brief Test中の予期しないFatalをProcess失敗へ変換する
+    /// @brief Test 中の予期しない Fatal を Process 失敗へ変換する
     [[noreturn]] void terminate(std::string_view) noexcept override
     {
         std::abort();
     }
 };
 
-/// @brief 条件が偽ならTest Processを失敗終了する
+/// @brief 条件が偽なら Test Process を失敗終了する
 void require(bool a_condition) noexcept
 {
     if (!a_condition)
@@ -42,7 +42,7 @@ void require(bool a_condition) noexcept
     }
 }
 
-/// @brief Errorが指定した診断Contextを含むか判定する
+/// @brief Error が指定した診断 Context を含むか判定する
 [[nodiscard]] bool has_error_context(const cue::Error &a_error, std::string_view a_expected) noexcept
 {
     for (const cue::ErrorContext &context : a_error.contexts())
@@ -55,14 +55,14 @@ void require(bool a_condition) noexcept
     return false;
 }
 
-/// @brief 成功Resultから所有Valueを取り出す
+/// @brief 成功 Result から所有 Value を取り出す
 template <typename T> T take_value(cue::Result<T> &&a_result) noexcept
 {
     require(a_result.has_value());
     return std::move(*a_result.try_value());
 }
 
-/// @brief 固定IdentityからProject Descriptorを生成する
+/// @brief 固定 Identity から Project Descriptor を生成する
 cue::ProjectDescriptor make_project_descriptor(const cue::AssertContext &a_assertContext) noexcept
 {
     auto projectId = take_value(cue::ProjectId::parse("00000000-0000-4000-8000-000000000001", a_assertContext));
@@ -71,7 +71,7 @@ cue::ProjectDescriptor make_project_descriptor(const cue::AssertContext &a_asser
         a_assertContext));
 }
 
-/// @brief 固定Identityから空Scene Documentを生成する
+/// @brief 固定 Identity から空 Scene Document を生成する
 cue::scene::SceneDocument make_scene_document(std::string_view a_sceneId,
                                               const cue::AssertContext &a_assertContext) noexcept
 {
@@ -79,13 +79,13 @@ cue::scene::SceneDocument make_scene_document(std::string_view a_sceneId,
     return cue::scene::SceneDocument::create(std::move(sceneId), a_assertContext);
 }
 
-/// @brief 固定IdentityからObject IDを生成する
+/// @brief 固定 Identity から Object ID を生成する
 cue::scene::ObjectId make_object_id(std::string_view a_objectId, const cue::AssertContext &a_assertContext) noexcept
 {
     return take_value(cue::scene::ObjectId::parse(a_objectId, a_assertContext));
 }
 
-/// @brief Project SessionとScene Openの一意性を検証する
+/// @brief Project Session と Scene Open の一意性を検証する
 void test_workspace_and_open() noexcept
 {
     TestFatalHandler fatalHandler;
@@ -122,7 +122,7 @@ void test_workspace_and_open() noexcept
             static_cast<std::int64_t>(cue::editor_core::EditorCoreError::DuplicateLocator));
 }
 
-/// @brief DirtyがRevision差だけから一貫して決まることを検証する
+/// @brief Dirty が Revision 差だけから一貫して決まることを検証する
 void test_revision_and_dirty() noexcept
 {
     TestFatalHandler fatalHandler;
@@ -197,7 +197,7 @@ void test_revision_and_dirty() noexcept
     require(has_error_context(*crossSessionSave.try_error(), "EditorDocumentId=1"));
 }
 
-/// @brief SelectionがStable ObjectIdだけを順序付き集合として保持することを検証する
+/// @brief Selection が Stable ObjectId だけを順序付き集合として保持することを検証する
 void test_selection_reconciliation() noexcept
 {
     TestFatalHandler fatalHandler;
@@ -232,7 +232,7 @@ void test_selection_reconciliation() noexcept
     require(document->try_primary_selection() == nullptr);
 }
 
-/// @brief 外部変更とClose判断の状態遷移を検証する
+/// @brief 外部変更と Close 判断の状態遷移を検証する
 void test_external_change_and_close() noexcept
 {
     TestFatalHandler fatalHandler;

@@ -17,7 +17,7 @@ class AssertContext;
 
 namespace cue::editor_core
 {
-/// @brief 一つのProject Descriptorと開いたEditorDocument群の一意Owner
+/// @brief 一つの Project Descriptor と開いた EditorDocument 群の一意 Owner
 class ProjectWorkspaceSession final
 {
   public:
@@ -27,30 +27,30 @@ class ProjectWorkspaceSession final
     ProjectWorkspaceSession &operator=(ProjectWorkspaceSession &&) noexcept = default;
     ~ProjectWorkspaceSession() noexcept = default;
 
-    /// @brief Session破棄まで有効なProject Descriptorを返す
+    /// @brief Session 破棄まで有効な Project Descriptor を返す
     [[nodiscard]] const ProjectDescriptor &project_descriptor() const noexcept;
-    /// @brief 次のController MutationまたはController破棄まで有効なDocument Viewを返す
+    /// @brief 次の Controller Mutation または Controller 破棄まで有効な Document View を返す
     [[nodiscard]] std::span<const EditorDocument> documents() const noexcept;
-    /// @brief Identityに対応し次のController Mutationまたは破棄まで有効なRead-only Documentを返す
+    /// @brief Identity に対応し次の Controller Mutation または破棄まで有効な Read-only Document を返す
     [[nodiscard]] const EditorDocument *find_document(EditorDocumentId a_id) const noexcept;
 
   private:
     friend class EditorController;
 
-    /// @brief 検証済みProject Descriptorの所有権をSessionへ移す
+    /// @brief 検証済み Project Descriptor の所有権を Session へ移す
     explicit ProjectWorkspaceSession(ProjectDescriptor &&a_descriptor) noexcept;
 
     ProjectDescriptor m_descriptor;
     std::vector<EditorDocument> m_documents;
 };
 
-/// @brief Editor IntentをUI非依存Document状態遷移へ変換するOwner Thread Controller
+/// @brief Editor Intent を UI 非依存 Document 状態遷移へ変換する Owner Thread Controller
 ///
-/// Controller、返したSession View、Document Viewは作成Threadだけで使用する
+/// Controller、返した Session View、Document View は作成 Thread だけで使用する
 class EditorController final
 {
   private:
-    /// @brief make_unique経由のFactory構築だけを許可する非公開Key
+    /// @brief make_unique 経由の Factory 構築だけを許可する非公開 Key
     struct ConstructionKey final
     {
       private:
@@ -69,51 +69,51 @@ class EditorController final
     EditorController &operator=(EditorController &&) = delete;
     ~EditorController() noexcept;
 
-    /// @brief Project Descriptorの所有権を受け取って空Workspace Sessionを生成する
-    /// @param a_assertContext Controllerより長く生存させる診断Context
+    /// @brief Project Descriptor の所有権を受け取って空 Workspace Session を生成する
+    /// @param a_assertContext Controller より長く生存させる診断 Context
     [[nodiscard]] static std::unique_ptr<EditorController> create(ProjectDescriptor &&a_descriptor,
                                                                   const AssertContext &a_assertContext) noexcept;
 
-    /// @brief Factory PasskeyとProject DescriptorからControllerを構築する
+    /// @brief Factory Passkey と Project Descriptor から Controller を構築する
     EditorController(ConstructionKey, ProjectDescriptor &&a_descriptor, const AssertContext &a_assertContext);
 
-    /// @brief Controller破棄まで有効なProject Workspace SessionのRead-only Viewを返す
+    /// @brief Controller 破棄まで有効な Project Workspace Session の Read-only View を返す
     [[nodiscard]] const ProjectWorkspaceSession &session() const noexcept;
 
-    /// @brief 検証済みSceneDocumentを一意なSceneとLocatorで開く
+    /// @brief 検証済み SceneDocument を一意な Scene と Locator で開く
     [[nodiscard]] Result<EditorDocumentId> open_document(scene::SceneDocument &&a_document, RelativePath &&a_locator,
                                                          bool a_hasSavedDestination) noexcept;
-    /// @brief Stable ObjectIdだけを保持し、存在しないIDと重複を安全に除く
+    /// @brief Stable ObjectId だけを保持し、存在しない ID と重複を安全に除く
     [[nodiscard]] Result<void> set_selection(EditorDocumentId a_documentId,
                                              std::span<const scene::ObjectId> a_objectIds,
                                              const scene::ObjectId *a_primaryObjectId = nullptr) noexcept;
-    /// @brief SelectionとPrimary Selectionを空にする
+    /// @brief Selection と Primary Selection を空にする
     [[nodiscard]] Result<void> clear_selection(EditorDocumentId a_documentId) noexcept;
-    /// @brief 現在Sceneに存在しない選択IDを除去する
+    /// @brief 現在 Scene に存在しない選択 ID を除去する
     [[nodiscard]] Result<void> reconcile_selection(EditorDocumentId a_documentId) noexcept;
-    /// @brief 成功した永続Data変更に一つの新しいState Identityを発行する
+    /// @brief 成功した永続 Data 変更に一つの新しい State Identity を発行する
     [[nodiscard]] Result<DocumentStateId> record_persistent_change(EditorDocumentId a_documentId) noexcept;
-    /// @brief 確定保存された発行済みStateを保存地点として記録する
+    /// @brief 確定保存された発行済み State を保存地点として記録する
     [[nodiscard]] Result<void> mark_saved(EditorDocumentId a_documentId, DocumentStateId a_savedStateId) noexcept;
-    /// @brief Scene正本に対する外部変更の観測状態を更新する
+    /// @brief Scene 正本に対する外部変更の観測状態を更新する
     [[nodiscard]] Result<void> set_external_change_state(EditorDocumentId a_documentId,
                                                          ExternalChangeState a_state) noexcept;
-    /// @brief Document Closeを開始し、明示判断の要否を状態として返す
+    /// @brief Document Close を開始し、明示判断の要否を状態として返す
     [[nodiscard]] Result<DocumentCloseState> request_close(EditorDocumentId a_documentId) noexcept;
-    /// @brief AwaitingDecision中のSave、Discard、Cancel判断を適用する
+    /// @brief AwaitingDecision 中の Save、Discard、Cancel 判断を適用する
     [[nodiscard]] Result<DocumentCloseState> respond_to_close(EditorDocumentId a_documentId,
                                                               CloseDecision a_decision) noexcept;
 
   private:
-    /// @brief Document Identityに対応する可変Documentを返す
+    /// @brief Document Identity に対応する可変 Document を返す
     [[nodiscard]] EditorDocument *find_document(EditorDocumentId a_id) noexcept;
-    /// @brief Closed Documentの所有DataをSessionから解放する
+    /// @brief Closed Document の所有 Data を Session から解放する
     void erase_closed_document(EditorDocumentId a_id) noexcept;
-    /// @brief 現在ThreadがController作成Threadであることを全構成で検証する
+    /// @brief 現在 Thread が Controller 作成 Thread であることを全構成で検証する
     void assert_owner_thread() const noexcept;
-    /// @brief Allocation失敗をFatal境界へ変換する
+    /// @brief Allocation 失敗を Fatal 境界へ変換する
     [[noreturn]] void terminate_allocation() const noexcept;
-    /// @brief 予期しない例外をFatal境界へ変換する
+    /// @brief 予期しない例外を Fatal 境界へ変換する
     [[noreturn]] void terminate_exception() const noexcept;
 
     std::shared_ptr<const DocumentStateOrigin> m_stateOrigin;
