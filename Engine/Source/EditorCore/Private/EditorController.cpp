@@ -266,6 +266,12 @@ Result<void> EditorController::reconcile_selection(EditorDocumentId a_documentId
 
 Result<DocumentStateId> EditorController::record_persistent_change(EditorDocumentId a_documentId) noexcept
 {
+    return issue_persistent_state(a_documentId, true);
+}
+
+Result<DocumentStateId> EditorController::issue_persistent_state(EditorDocumentId a_documentId,
+                                                                  bool a_invalidateHistory) noexcept
+{
     assert_owner_thread();
     EditorDocument *document = find_document(a_documentId);
     if (document == nullptr)
@@ -289,6 +295,13 @@ Result<DocumentStateId> EditorController::record_persistent_change(EditorDocumen
 
     document->m_currentStateId = DocumentStateId(m_stateOrigin, a_documentId, document->m_nextStateId);
     ++document->m_nextStateId;
+
+    if (a_invalidateHistory)
+    {
+        document->m_history.clear();
+        document->m_historyCursor = 0U;
+        document->m_historyBytes = 0U;
+    }
 
     auto reconciled = reconcile_selection(a_documentId);
     if (!reconciled)

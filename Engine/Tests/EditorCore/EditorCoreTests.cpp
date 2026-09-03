@@ -700,6 +700,23 @@ void test_transaction_history() noexcept
     document = controller->session().find_document(documentId);
     require(document->history_entry_count() == cue::editor_core::EditorDocument::maximum_history_entries());
     require(document->history_byte_size() <= cue::editor_core::EditorDocument::maximum_history_bytes());
+
+    require(controller->undo(documentId).has_value());
+    document = controller->session().find_document(documentId);
+    require(document->can_undo() && document->can_redo());
+    require(controller->record_persistent_change(documentId).has_value());
+    document = controller->session().find_document(documentId);
+    require(!document->can_undo() && !document->can_redo());
+    require(document->history_entry_count() == 0U && document->history_byte_size() == 0U);
+
+    require(controller->execute_command(cue::editor_core::SceneCommandRequest{
+                documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "History Restart"}})
+                .has_value());
+    document = controller->session().find_document(documentId);
+    require(document->can_undo() && !document->can_redo());
+    require(controller->record_persistent_change(documentId).has_value());
+    document = controller->session().find_document(documentId);
+    require(!document->can_undo() && !document->can_redo());
 }
 
 /// @brief 外部変更と Close 判断の状態遷移を検証する

@@ -576,7 +576,7 @@ Result<DocumentStateId> EditorController::execute_transaction(EditorTransaction 
         }
 
         scene::SceneDocumentCheckpoint afterCheckpoint = document->m_document.create_checkpoint();
-        auto state = record_persistent_change(documentId);
+        auto state = issue_persistent_state(documentId, false);
         if (!state)
         {
             Error error = std::move(*state.try_error());
