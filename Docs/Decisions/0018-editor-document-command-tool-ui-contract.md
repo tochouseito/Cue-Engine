@@ -215,28 +215,44 @@ File名へ解決されるLock Sidecarを、Write／Delete共有を許可しな�
 別Rootから同じ実Fileへ到達するCueEngine Writerも同じSidecarで競合し、Lease取得失敗を待機または診断可能なBusyとして返す。
 Sidecar削除失敗は本文Saveの成否を変更せずSecondary診断とする。
 
+M12では既存Scene本文が複数Hard Link名を持つ場合を`UnsupportedEntry`としてSave／Save Asの置換対象から拒否する。
+Windows AdapterはLease取得後、Backup作成前にNative File InformationのLink Countを検査する。別名ごとに異なるSidecarを取得して
+同じFile Identityを同時置換することを許可しない。Hard Linkを安全に編集する必要が生じた場合は、Volume／File IdentityをKeyにする
+Cross-process Leaseを別Research Issueで決定する。
+
 協調しない外部ProcessはLease Protocolに参加しないため、CoordinatorはLease取得直後かつBackup作成直前にFile Fingerprintを再取得し、
-EditorDocumentが保持するBase Fingerprintと一致しなければ本文を公開せずExternal Conflictへ遷移する。OSが許す競合Writerによる
+操作が保持するDestination Expected Fingerprintと一致しなければ本文を公開せずExternal Conflictへ遷移する。OSが許す競合Writerによる
 この再検査後の変更を完全には排除できないことは既知Riskとし、Publish後の再読込比較で検出する。
 
-Save開始時の`currentStateId`、Candidate Byte列のContent Digest、Candidate Checkpoint、開始前File Fingerprintを
-`PendingSaveRecord`としてEditorDocumentが所有する。結果状態が確定するまで破棄しない。結果は次のように処理する。
+通常SaveのDestination Expected FingerprintはEditorDocumentのBase Fingerprintとする。Save Asでは選択した保存先のFingerprintを
+操作開始時に取得し、新規Fileなら明示的な`Missing`を期待値とする。Save As開始時にEditorDocumentのLocatorまたはBase Fingerprintを
+変更せず、保存先への`Committed`成功時だけ切り替える。
+
+Save開始時の`currentStateId`、Destination Locator、Destination Expected Fingerprint、Candidate Byte列のContent Digest、
+Candidate Checkpointを`PendingSaveRecord`としてEditorDocumentが所有する。結果状態が確定するまで破棄しない。
+結果は次のように処理する。
 
 | Save結果 | Editor状態 |
 | --- | --- |
-| `Committed` | `savedStateId`をSave開始時Stateへ更新し、新しいFingerprintを記録する。現在Stateが進んでいればDirtyを維持する |
-| `NotPublished` | Document、History、Dirty、元Fileを維持し、失敗を通知する |
+| `Committed` | `savedStateId`をSave開始時Stateへ更新し、Destination Locatorと新しいFingerprintを記録する。現在Stateが進んでいればDirtyを維持する |
+| `NotPublished` | Document、History、Dirty、現在Locator、元Fileを維持し、失敗を通知する |
 | `PublishedButDurabilityUnknown` | Recordを保持したSave Uncertainへ遷移し、明示的な再確認を要求する |
 | `PublishedButVerificationFailed` | Recordを保持したSave Uncertainへ遷移し、再確認後にExternal Conflictか保存済み状態を確定する |
 
 保存中に編集が進んだ場合も、保存開始時Stateだけを`savedStateId`として記録するため、現在Stateとの差によりDirtyを維持する。
 Undoで開始時Stateへ戻ればCleanになる。M12の同期実装ではOwner ThreadをBlockしてよいが、将来非同期化してもこの契約を維持する。
 
-Save Uncertainの再確認は、Coordinatorが新しいLeaseを取得して本文を上限付きで再読込し、完全Parse、Migration、ValidationしたByte列の
-Digestを`PendingSaveRecord`のCandidate Digestと比較する。DigestとScene Identityが一致した場合は、Recordの開始時Stateを
-`savedStateId`へ設定し、現在Fingerprintを記録してUncertainを解除する。現在Stateが進んでいればDirtyは維持する。
-一致しない、再読込できない、別Scene Identityである場合はExternal Conflictへ遷移し、RecordとCandidate Checkpointを保持したまま
-Reload、Save As、Retry Verification、Cancelの明示Intentを要求する。明示的なDiscardまたはSession CloseまでRecordを破棄しない。
+Save Uncertainの再確認は、Coordinatorが`PendingSaveRecord`のDestinationへ新しいLeaseを取得して行う。
+`PublishedButDurabilityUnknown`では、最初にDestination Fileと親Directoryに対するDurability Barrierを再試行する。
+Barrierが失敗した場合はByte列を再読込できてもUncertainを解除せず、Recordを保持する。Barrierが成功した場合、または元結果が
+`PublishedButVerificationFailed`でDurability成功済みの場合だけ、本文を上限付きで再読込し、完全Parse、Migration、Validationした
+Byte列のDigestをCandidate Digestと比較する。
+
+DigestとScene Identityが一致した場合は、Recordの開始時Stateを`savedStateId`へ設定し、Destination Locatorと現在Fingerprintを記録して
+Uncertainを解除する。現在Stateが進んでいればDirtyは維持する。同じDestinationへ同じCandidateを再保存し、通常の`Committed`を得た場合も
+同じ状態へ遷移できる。一致しない、再読込できない、別Scene Identityである場合はExternal Conflictへ遷移し、Recordと
+Candidate Checkpointを保持したままReload、Save As、Retry Durability／Verification、Cancelの明示Intentを要求する。
+明示的なDiscardまたはSession CloseまでRecordを破棄しない。
 
 File Fingerprintは最終更新時刻だけに依存せず、File SizeとContent Digestを含む。外部変更を検出した場合は暗黙に上書きせず、
 Reload、Save As、Cancelの明示Intentを要求する。
