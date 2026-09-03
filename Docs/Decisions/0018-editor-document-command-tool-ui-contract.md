@@ -159,7 +159,7 @@ Commandは次の契約を満たす。
 - Runtime Pointer、Runtime `EntityHandle`、ImGui Stateを保持しない
 - 実行前に対象存在、Document一致、Schema、Hierarchy Cycle、Depth、値範囲を検証する
 - 失敗時にDocument、Selection、Revision、Historyを変更しない
-- 成功時に一つの新しい`DocumentStateId`を発行する
+- 単体またはTransaction内のCommand成功だけでは`DocumentStateId`を発行しない
 - 診断可能な`Result`を返す
 
 Command TypeはEditor Coreの公開Requestであり、`SceneDocument`の公開Modelを万能Command基底型へ変更しない。
@@ -177,6 +177,8 @@ Runtime状態とEditor Session状態を含まない。
 
 すべてのCommand適用と最終`SceneDocument::validate()`が成功した場合だけ、Revision、History、Selection整合をCommitする。
 途中失敗またはValidation失敗時はCheckpointから完全に復元し、Transaction前の公開状態を維持する。
+一つ以上の永続Data変更を含むTransaction Commitが成功した時点で、Transaction全体に対して一つだけ新しい
+`DocumentStateId`を発行する。Commandごとの仮Revisionまたは公開Revisionを発行しない。
 
 `SceneDocumentCheckpoint`はRuntime実体化用`SceneSnapshot`と別型とする。M12では正しさと未知Data保持を優先して完全Checkpointを
 基準実装とし、Subtree／Component単位の差分最適化は同じ復元契約を満たす場合だけ追加できる。
@@ -203,17 +205,38 @@ Delete後に親や隣接Objectを自動選択するかはPresentation Policyと�
 
 保存は`EditorController`のWorkflowとして、`Cue.Scene`のAtomic Saveを使用する。UIはSerializerとFilesystemを直接呼ばない。
 
-Save開始時の`currentStateId`とFile Fingerprintを記録する。結果は次のように処理する。
+`ProjectWorkspaceSession`は一つの`SceneSaveCoordinator`をSession開始から終了まで一意所有する。Coordinatorは同じSession内の
+Scene Save／Save As／Recovery Publishを直列化し、Sceneごとの進行中Saveと`SceneWriteLease`を所有する。
+`EditorDocument`はCoordinatorを所有せず、Session終了より長く参照しない。
+
+`SceneWriteLease`は本文Path、`.backup` Path、同じ親DirectoryのLock Sidecarを一つの排他範囲とする。Leaseは本文Entry確認前に取得し、
+旧Byte列読込、Backup公開、本文公開、再読込比較、結果状態の記録が完了するまで保持する。Windows Adapterは同じ物理Directoryと
+File名へ解決されるLock Sidecarを、Write／Delete共有を許可しないNative Handleとして開き、Process終了時にもOSが解放する。
+別Rootから同じ実Fileへ到達するCueEngine Writerも同じSidecarで競合し、Lease取得失敗を待機または診断可能なBusyとして返す。
+Sidecar削除失敗は本文Saveの成否を変更せずSecondary診断とする。
+
+協調しない外部ProcessはLease Protocolに参加しないため、CoordinatorはLease取得直後かつBackup作成直前にFile Fingerprintを再取得し、
+EditorDocumentが保持するBase Fingerprintと一致しなければ本文を公開せずExternal Conflictへ遷移する。OSが許す競合Writerによる
+この再検査後の変更を完全には排除できないことは既知Riskとし、Publish後の再読込比較で検出する。
+
+Save開始時の`currentStateId`、Candidate Byte列のContent Digest、Candidate Checkpoint、開始前File Fingerprintを
+`PendingSaveRecord`としてEditorDocumentが所有する。結果状態が確定するまで破棄しない。結果は次のように処理する。
 
 | Save結果 | Editor状態 |
 | --- | --- |
-| `Committed` | 開始時Stateが現在も同じ場合だけ`savedStateId`を更新し、新しいFingerprintを記録する |
+| `Committed` | `savedStateId`をSave開始時Stateへ更新し、新しいFingerprintを記録する。現在Stateが進んでいればDirtyを維持する |
 | `NotPublished` | Document、History、Dirty、元Fileを維持し、失敗を通知する |
-| `PublishedButDurabilityUnknown` | `savedStateId`を更新せず、Save Uncertainとして明示的な再確認を要求する |
-| `PublishedButVerificationFailed` | `savedStateId`を更新せず、External ConflictとしてReload／Save As／Cancel判断を要求する |
+| `PublishedButDurabilityUnknown` | Recordを保持したSave Uncertainへ遷移し、明示的な再確認を要求する |
+| `PublishedButVerificationFailed` | Recordを保持したSave Uncertainへ遷移し、再確認後にExternal Conflictか保存済み状態を確定する |
 
-保存中に編集が進んだ場合、保存開始時Stateだけを保存済みとして扱う。M12の同期実装ではOwner ThreadをBlockしてよいが、
-将来非同期化してもこのState照合契約を維持する。
+保存中に編集が進んだ場合も、保存開始時Stateだけを`savedStateId`として記録するため、現在Stateとの差によりDirtyを維持する。
+Undoで開始時Stateへ戻ればCleanになる。M12の同期実装ではOwner ThreadをBlockしてよいが、将来非同期化してもこの契約を維持する。
+
+Save Uncertainの再確認は、Coordinatorが新しいLeaseを取得して本文を上限付きで再読込し、完全Parse、Migration、ValidationしたByte列の
+Digestを`PendingSaveRecord`のCandidate Digestと比較する。DigestとScene Identityが一致した場合は、Recordの開始時Stateを
+`savedStateId`へ設定し、現在Fingerprintを記録してUncertainを解除する。現在Stateが進んでいればDirtyは維持する。
+一致しない、再読込できない、別Scene Identityである場合はExternal Conflictへ遷移し、RecordとCandidate Checkpointを保持したまま
+Reload、Save As、Retry Verification、Cancelの明示Intentを要求する。明示的なDiscardまたはSession CloseまでRecordを破棄しない。
 
 File Fingerprintは最終更新時刻だけに依存せず、File SizeとContent Digestを含む。外部変更を検出した場合は暗黙に上書きせず、
 Reload、Save As、Cancelの明示Intentを要求する。
@@ -223,8 +246,13 @@ Dirtyを維持する。成功時はHistoryをClearし、新しいState IDを発�
 
 ### Recovery
 
-Recovery FileはWorkspace内のEditor Recovery Rootへ置き、Scene正本と異なるLocator、Metadata、Lifecycleを持つ。
-Recovery MetadataはProject ID、Scene ID、正本Locator、Base Fingerprint、State IDを含む。
+Recovery FileはADR-0013で定義したProject Descriptorの`Saved` Root配下にある`Editor/Recovery`へ置き、Scene正本と異なるLocator、
+Metadata、Lifecycleを持つ。User Workspace、Source Assets、Runtime Assets、Generated、CacheへRecovery本文を置かない。
+
+RecoveryはVersion付きEnvelopeとし、MetadataはRecovery Format Version、Project ID、Scene ID、正本Locator、Base Fingerprint、
+State ID、Scene Data Digestを含む。既知の古いVersionは`N -> N + 1`の連続MigrationをMemory上で完了し、現行Versionとして
+再検証してから利用する。Migration Step欠落、Resource上限超過、未来Version、未知必須FieldはRecoveryを削除または正本へ適用せず、
+`UnsupportedRecovery`として診断し、元Recovery Fileを維持する。Recoveryを開いただけでは暗黙に現行Versionへ書き戻さない。
 
 Recovery書込み成功は`savedStateId`を更新しない。起動時に有効なRecoveryを検出した場合は、正本を暗黙置換せず、Recover、Discard、
 Inspectの明示Intentを要求する。Recover後のDocumentはDirtyな新Stateとして開き、通常Saveが成功するまで正本としない。
