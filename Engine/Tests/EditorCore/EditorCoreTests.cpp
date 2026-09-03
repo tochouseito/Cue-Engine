@@ -362,11 +362,16 @@ void test_scene_commands() noexcept
     const auto childId = make_object_id("00000000-0000-4000-8000-000000000512", assertContext);
     const auto grandchildId = make_object_id("00000000-0000-4000-8000-000000000513", assertContext);
     const auto componentId = make_component_id("00000000-0000-4000-8000-000000000521", assertContext);
+    const auto secondComponentId = make_component_id("00000000-0000-4000-8000-000000000525", assertContext);
     require(scene.add_object(rootId, "Root", true, std::nullopt, cue::math::Transform{}).has_value());
     require(scene.add_object(childId, "Child", true, rootId, cue::math::Transform{}).has_value());
     require(
         scene.add_component(childId, make_health_component(componentId, 100, *registry, valueRegistry, assertContext))
             .has_value());
+    require(scene
+                .add_component(childId,
+                               make_health_component(secondComponentId, 50, *registry, valueRegistry, assertContext))
+                .has_value());
 
     auto checkpoint = scene.create_checkpoint();
     require(scene.remove_component(childId, componentId).has_value());
@@ -431,11 +436,27 @@ void test_scene_commands() noexcept
         documentId, sceneAssetId, cue::editor_core::RemoveComponentCommand{rootId, rootComponentId}}));
     require(state.value() == 8U);
 
+    const auto repeatedChildCopyId = make_object_id("00000000-0000-4000-8000-000000000535", assertContext);
+    const auto repeatedGrandchildCopyId = make_object_id("00000000-0000-4000-8000-000000000536", assertContext);
+    const auto repeatedComponentCopyId = make_component_id("00000000-0000-4000-8000-000000000537", assertContext);
+    std::vector<cue::editor_core::DuplicateObjectTarget> repeatedTargets;
+    repeatedTargets.push_back(
+        {childId, repeatedChildCopyId, "Child Copy", {repeatedComponentCopyId, repeatedComponentCopyId}});
+    repeatedTargets.push_back({grandchildId, repeatedGrandchildCopyId, "Grandchild Copy", {}});
+    const auto repeatedDuplicate = controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::DuplicateObjectCommand{childId, std::move(repeatedTargets)}});
+    require(!repeatedDuplicate.has_value());
+    document = controller->session().find_document(documentId);
+    require(document->current_state_id().value() == 8U);
+    require(document->scene_document().find_object(repeatedChildCopyId) == nullptr);
+
     const auto failedChildCopyId = make_object_id("00000000-0000-4000-8000-000000000531", assertContext);
     const auto failedGrandchildCopyId = make_object_id("00000000-0000-4000-8000-000000000532", assertContext);
     const auto failedComponentCopyId = make_component_id("00000000-0000-4000-8000-000000000533", assertContext);
+    const auto failedSecondComponentCopyId = make_component_id("00000000-0000-4000-8000-000000000534", assertContext);
     std::vector<cue::editor_core::DuplicateObjectTarget> failedTargets;
-    failedTargets.push_back({childId, failedChildCopyId, "Child Copy", {failedComponentCopyId}});
+    failedTargets.push_back(
+        {childId, failedChildCopyId, "Child Copy", {failedComponentCopyId, failedSecondComponentCopyId}});
     failedTargets.push_back({grandchildId, failedGrandchildCopyId, "", {}});
     const auto failedDuplicate = controller->execute_command(cue::editor_core::SceneCommandRequest{
         documentId, sceneAssetId, cue::editor_core::DuplicateObjectCommand{childId, std::move(failedTargets)}});
@@ -449,8 +470,9 @@ void test_scene_commands() noexcept
     const auto childCopyId = make_object_id("00000000-0000-4000-8000-000000000541", assertContext);
     const auto grandchildCopyId = make_object_id("00000000-0000-4000-8000-000000000542", assertContext);
     const auto componentCopyId = make_component_id("00000000-0000-4000-8000-000000000543", assertContext);
+    const auto secondComponentCopyId = make_component_id("00000000-0000-4000-8000-000000000544", assertContext);
     std::vector<cue::editor_core::DuplicateObjectTarget> targets;
-    targets.push_back({childId, childCopyId, "Child Copy", {componentCopyId}});
+    targets.push_back({childId, childCopyId, "Child Copy", {componentCopyId, secondComponentCopyId}});
     targets.push_back({grandchildId, grandchildCopyId, "Grandchild Copy", {}});
     state = take_value(controller->execute_command(cue::editor_core::SceneCommandRequest{
         documentId, sceneAssetId, cue::editor_core::DuplicateObjectCommand{childId, std::move(targets)}}));
@@ -461,6 +483,7 @@ void test_scene_commands() noexcept
     require(childCopy != nullptr);
     require(grandchildCopy != nullptr);
     require(component_health(*childCopy, componentCopyId) == 250);
+    require(component_health(*childCopy, secondComponentCopyId) == 50);
     require(grandchildCopy->try_parent_id() != nullptr && *grandchildCopy->try_parent_id() == childCopyId);
 
     auto otherSceneId =

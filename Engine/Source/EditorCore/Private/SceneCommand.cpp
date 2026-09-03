@@ -224,14 +224,15 @@ Error add_request_context(Error a_error, const AssertContext &a_assertContext,
         }
         for (const scene::ComponentInstanceId &componentId : target.duplicateComponentIds)
         {
-            if (std::find(componentIds.begin(), componentIds.end(), componentId) != componentIds.end())
-            {
-                return Result<std::vector<std::size_t>>::failure(
-                    make_editor_core_error(a_assertContext, EditorCoreError::InvalidCommand,
-                                           "Duplicate command contains a repeated component identity"));
-            }
             componentIds.push_back(componentId);
         }
+    }
+    std::sort(componentIds.begin(), componentIds.end());
+    if (std::adjacent_find(componentIds.begin(), componentIds.end()) != componentIds.end())
+    {
+        return Result<std::vector<std::size_t>>::failure(
+            make_editor_core_error(a_assertContext, EditorCoreError::InvalidCommand,
+                                   "Duplicate command contains a repeated component identity"));
     }
     return Result<std::vector<std::size_t>>::success(std::move(sourceTargets));
 }
