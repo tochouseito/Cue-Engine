@@ -173,6 +173,16 @@ class World final
     [[nodiscard]] StructuralCommandReport flush_commands(
         StructuralCommandBuffer &a_commandBuffer) noexcept;
 
+    /// @brief Component Type Tokenが現在のWorldへ登録済みかMutationなしで検証する
+    template <typename T>
+    [[nodiscard]] bool is_component_type_registered(
+        ComponentType<T> a_type) const noexcept
+    {
+        assert_owner_thread();
+        assert_active();
+        return validate_component_type(a_type);
+    }
+
     /// @brief 一つのComponentを持つEntityをCallback内限定のConst参照で走査する
     template <typename T, typename Callback>
     [[nodiscard]] Result<std::size_t> query_read(

@@ -38,7 +38,11 @@ enum class SceneError : std::int64_t
     StorageNotPublished = 21,
     StorageDurabilityUnknown = 22,
     ParseBackMismatch = 23,
-    PublishedVerificationFailed = 24
+    PublishedVerificationFailed = 24,
+    UnsupportedRuntimeComponent = 25,
+    RuntimeInstantiationFailed = 26,
+    RuntimeWorldMismatch = 27,
+    StructuralCapacityExceeded = 28
 };
 
 /// @brief Scene Errorを診断Summaryと共に生成する

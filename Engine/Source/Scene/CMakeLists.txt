@@ -6,6 +6,7 @@ target_sources(
         Private/Error.cpp
         Private/ComponentData.cpp
         Private/Identity.cpp
+        Private/Instantiation.cpp
         Private/Json.cpp
         Private/SceneDocument.cpp
         Private/Serialization.cpp
@@ -16,12 +17,13 @@ target_sources(
             Public/Cue/Scene/Error.h
             Public/Cue/Scene/ComponentData.h
             Public/Cue/Scene/Identity.h
+            Public/Cue/Scene/Instantiation.h
             Public/Cue/Scene/SceneDocument.h
             Public/Cue/Scene/Serialization.h
 )
 
 target_compile_features(Cue.Scene PUBLIC cxx_std_20)
-target_link_libraries(Cue.Scene PUBLIC Cue.Foundation Cue.IO Cue.Math Cue.Schema)
+target_link_libraries(Cue.Scene PUBLIC Cue.Foundation Cue.GameCore Cue.IO Cue.Math Cue.Schema)
 target_include_directories(Cue.Scene PUBLIC Public)
 
 set_target_properties(
@@ -49,10 +51,10 @@ endif()
 get_target_property(cueSceneLinks Cue.Scene LINK_LIBRARIES)
 get_target_property(cueSceneInterfaceLinks Cue.Scene INTERFACE_LINK_LIBRARIES)
 
-if(NOT "${cueSceneLinks}" STREQUAL "Cue.Foundation;Cue.IO;Cue.Math;Cue.Schema")
-    message(FATAL_ERROR "Cue.Scene must directly link only Cue.Foundation, Cue.IO, Cue.Math, and Cue.Schema: ${cueSceneLinks}")
+if(NOT "${cueSceneLinks}" STREQUAL "Cue.Foundation;Cue.GameCore;Cue.IO;Cue.Math;Cue.Schema")
+    message(FATAL_ERROR "Cue.Scene must directly link only Cue.Foundation, Cue.GameCore, Cue.IO, Cue.Math, and Cue.Schema: ${cueSceneLinks}")
 endif()
 
-if(NOT "${cueSceneInterfaceLinks}" STREQUAL "Cue.Foundation;Cue.IO;Cue.Math;Cue.Schema")
-    message(FATAL_ERROR "Cue.Scene must expose only Cue.Foundation, Cue.IO, Cue.Math, and Cue.Schema: ${cueSceneInterfaceLinks}")
+if(NOT "${cueSceneInterfaceLinks}" STREQUAL "Cue.Foundation;Cue.GameCore;Cue.IO;Cue.Math;Cue.Schema")
+    message(FATAL_ERROR "Cue.Scene must expose only Cue.Foundation, Cue.GameCore, Cue.IO, Cue.Math, and Cue.Schema: ${cueSceneInterfaceLinks}")
 endif()
