@@ -38,8 +38,10 @@ class SceneSnapshot final
     ~SceneSnapshot() noexcept = default;
 
     /// @brief Snapshotが表す永続Scene Identityを返す
+    /// @details 返却参照はSnapshotのMove、Move代入、または破棄で無効になる
     [[nodiscard]] const SceneAssetId &scene_asset_id() const noexcept;
     /// @brief ObjectId辞書順へ固定した不変Object集合を返す
+    /// @details 返却ViewはSnapshotのMove、Move代入、または破棄で無効になる
     [[nodiscard]] std::span<const SceneObject> objects() const noexcept;
 
   private:
@@ -106,6 +108,7 @@ class SceneInstanceEndFailure final
     /// @brief 破棄できなかったEntityを返す
     [[nodiscard]] game_core::EntityHandle entity() const noexcept;
     /// @brief Entity破棄Errorを返す
+    /// @details 返却参照はFailureのMove、Move代入、または破棄で無効になる
     [[nodiscard]] const Error &error() const noexcept;
 
   private:
@@ -124,6 +127,7 @@ class SceneInstanceEndReport final
     /// @brief 全Entityの終了に成功した場合にtrueを返す
     [[nodiscard]] bool succeeded() const noexcept;
     /// @brief 逆生成順で収集したEntity破棄失敗を返す
+    /// @details 返却Viewと要素参照はReportのMove、Move代入、または破棄で無効になる
     [[nodiscard]] std::span<const SceneInstanceEndFailure> failures() const noexcept;
 
   private:
