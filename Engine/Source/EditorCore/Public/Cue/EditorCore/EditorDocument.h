@@ -37,9 +37,16 @@ class EditorDocumentId final
 class DocumentStateId final
 {
   public:
-    /// @brief Documentが発行した非永続値を保持する
-    explicit constexpr DocumentStateId(std::uint64_t a_value) noexcept : m_value(a_value)
+    /// @brief 発行元Documentと非永続Revision値を保持する
+    constexpr DocumentStateId(EditorDocumentId a_documentId, std::uint64_t a_value) noexcept
+        : m_documentId(a_documentId), m_value(a_value)
     {
+    }
+
+    /// @brief Stateを発行したEditor Document Identityを返す
+    [[nodiscard]] constexpr EditorDocumentId document_id() const noexcept
+    {
+        return m_documentId;
     }
 
     /// @brief Document内の数値表現を返す
@@ -52,6 +59,7 @@ class DocumentStateId final
     [[nodiscard]] constexpr auto operator<=>(const DocumentStateId &) const noexcept = default;
 
   private:
+    EditorDocumentId m_documentId;
     std::uint64_t m_value;
 };
 
@@ -130,8 +138,8 @@ class EditorDocument final
     scene::SceneDocument m_document;
     RelativePath m_locator;
     bool m_hasSavedDestination;
-    DocumentStateId m_currentStateId{1U};
-    DocumentStateId m_savedStateId{1U};
+    DocumentStateId m_currentStateId;
+    DocumentStateId m_savedStateId;
     std::uint64_t m_nextStateId = 2U;
     std::vector<scene::ObjectId> m_selection;
     std::optional<scene::ObjectId> m_primarySelection;

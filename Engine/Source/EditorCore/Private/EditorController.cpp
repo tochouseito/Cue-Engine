@@ -226,7 +226,7 @@ Result<DocumentStateId> EditorController::record_persistent_change(EditorDocumen
                                        "Editor document state identity space is exhausted", a_documentId.value()));
     }
 
-    document->m_currentStateId = DocumentStateId(document->m_nextStateId);
+    document->m_currentStateId = DocumentStateId(a_documentId, document->m_nextStateId);
     ++document->m_nextStateId;
 
     auto reconciled = reconcile_selection(a_documentId);
@@ -247,8 +247,8 @@ Result<void> EditorController::mark_saved(EditorDocumentId a_documentId, Documen
         return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
                                                                 "Editor document was not found", a_documentId.value()));
     }
-    if (document->m_closeState == DocumentCloseState::Closed || a_savedStateId.value() == 0U ||
-        a_savedStateId.value() >= document->m_nextStateId)
+    if (document->m_closeState == DocumentCloseState::Closed || a_savedStateId.document_id() != a_documentId ||
+        a_savedStateId.value() == 0U || a_savedStateId.value() >= document->m_nextStateId)
     {
         return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::InvalidSavedState,
                                                                 "Saved state identity was not issued by this document",

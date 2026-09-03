@@ -159,7 +159,7 @@ void test_revision_and_dirty() noexcept
     require(document != nullptr);
     require(document->is_dirty());
 
-    const auto invalidSave = controller->mark_saved(documentId, cue::editor_core::DocumentStateId(100U));
+    const auto invalidSave = controller->mark_saved(documentId, cue::editor_core::DocumentStateId(documentId, 100U));
     require(!invalidSave.has_value());
     require(invalidSave.try_error()->code().value() ==
             static_cast<std::int64_t>(cue::editor_core::EditorCoreError::InvalidSavedState));
@@ -170,6 +170,20 @@ void test_revision_and_dirty() noexcept
     require(missingDocument.try_error()->code().value() ==
             static_cast<std::int64_t>(cue::editor_core::EditorCoreError::DocumentNotFound));
     require(has_error_context(*missingDocument.try_error(), "EditorDocumentId=999"));
+
+    auto secondScene = make_scene_document("00000000-0000-4000-8000-000000000202", assertContext);
+    auto secondLocator = take_value(cue::RelativePath::parse("Scenes/SecondRevision.cuescene", assertContext));
+    const auto secondDocumentId =
+        take_value(controller->open_document(std::move(secondScene), std::move(secondLocator), true));
+    const auto secondDocumentState = take_value(controller->record_persistent_change(secondDocumentId));
+    require(secondDocumentState.value() == secondState.value());
+    require(secondDocumentState.document_id() == secondDocumentId);
+
+    const auto crossDocumentSave = controller->mark_saved(secondDocumentId, secondState);
+    require(!crossDocumentSave.has_value());
+    require(crossDocumentSave.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::InvalidSavedState));
+    require(has_error_context(*crossDocumentSave.try_error(), "EditorDocumentId=2"));
 }
 
 /// @brief SelectionがStable ObjectIdだけを順序付き集合として保持することを検証する

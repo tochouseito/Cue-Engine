@@ -7,7 +7,7 @@ namespace cue::editor_core
 EditorDocument::EditorDocument(EditorDocumentId a_id, scene::SceneDocument &&a_document, RelativePath &&a_locator,
                                bool a_hasSavedDestination) noexcept
     : m_id(a_id), m_document(std::move(a_document)), m_locator(std::move(a_locator)),
-      m_hasSavedDestination(a_hasSavedDestination)
+      m_hasSavedDestination(a_hasSavedDestination), m_currentStateId(m_id, 1U), m_savedStateId(m_id, 1U)
 {
 }
 
