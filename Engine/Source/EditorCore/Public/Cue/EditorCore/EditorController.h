@@ -29,7 +29,7 @@ class ProjectWorkspaceSession final
 
     /// @brief Sessionが所有するProject Descriptorを返す
     [[nodiscard]] const ProjectDescriptor &project_descriptor() const noexcept;
-    /// @brief 次のDocument OpenまたはController破棄まで有効なDocument Viewを返す
+    /// @brief 次のController MutationまたはController破棄まで有効なDocument Viewを返す
     [[nodiscard]] std::span<const EditorDocument> documents() const noexcept;
     /// @brief Document Identityに対応するRead-only Documentを返す
     [[nodiscard]] const EditorDocument *find_document(EditorDocumentId a_id) const noexcept;
