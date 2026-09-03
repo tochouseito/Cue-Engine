@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Cue/EditorCore/EditorDocument.h>
+#include <Cue/EditorCore/SceneCommand.h>
 #include <Cue/Foundation/Result.h>
 #include <Cue/Project/Descriptor.h>
 
@@ -93,6 +94,10 @@ class EditorController final
     /// @brief 検証済み SceneDocument を一意な Scene と Locator で開く
     [[nodiscard]] Result<EditorDocumentId> open_document(scene::SceneDocument &&a_document, RelativePath &&a_locator,
                                                          bool a_hasSavedDestination) noexcept;
+    /// @brief Stable Identity だけを保持する Scene 編集 Command を検証し一つの Revision として適用する
+    /// @details Open 中の対象 Document と Scene Identity の一致を要求し、失敗時は Authoring Scene、Selection、
+    /// Revision を呼び出し前の状態に維持する。同値更新は現在 Revision を返し新しい State を発行しない
+    [[nodiscard]] Result<DocumentStateId> execute_command(SceneCommandRequest a_request) noexcept;
     /// @brief Stable ObjectId だけを保持し、存在しない ID と重複を安全に除く
     [[nodiscard]] Result<void> set_selection(EditorDocumentId a_documentId,
                                              std::span<const scene::ObjectId> a_objectIds,

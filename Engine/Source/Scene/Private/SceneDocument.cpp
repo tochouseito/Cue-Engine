@@ -47,6 +47,20 @@ std::span<const SceneComponent> SceneObject::components() const noexcept
     return m_components;
 }
 
+SceneDocumentCheckpoint::SceneDocumentCheckpoint(
+    SceneAssetId a_sceneAssetId, std::vector<SceneObject> a_objects,
+    std::string a_extensionsJson) noexcept
+    : m_sceneAssetId(std::move(a_sceneAssetId)),
+      m_objects(std::move(a_objects)),
+      m_extensionsJson(std::move(a_extensionsJson))
+{
+}
+
+const SceneAssetId &SceneDocumentCheckpoint::scene_asset_id() const noexcept
+{
+    return m_sceneAssetId;
+}
+
 SceneDocument::SceneDocument(SceneAssetId a_sceneAssetId, const AssertContext &a_assertContext) noexcept
     : m_sceneAssetId(std::move(a_sceneAssetId)), m_assertContext(&a_assertContext)
 {
@@ -87,6 +101,35 @@ const SceneObject *SceneDocument::find_object(const ObjectId &a_id) const noexce
         return nullptr;
     }
     return &m_objects[found->second];
+}
+
+SceneDocumentCheckpoint SceneDocument::create_checkpoint() const noexcept
+{
+    try
+    {
+        return SceneDocumentCheckpoint(m_sceneAssetId, m_objects,
+                                       m_extensionsJson);
+    }
+    catch (...)
+    {
+        terminate_exception();
+    }
+}
+
+Result<void> SceneDocument::restore_checkpoint(
+    SceneDocumentCheckpoint a_checkpoint) noexcept
+{
+    if (a_checkpoint.m_sceneAssetId != m_sceneAssetId)
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::InvalidIdentity,
+            "Scene checkpoint identity must match the target document"));
+    }
+
+    m_objects = std::move(a_checkpoint.m_objects);
+    m_extensionsJson = std::move(a_checkpoint.m_extensionsJson);
+    rebuild_index();
+    return Result<void>::success();
 }
 
 Result<void> SceneDocument::add_object(ObjectId a_id, std::string_view a_name, bool a_isActive,
@@ -350,6 +393,59 @@ Result<void> SceneDocument::remove_component(const ObjectId &a_objectId,
                                                       "Scene component to remove was not found"));
     }
     object->m_components.erase(found);
+    return Result<void>::success();
+}
+
+Result<void> SceneDocument::set_component_field(
+    const ObjectId &a_objectId, const ComponentInstanceId &a_componentId,
+    schema::FieldId a_fieldId, FieldValue a_value) noexcept
+{
+    auto *object = find_mutable_object(a_objectId);
+    if (object == nullptr)
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::ObjectNotFound,
+            "Scene component owner object was not found"));
+    }
+    const auto component = std::find_if(
+        object->m_components.begin(), object->m_components.end(),
+        /// @brief Component Instance Identity が編集対象と一致するか判定する
+        [&a_componentId](const SceneComponent &a_existing) noexcept
+        { return a_existing.instance_id() == a_componentId; });
+    if (component == object->m_components.end())
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::ComponentNotFound,
+            "Scene component field target was not found"));
+    }
+
+    auto *knownData = std::get_if<KnownComponentData>(&component->m_storage);
+    if (knownData == nullptr)
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::UnsupportedComponentOperation,
+            "Opaque component fields cannot be edited semantically"));
+    }
+    const auto field = std::lower_bound(
+        knownData->m_knownFields.begin(), knownData->m_knownFields.end(),
+        a_fieldId,
+        /// @brief Known Field を検索 Identity より前へ並べるか判定する
+        [](const KnownFieldData &a_existing, schema::FieldId a_id) noexcept
+        { return a_existing.id() < a_id; });
+    if (field == knownData->m_knownFields.end() || field->id() != a_fieldId)
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::UnknownSchemaField,
+            "Scene component field identity was not found"));
+    }
+    if (field->value().kind() != a_value.kind())
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::FieldTypeMismatch,
+            "Scene component field value kind cannot change"));
+    }
+
+    field->m_value = std::move(a_value);
     return Result<void>::success();
 }
 

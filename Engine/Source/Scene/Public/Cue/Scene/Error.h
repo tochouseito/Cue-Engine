@@ -43,7 +43,8 @@ enum class SceneError : std::int64_t
     RuntimeInstantiationFailed = 26,
     RuntimeWorldMismatch = 27,
     StructuralCapacityExceeded = 28,
-    ResourceLimitExceeded = 29
+    ResourceLimitExceeded = 29,
+    UnsupportedComponentOperation = 30
 };
 
 /// @brief Scene Errorを診断Summaryと共に生成する

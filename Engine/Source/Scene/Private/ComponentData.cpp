@@ -1174,6 +1174,36 @@ const OpaqueComponentData *SceneComponent::try_opaque() const noexcept
     return std::get_if<OpaqueComponentData>(&m_storage);
 }
 
+Result<SceneComponent> SceneComponent::duplicate_with_identity(
+    ComponentInstanceId a_instanceId, const AssertContext &a_assertContext) const noexcept
+{
+    const auto *knownData = try_known();
+    if (knownData == nullptr)
+    {
+        return Result<SceneComponent>::failure(make_scene_error(
+            a_assertContext, SceneError::UnsupportedComponentOperation,
+            "Opaque component identity cannot be rewritten without changing its preserved entry"));
+    }
+    if (!knownData->m_isValid)
+    {
+        return Result<SceneComponent>::failure(make_scene_error(
+            a_assertContext, SceneError::InvalidComponentData,
+            "Moved-from component data cannot be duplicated"));
+    }
+
+    try
+    {
+        KnownComponentData duplicate = *knownData;
+        duplicate.m_instanceId = std::move(a_instanceId);
+        return Result<SceneComponent>::success(
+            SceneComponent::known(std::move(duplicate)));
+    }
+    catch (...)
+    {
+        terminate_scene_allocation(a_assertContext);
+    }
+}
+
 Result<KnownFieldData> create_known_field(
     schema::FieldId a_id, FieldValue a_value,
     FieldValueKind a_expectedKind,
