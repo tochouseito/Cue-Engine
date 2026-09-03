@@ -108,6 +108,26 @@ class WorkspaceFilesystem final : public cue::FilesystemRoot
         return cue::Result<void>::success();
     }
 
+    [[nodiscard]] cue::Result<cue::FileWriteLease> acquire_file_write_lease(const cue::RelativePath &) noexcept override
+    {
+        return cue::Result<cue::FileWriteLease>::failure(
+            cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Write lease is not used by registry tests"));
+    }
+
+    [[nodiscard]] cue::Result<void> write_file_atomic_if_unchanged(cue::FileWriteLease &, const cue::RelativePath &,
+                                                                   cue::FileFingerprint, std::size_t,
+                                                                   std::span<const std::byte>) noexcept override
+    {
+        return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::IoFailure,
+                                                             "Conditional write is not used by registry tests"));
+    }
+
+    [[nodiscard]] cue::Result<void> remove_file(const cue::RelativePath &) noexcept override
+    {
+        return cue::Result<void>::failure(
+            cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Remove is not used by registry tests"));
+    }
+
     /// @brief Registry Test 対象外の Staging 生成を明示的に拒否する
     [[nodiscard]] cue::Result<cue::StagingArea> create_staging_area(const cue::RelativePath &) noexcept override
     {

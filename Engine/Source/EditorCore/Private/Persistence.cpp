@@ -2,6 +2,7 @@
 
 #include <Cue/EditorCore/Error.h>
 #include <Cue/Foundation/Assert.h>
+#include <Cue/IO/Error.h>
 #include <Cue/IO/Filesystem.h>
 #include <Cue/Project/Descriptor.h>
 #include <Cue/Scene/Identity.h>
@@ -32,22 +33,10 @@ struct ParsedRecovery final
     std::string sceneJson;
 };
 
-/// @brief Byte列の決定的FNV-1a 64-bit Digestを返す
-[[nodiscard]] std::uint64_t digest_bytes(std::span<const std::byte> a_bytes) noexcept
-{
-    std::uint64_t digest = 14695981039346656037ULL;
-    for (const std::byte value : a_bytes)
-    {
-        digest ^= static_cast<std::uint64_t>(std::to_integer<std::uint8_t>(value));
-        digest *= 1099511628211ULL;
-    }
-    return digest;
-}
-
 /// @brief UTF-8文字列の決定的Digestを返す
 [[nodiscard]] std::uint64_t digest_text(std::string_view a_text) noexcept
 {
-    return digest_bytes(std::as_bytes(std::span(a_text.data(), a_text.size())));
+    return file_content_digest(std::as_bytes(std::span(a_text.data(), a_text.size())));
 }
 
 /// @brief Scene Stable IDからSaved Root内のRecovery Locatorを構築する
@@ -70,32 +59,11 @@ struct ParsedRecovery final
 }
 
 /// @brief Fileの存在状態、Size、Content DigestをRoot境界内で取得する
-[[nodiscard]] Result<SceneFileFingerprint> fingerprint_file(FilesystemRoot &a_filesystem, const RelativePath &a_path,
-                                                            const AssertContext &a_assertContext) noexcept
+[[nodiscard]] Result<SceneFileFingerprint> fingerprint_scene_file(FilesystemRoot &a_filesystem,
+                                                                  const RelativePath &a_path,
+                                                                  const AssertContext &a_assertContext) noexcept
 {
-    auto entry = a_filesystem.query_entry(a_path);
-    if (!entry)
-    {
-        return Result<SceneFileFingerprint>::failure(std::move(*entry.try_error()));
-    }
-    if (*entry.try_value() == EntryType::Missing)
-    {
-        return Result<SceneFileFingerprint>::success(SceneFileFingerprint{});
-    }
-    if (*entry.try_value() != EntryType::RegularFile)
-    {
-        return Result<SceneFileFingerprint>::failure(make_editor_core_error(
-            a_assertContext, EditorCoreError::ExternalConflict, "Scene destination is not a regular file"));
-    }
-
-    auto bytes = a_filesystem.read_file(a_path, scene::k_maximumSceneBytes);
-    if (!bytes)
-    {
-        return Result<SceneFileFingerprint>::failure(std::move(*bytes.try_error()));
-    }
-    const auto &storage = *bytes.try_value();
-    return Result<SceneFileFingerprint>::success(
-        SceneFileFingerprint{true, static_cast<std::uint64_t>(storage.size()), digest_bytes(storage)});
+    return fingerprint_file(a_filesystem, a_path, scene::k_maximumSceneBytes, a_assertContext);
 }
 
 /// @brief Recovery Headerから一行を取り出してCursorを進める
@@ -303,7 +271,7 @@ Result<EditorDocumentId> EditorController::open_document_from_storage(RelativePa
         return Result<EditorDocumentId>::failure(std::move(*services.try_error()));
     }
 
-    auto beforeFingerprint = fingerprint_file(*m_sourceAssetsRoot, a_locator, *m_assertContext);
+    auto beforeFingerprint = fingerprint_scene_file(*m_sourceAssetsRoot, a_locator, *m_assertContext);
     if (!beforeFingerprint)
     {
         return Result<EditorDocumentId>::failure(std::move(*beforeFingerprint.try_error()));
@@ -314,7 +282,7 @@ Result<EditorDocumentId> EditorController::open_document_from_storage(RelativePa
     {
         return Result<EditorDocumentId>::failure(std::move(*loaded.try_error()));
     }
-    auto afterFingerprint = fingerprint_file(*m_sourceAssetsRoot, a_locator, *m_assertContext);
+    auto afterFingerprint = fingerprint_scene_file(*m_sourceAssetsRoot, a_locator, *m_assertContext);
     if (!afterFingerprint)
     {
         return Result<EditorDocumentId>::failure(std::move(*afterFingerprint.try_error()));
@@ -374,7 +342,7 @@ Result<ExternalChangeState> EditorController::poll_external_change(EditorDocumen
         return Result<ExternalChangeState>::success(ExternalChangeState::None);
     }
 
-    auto current = fingerprint_file(*m_sourceAssetsRoot, document->m_locator, *m_assertContext);
+    auto current = fingerprint_scene_file(*m_sourceAssetsRoot, document->m_locator, *m_assertContext);
     if (!current)
     {
         return Result<ExternalChangeState>::failure(std::move(*current.try_error()));
@@ -433,6 +401,12 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
             make_editor_document_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
                                        "Closed document cannot be saved", a_documentId.value()));
     }
+    if (document->m_pendingSave.has_value())
+    {
+        return Result<scene::SceneSaveOutcome>::failure(make_editor_document_error(
+            *m_assertContext, EditorCoreError::InvalidDocumentState,
+            "Save Uncertain must be retried or discarded before another save", a_documentId.value()));
+    }
 
     if (a_switchDestination)
     {
@@ -454,7 +428,7 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
             "Normal save requires a destination with a captured base fingerprint", a_documentId.value()));
     }
 
-    auto destinationFingerprint = fingerprint_file(*m_sourceAssetsRoot, a_locator, *m_assertContext);
+    auto destinationFingerprint = fingerprint_scene_file(*m_sourceAssetsRoot, a_locator, *m_assertContext);
     if (!destinationFingerprint)
     {
         return Result<scene::SceneSaveOutcome>::failure(std::move(*destinationFingerprint.try_error()));
@@ -473,16 +447,64 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
             "Scene destination changed since the document was loaded", a_documentId.value()));
     }
 
+    const SceneFileFingerprint expectedFingerprint =
+        a_switchDestination ? *destinationFingerprint.try_value() : *document->m_baseFingerprint;
+    auto lease = m_sourceAssetsRoot->acquire_file_write_lease(a_locator);
+    if (!lease)
+    {
+        return Result<scene::SceneSaveOutcome>::failure(std::move(*lease.try_error()));
+    }
+    auto leasedFingerprint = fingerprint_scene_file(*m_sourceAssetsRoot, a_locator, *m_assertContext);
+    if (!leasedFingerprint)
+    {
+        return Result<scene::SceneSaveOutcome>::failure(std::move(*leasedFingerprint.try_error()));
+    }
+    if (*leasedFingerprint.try_value() != expectedFingerprint)
+    {
+        document->m_externalChangeState =
+            leasedFingerprint.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed;
+        if (document->m_closeState == DocumentCloseState::SaveRequested)
+        {
+            document->m_closeState = DocumentCloseState::AwaitingDecision;
+        }
+        return Result<scene::SceneSaveOutcome>::failure(make_editor_document_error(
+            *m_assertContext, EditorCoreError::ExternalConflict,
+            "Scene destination changed before the write lease was acquired", a_documentId.value()));
+    }
+
+    auto candidateText = scene::serialize_scene_document(document->m_document, *m_assertContext);
+    if (!candidateText)
+    {
+        return Result<scene::SceneSaveOutcome>::failure(std::move(*candidateText.try_error()));
+    }
     const DocumentStateId savedState = document->m_currentStateId;
-    scene::SceneSaveOutcome outcome = scene::save_scene_document(
-        *m_sourceAssetsRoot, a_locator, document->m_document, *m_schemaRegistry, *m_valueSchemaRegistry,
-        *m_sceneMigrations, *m_componentMigrations, *m_assertContext);
+    scene::SceneDocumentCheckpoint candidateCheckpoint = document->m_document.create_checkpoint();
+    const std::uint64_t candidateDigest = digest_text(*candidateText.try_value());
+    scene::SceneSaveOutcome outcome = scene::save_scene_document_if_unchanged(
+        *m_sourceAssetsRoot, *lease.try_value(), a_locator, expectedFingerprint, document->m_document,
+        *m_schemaRegistry, *m_valueSchemaRegistry, *m_sceneMigrations, *m_componentMigrations, *m_assertContext);
+    if (outcome.status() == scene::SceneSaveStatus::NotPublished && outcome.try_error() != nullptr &&
+        outcome.try_error()->root_code().domain() == "Cue.IO" &&
+        outcome.try_error()->root_code().value() == static_cast<std::int64_t>(IoError::PreconditionFailed))
+    {
+        document->m_externalChangeState = ExternalChangeState::Modified;
+        if (document->m_closeState == DocumentCloseState::SaveRequested)
+        {
+            document->m_closeState = DocumentCloseState::AwaitingDecision;
+        }
+        return Result<scene::SceneSaveOutcome>::failure(make_editor_document_error(
+            *m_assertContext, EditorCoreError::ExternalConflict,
+            "Scene destination changed immediately before atomic publish", a_documentId.value()));
+    }
     if (outcome.status() == scene::SceneSaveStatus::Committed)
     {
-        auto committedFingerprint = fingerprint_file(*m_sourceAssetsRoot, a_locator, *m_assertContext);
+        auto committedFingerprint = fingerprint_scene_file(*m_sourceAssetsRoot, a_locator, *m_assertContext);
         if (!committedFingerprint)
         {
             document->m_persistenceState = DocumentPersistenceState::SaveUncertain;
+            document->m_pendingSave.emplace(EditorDocument::PendingSaveRecord{
+                savedState, std::move(a_locator), expectedFingerprint, std::move(candidateCheckpoint), candidateDigest,
+                EditorDocument::PendingSaveReason::VerificationFailed, a_switchDestination});
             if (document->m_closeState == DocumentCloseState::SaveRequested)
             {
                 document->m_closeState = DocumentCloseState::AwaitingDecision;
@@ -496,6 +518,7 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
         document->m_baseFingerprint = *committedFingerprint.try_value();
         document->m_externalChangeState = ExternalChangeState::None;
         document->m_persistenceState = DocumentPersistenceState::Idle;
+        document->m_pendingSave.reset();
         auto marked = mark_saved(a_documentId, savedState);
         if (!marked)
         {
@@ -508,6 +531,13 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
             outcome.status() == scene::SceneSaveStatus::PublishedButVerificationFailed)
         {
             document->m_persistenceState = DocumentPersistenceState::SaveUncertain;
+            const EditorDocument::PendingSaveReason reason =
+                outcome.status() == scene::SceneSaveStatus::PublishedButDurabilityUnknown
+                    ? EditorDocument::PendingSaveReason::DurabilityUnknown
+                    : EditorDocument::PendingSaveReason::VerificationFailed;
+            document->m_pendingSave.emplace(EditorDocument::PendingSaveRecord{
+                savedState, std::move(a_locator), expectedFingerprint, std::move(candidateCheckpoint), candidateDigest,
+                reason, a_switchDestination});
         }
         if (document->m_closeState == DocumentCloseState::SaveRequested)
         {
@@ -553,6 +583,161 @@ Result<std::vector<scene::SceneSaveStatus>> EditorController::save_all_documents
     }
 }
 
+Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocumentId a_documentId) noexcept
+{
+    assert_owner_thread();
+    auto services = require_persistence_services();
+    if (!services)
+    {
+        return Result<scene::SceneSaveStatus>::failure(std::move(*services.try_error()));
+    }
+    EditorDocument *document = find_document(a_documentId);
+    if (document == nullptr)
+    {
+        return Result<scene::SceneSaveStatus>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                       "Editor document was not found", a_documentId.value()));
+    }
+    if (!document->m_pendingSave.has_value() || document->m_persistenceState != DocumentPersistenceState::SaveUncertain)
+    {
+        return Result<scene::SceneSaveStatus>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
+                                       "Retry requires a Save Uncertain record", a_documentId.value()));
+    }
+
+    EditorDocument::PendingSaveRecord &record = *document->m_pendingSave;
+    auto lease = m_sourceAssetsRoot->acquire_file_write_lease(record.destination);
+    if (!lease)
+    {
+        return Result<scene::SceneSaveStatus>::failure(std::move(*lease.try_error()));
+    }
+    auto currentFingerprint = fingerprint_scene_file(*m_sourceAssetsRoot, record.destination, *m_assertContext);
+    if (!currentFingerprint)
+    {
+        return Result<scene::SceneSaveStatus>::failure(std::move(*currentFingerprint.try_error()));
+    }
+    auto currentScene =
+        scene::load_scene_document(*m_sourceAssetsRoot, record.destination, *m_schemaRegistry, *m_valueSchemaRegistry,
+                                   *m_sceneMigrations, *m_componentMigrations, *m_assertContext);
+    if (!currentScene)
+    {
+        document->m_externalChangeState =
+            currentFingerprint.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed;
+        return Result<scene::SceneSaveStatus>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::ExternalConflict,
+                                       "Save Uncertain destination cannot be validated", a_documentId.value()));
+    }
+    auto currentText = scene::serialize_scene_document(currentScene.try_value()->document(), *m_assertContext);
+    if (!currentText)
+    {
+        return Result<scene::SceneSaveStatus>::failure(std::move(*currentText.try_error()));
+    }
+    if (currentScene.try_value()->document().scene_asset_id() != document->m_document.scene_asset_id() ||
+        digest_text(*currentText.try_value()) != record.candidateDigest)
+    {
+        document->m_externalChangeState = ExternalChangeState::Modified;
+        return Result<scene::SceneSaveStatus>::failure(make_editor_document_error(
+            *m_assertContext, EditorCoreError::ExternalConflict,
+            "Save Uncertain destination differs from the recorded candidate", a_documentId.value()));
+    }
+    if (record.reason == EditorDocument::PendingSaveReason::VerificationFailed)
+    {
+        auto verifiedFingerprint = fingerprint_scene_file(*m_sourceAssetsRoot, record.destination, *m_assertContext);
+        if (!verifiedFingerprint)
+        {
+            return Result<scene::SceneSaveStatus>::failure(std::move(*verifiedFingerprint.try_error()));
+        }
+        if (*verifiedFingerprint.try_value() != *currentFingerprint.try_value())
+        {
+            document->m_externalChangeState = ExternalChangeState::Modified;
+            return Result<scene::SceneSaveStatus>::failure(make_editor_document_error(
+                *m_assertContext, EditorCoreError::ExternalConflict,
+                "Save Uncertain destination changed during verification", a_documentId.value()));
+        }
+        currentFingerprint = std::move(verifiedFingerprint);
+    }
+
+    scene::SceneSaveStatus status = scene::SceneSaveStatus::Committed;
+    if (record.reason == EditorDocument::PendingSaveReason::DurabilityUnknown)
+    {
+        scene::SceneDocument candidate =
+            scene::SceneDocument::create(document->m_document.scene_asset_id(), *m_assertContext);
+        auto restored = candidate.restore_checkpoint(record.candidateCheckpoint);
+        if (!restored)
+        {
+            return Result<scene::SceneSaveStatus>::failure(std::move(*restored.try_error()));
+        }
+        scene::SceneSaveOutcome retry = scene::save_scene_document_if_unchanged(
+            *m_sourceAssetsRoot, *lease.try_value(), record.destination, *currentFingerprint.try_value(), candidate,
+            *m_schemaRegistry, *m_valueSchemaRegistry, *m_sceneMigrations, *m_componentMigrations, *m_assertContext);
+        status = retry.status();
+        if (status == scene::SceneSaveStatus::NotPublished && retry.try_error() != nullptr &&
+            retry.try_error()->root_code().domain() == "Cue.IO" &&
+            retry.try_error()->root_code().value() == static_cast<std::int64_t>(IoError::PreconditionFailed))
+        {
+            document->m_externalChangeState = ExternalChangeState::Modified;
+            return Result<scene::SceneSaveStatus>::failure(make_editor_document_error(
+                *m_assertContext, EditorCoreError::ExternalConflict,
+                "Save Uncertain destination changed immediately before retry publish", a_documentId.value()));
+        }
+        if (status != scene::SceneSaveStatus::Committed)
+        {
+            if (status == scene::SceneSaveStatus::PublishedButVerificationFailed)
+            {
+                record.reason = EditorDocument::PendingSaveReason::VerificationFailed;
+            }
+            return Result<scene::SceneSaveStatus>::success(std::move(status));
+        }
+        currentFingerprint = fingerprint_scene_file(*m_sourceAssetsRoot, record.destination, *m_assertContext);
+        if (!currentFingerprint)
+        {
+            return Result<scene::SceneSaveStatus>::failure(std::move(*currentFingerprint.try_error()));
+        }
+    }
+
+    const DocumentStateId savedState = record.sourceStateId;
+    const bool switchDestination = record.switchDestination;
+    RelativePath destination = std::move(record.destination);
+    document->m_pendingSave.reset();
+    document->m_persistenceState = DocumentPersistenceState::Idle;
+    document->m_externalChangeState = ExternalChangeState::None;
+    document->m_baseFingerprint = *currentFingerprint.try_value();
+    if (switchDestination)
+    {
+        document->m_locator = std::move(destination);
+    }
+    auto marked = mark_saved(a_documentId, savedState);
+    if (!marked)
+    {
+        return Result<scene::SceneSaveStatus>::failure(std::move(*marked.try_error()));
+    }
+    return Result<scene::SceneSaveStatus>::success(std::move(status));
+}
+
+Result<void> EditorController::discard_uncertain_save(EditorDocumentId a_documentId) noexcept
+{
+    assert_owner_thread();
+    EditorDocument *document = find_document(a_documentId);
+    if (document == nullptr)
+    {
+        return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                                                "Editor document was not found", a_documentId.value()));
+    }
+    if (!document->m_pendingSave.has_value() || document->m_persistenceState != DocumentPersistenceState::SaveUncertain)
+    {
+        return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
+                                                                "Discard requires a Save Uncertain record",
+                                                                a_documentId.value()));
+    }
+    document->m_pendingSave.reset();
+    document->m_persistenceState = DocumentPersistenceState::Idle;
+    if (document->m_closeState == DocumentCloseState::SaveRequested)
+    {
+        document->m_closeState = DocumentCloseState::AwaitingDecision;
+    }
+    return Result<void>::success();
+}
+
 Result<DocumentStateId> EditorController::reload_document(EditorDocumentId a_documentId) noexcept
 {
     assert_owner_thread();
@@ -574,6 +759,12 @@ Result<DocumentStateId> EditorController::reload_document(EditorDocumentId a_doc
             *m_assertContext, EditorCoreError::InvalidDocumentState,
             "Reload requires a saved destination and available state identity", a_documentId.value()));
     }
+    if (document->m_pendingSave.has_value())
+    {
+        return Result<DocumentStateId>::failure(make_editor_document_error(
+            *m_assertContext, EditorCoreError::InvalidDocumentState,
+            "Save Uncertain must be retried or discarded before reload", a_documentId.value()));
+    }
     if (document->m_closeState != DocumentCloseState::Open)
     {
         return Result<DocumentStateId>::failure(
@@ -581,7 +772,7 @@ Result<DocumentStateId> EditorController::reload_document(EditorDocumentId a_doc
                                        "Reload requires an open document", a_documentId.value()));
     }
 
-    auto beforeFingerprint = fingerprint_file(*m_sourceAssetsRoot, document->m_locator, *m_assertContext);
+    auto beforeFingerprint = fingerprint_scene_file(*m_sourceAssetsRoot, document->m_locator, *m_assertContext);
     if (!beforeFingerprint)
     {
         return Result<DocumentStateId>::failure(std::move(*beforeFingerprint.try_error()));
@@ -599,7 +790,7 @@ Result<DocumentStateId> EditorController::reload_document(EditorDocumentId a_doc
             *m_assertContext, EditorCoreError::SceneMismatch,
             "Reloaded scene identity does not match the open document", a_documentId.value()));
     }
-    auto afterFingerprint = fingerprint_file(*m_sourceAssetsRoot, document->m_locator, *m_assertContext);
+    auto afterFingerprint = fingerprint_scene_file(*m_sourceAssetsRoot, document->m_locator, *m_assertContext);
     if (!afterFingerprint)
     {
         return Result<DocumentStateId>::failure(std::move(*afterFingerprint.try_error()));
@@ -661,6 +852,30 @@ Result<void> EditorController::autosave_recovery(EditorDocumentId a_documentId) 
     {
         return created;
     }
+    auto expectedRecovery =
+        fingerprint_file(*m_savedRoot, *recoveryPath.try_value(),
+                         scene::k_maximumSceneBytes + k_maximumRecoveryHeaderBytes, *m_assertContext);
+    if (!expectedRecovery)
+    {
+        return Result<void>::failure(std::move(*expectedRecovery.try_error()));
+    }
+    auto recoveryLease = m_savedRoot->acquire_file_write_lease(*recoveryPath.try_value());
+    if (!recoveryLease)
+    {
+        return Result<void>::failure(std::move(*recoveryLease.try_error()));
+    }
+    auto leasedRecovery = fingerprint_file(*m_savedRoot, *recoveryPath.try_value(),
+                                           scene::k_maximumSceneBytes + k_maximumRecoveryHeaderBytes, *m_assertContext);
+    if (!leasedRecovery)
+    {
+        return Result<void>::failure(std::move(*leasedRecovery.try_error()));
+    }
+    if (*leasedRecovery.try_value() != *expectedRecovery.try_value())
+    {
+        return Result<void>::failure(make_editor_document_error(
+            *m_assertContext, EditorCoreError::ExternalConflict,
+            "Recovery destination changed before the write lease was acquired", a_documentId.value()));
+    }
 
     const scene::IdentityText sceneText = document->m_document.scene_asset_id().canonical_text();
     const SceneFileFingerprint base = document->m_baseFingerprint.value_or(SceneFileFingerprint{});
@@ -692,7 +907,9 @@ Result<void> EditorController::autosave_recovery(EditorDocumentId a_documentId) 
         envelope.append("\n\n");
         envelope.append(*serialized.try_value());
         const auto bytes = std::as_bytes(std::span(envelope.data(), envelope.size()));
-        auto written = m_savedRoot->write_file_atomic(*recoveryPath.try_value(), bytes);
+        auto written = m_savedRoot->write_file_atomic_if_unchanged(
+            *recoveryLease.try_value(), *recoveryPath.try_value(), *expectedRecovery.try_value(),
+            scene::k_maximumSceneBytes + k_maximumRecoveryHeaderBytes, bytes);
         if (!written)
         {
             return written;
@@ -832,7 +1049,7 @@ Result<DocumentStateId> EditorController::recover_document(EditorDocumentId a_do
     }
 
     const SceneFileFingerprint recoveryBase = parsed.try_value()->metadata.base_fingerprint();
-    auto currentBase = fingerprint_file(*m_sourceAssetsRoot, document->m_locator, *m_assertContext);
+    auto currentBase = fingerprint_scene_file(*m_sourceAssetsRoot, document->m_locator, *m_assertContext);
     if (!currentBase)
     {
         return Result<DocumentStateId>::failure(std::move(*currentBase.try_error()));
@@ -862,6 +1079,39 @@ Result<void> EditorController::ignore_recovery(EditorDocumentId a_documentId) no
     {
         return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
                                                                 "Editor document was not found", a_documentId.value()));
+    }
+    document->m_hasRecoveryCandidate = false;
+    return Result<void>::success();
+}
+
+Result<void> EditorController::discard_recovery(EditorDocumentId a_documentId) noexcept
+{
+    assert_owner_thread();
+    auto services = require_persistence_services();
+    if (!services)
+    {
+        return services;
+    }
+    EditorDocument *document = find_document(a_documentId);
+    if (document == nullptr)
+    {
+        return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                                                "Editor document was not found", a_documentId.value()));
+    }
+    auto recoveryPath = make_recovery_path(document->m_document.scene_asset_id(), *m_assertContext);
+    if (!recoveryPath)
+    {
+        return Result<void>::failure(std::move(*recoveryPath.try_error()));
+    }
+    auto lease = m_savedRoot->acquire_file_write_lease(*recoveryPath.try_value());
+    if (!lease)
+    {
+        return Result<void>::failure(std::move(*lease.try_error()));
+    }
+    auto removed = m_savedRoot->remove_file(*recoveryPath.try_value());
+    if (!removed)
+    {
+        return removed;
     }
     document->m_hasRecoveryCandidate = false;
     return Result<void>::success();

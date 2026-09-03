@@ -123,6 +123,10 @@ class EditorController final
                                                                    RelativePath a_locator) noexcept;
     /// @brief 開いているDirty Documentを順番に保存し、各Atomic Save状態を返す
     [[nodiscard]] Result<std::vector<scene::SceneSaveStatus>> save_all_documents() noexcept;
+    /// @brief Save UncertainのCandidateを結果種別に応じて再検証または再保存する
+    [[nodiscard]] Result<scene::SceneSaveStatus> retry_uncertain_save(EditorDocumentId a_documentId) noexcept;
+    /// @brief Save Uncertain Recordを明示破棄し、現在DocumentのDirty状態は維持する
+    [[nodiscard]] Result<void> discard_uncertain_save(EditorDocumentId a_documentId) noexcept;
     /// @brief 現在Fileを一時Documentへ完全LoadしてからHistoryを破棄して入れ替える
     [[nodiscard]] Result<DocumentStateId> reload_document(EditorDocumentId a_documentId) noexcept;
     /// @brief 正本Fingerprintとの差を検査してExternal Change状態を更新する
@@ -135,6 +139,8 @@ class EditorController final
     [[nodiscard]] Result<DocumentStateId> recover_document(EditorDocumentId a_documentId) noexcept;
     /// @brief Recovery Fileを変更せず、このSessionでの候補表示だけを解除する
     [[nodiscard]] Result<void> ignore_recovery(EditorDocumentId a_documentId) noexcept;
+    /// @brief Recovery Fileを永続的に削除し、成功時だけ候補表示を解除する
+    [[nodiscard]] Result<void> discard_recovery(EditorDocumentId a_documentId) noexcept;
     /// @brief Stable ObjectId だけを保持し、存在しない ID と重複を安全に除く
     [[nodiscard]] Result<void> set_selection(EditorDocumentId a_documentId,
                                              std::span<const scene::ObjectId> a_objectIds,

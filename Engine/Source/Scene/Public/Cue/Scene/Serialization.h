@@ -220,4 +220,10 @@ class SceneSaveOutcome final
                                                    const SceneMigrationRegistry &a_migrationRegistry,
                                                    const ComponentMigrationRegistry &a_componentMigrations,
                                                    const AssertContext &a_assertContext) noexcept;
+/// @brief Lease保持中に期待Fingerprintを再検査し、一致する場合だけSceneをAtomic置換する
+[[nodiscard]] SceneSaveOutcome save_scene_document_if_unchanged(
+    FilesystemRoot &a_filesystem, FileWriteLease &a_lease, const RelativePath &a_path, FileFingerprint a_expected,
+    const SceneDocument &a_document, const schema::SchemaRegistry &a_schemaRegistry,
+    const ComponentValueSchemaRegistry &a_valueSchemaRegistry, const SceneMigrationRegistry &a_migrationRegistry,
+    const ComponentMigrationRegistry &a_componentMigrations, const AssertContext &a_assertContext) noexcept;
 } // namespace cue::scene

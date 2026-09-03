@@ -5,11 +5,14 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <vector>
 
 namespace cue
 {
+class AssertContext;
+
 /// @brief Root 配下の Entry 種別を Platform 固有属性なしで表す
 enum class EntryType : std::uint8_t
 {
@@ -17,6 +20,47 @@ enum class EntryType : std::uint8_t
     RegularFile,
     Directory,
     UnsupportedEntry
+};
+
+/// @brief Fileの存在状態とContentを決定的に比較するPortable Snapshot
+struct FileFingerprint final
+{
+    bool exists = false;
+    std::uint64_t byteSize = 0U;
+    std::uint64_t contentDigest = 0U;
+
+    /// @brief Fingerprintの全要素を比較する
+    [[nodiscard]] bool operator==(const FileFingerprint &) const noexcept = default;
+};
+
+/// @brief Platform実装が所有するFile Write Leaseの破棄境界
+class FileWriteLeaseState
+{
+  public:
+    /// @brief Native Lease Resourceを実装側で解放する
+    virtual ~FileWriteLeaseState() = default;
+
+  protected:
+    FileWriteLeaseState() noexcept = default;
+};
+
+/// @brief 一つのDestinationとSibling Backupを直列化するMove-only Lease
+class FileWriteLease final
+{
+  public:
+    FileWriteLease() = delete;
+    FileWriteLease(const FileWriteLease &) = delete;
+    FileWriteLease &operator=(const FileWriteLease &) = delete;
+    FileWriteLease(FileWriteLease &&) noexcept;
+    FileWriteLease &operator=(FileWriteLease &&) noexcept;
+    ~FileWriteLease();
+
+  private:
+    friend class FilesystemRoot;
+
+    explicit FileWriteLease(std::unique_ptr<FileWriteLeaseState> a_state) noexcept;
+
+    std::unique_ptr<FileWriteLeaseState> m_state;
 };
 
 /// @brief Publish 前の Operation 所有 Staging Directory を偽造不能な Token と共に保持する
@@ -74,6 +118,16 @@ class FilesystemRoot
     /// @brief 同一 Directory の Temporary File を用いて File Content を Atomic に公開する
     [[nodiscard]] virtual Result<void> write_file_atomic(const RelativePath &a_path,
                                                          std::span<const std::byte> a_bytes) noexcept = 0;
+    /// @brief DestinationとSibling Backupを対象とするCross-process Write Leaseを取得する
+    [[nodiscard]] virtual Result<FileWriteLease> acquire_file_write_lease(const RelativePath &a_path) noexcept = 0;
+    /// @brief Lease保持中に期待Fingerprintを再検査し、一致時だけAtomic Publishする
+    [[nodiscard]] virtual Result<void> write_file_atomic_if_unchanged(FileWriteLease &a_lease,
+                                                                      const RelativePath &a_path,
+                                                                      FileFingerprint a_expected,
+                                                                      std::size_t a_maximumExpectedBytes,
+                                                                      std::span<const std::byte> a_bytes) noexcept = 0;
+    /// @brief Regular Fileだけを削除する。Entryが存在しない場合は成功とする
+    [[nodiscard]] virtual Result<void> remove_file(const RelativePath &a_path) noexcept = 0;
     /// @brief 最終 Destination の Sibling に Operation 所有 Staging Directory を排他的に作成する
     [[nodiscard]] virtual Result<StagingArea> create_staging_area(const RelativePath &a_destination) noexcept = 0;
     /// @brief Operation 所有 Staging を既存 Destination へ上書きせず一度だけ公開する
@@ -92,6 +146,10 @@ class FilesystemRoot
   protected:
     /// @brief Derived 実装だけが Staging 所有値を発行できるよう Path と Token を束ねる
     [[nodiscard]] static StagingArea make_staging_area(RelativePath &&a_path, std::uint64_t a_token) noexcept;
+    /// @brief Platform実装が所有するStateからWrite Leaseを構築する
+    [[nodiscard]] static FileWriteLease make_file_write_lease(std::unique_ptr<FileWriteLeaseState> a_state) noexcept;
+    /// @brief Derived実装がLease所有Stateを検証する
+    [[nodiscard]] static FileWriteLeaseState *file_write_lease_state(FileWriteLease &a_lease) noexcept;
     /// @brief Derived 実装が Staging 所有 Token を検証するため値を返す
     [[nodiscard]] static std::uint64_t staging_token(const StagingArea &a_staging) noexcept;
     /// @brief Derived 実装が Commit 済み Token を再利用不能にする
@@ -104,4 +162,11 @@ class FilesystemRoot
     /// @brief Abstract Root を直接移動代入させず Derived 所有権で管理する
     FilesystemRoot &operator=(FilesystemRoot &&) noexcept = default;
 };
+
+/// @brief Byte列の決定的FNV-1a 64-bit Digestを返す
+[[nodiscard]] std::uint64_t file_content_digest(std::span<const std::byte> a_bytes) noexcept;
+/// @brief Root内Fileを上限付きで読込みPortable Fingerprintを返す
+[[nodiscard]] Result<FileFingerprint> fingerprint_file(FilesystemRoot &a_filesystem, const RelativePath &a_path,
+                                                       std::size_t a_maxBytes,
+                                                       const AssertContext &a_assertContext) noexcept;
 } // namespace cue

@@ -1341,12 +1341,11 @@ Result<SceneLoadResult> load_scene_document(FilesystemRoot &a_filesystem, const 
                                 a_assertContext);
 }
 
-SceneSaveOutcome save_scene_document(FilesystemRoot &a_filesystem, const RelativePath &a_path,
-                                     const SceneDocument &a_document, const schema::SchemaRegistry &a_schemaRegistry,
-                                     const ComponentValueSchemaRegistry &a_valueSchemaRegistry,
-                                     const SceneMigrationRegistry &a_migrationRegistry,
-                                     const ComponentMigrationRegistry &a_componentMigrations,
-                                     const AssertContext &a_assertContext) noexcept
+SceneSaveOutcome save_scene_document_internal(
+    FilesystemRoot &a_filesystem, FileWriteLease *a_lease, const FileFingerprint *a_expected,
+    const RelativePath &a_path, const SceneDocument &a_document, const schema::SchemaRegistry &a_schemaRegistry,
+    const ComponentValueSchemaRegistry &a_valueSchemaRegistry, const SceneMigrationRegistry &a_migrationRegistry,
+    const ComponentMigrationRegistry &a_componentMigrations, const AssertContext &a_assertContext) noexcept
 {
     try
     {
@@ -1406,7 +1405,10 @@ SceneSaveOutcome save_scene_document(FilesystemRoot &a_filesystem, const Relativ
         }
 
         const auto characters = std::span(serialized.try_value()->data(), serialized.try_value()->size());
-        auto written = a_filesystem.write_file_atomic(a_path, std::as_bytes(characters));
+        auto written = a_expected == nullptr
+                           ? a_filesystem.write_file_atomic(a_path, std::as_bytes(characters))
+                           : a_filesystem.write_file_atomic_if_unchanged(
+                                 *a_lease, a_path, *a_expected, k_maximumSceneBytes, std::as_bytes(characters));
         if (!written)
         {
             const bool durabilityUnknown =
@@ -1449,5 +1451,28 @@ SceneSaveOutcome save_scene_document(FilesystemRoot &a_filesystem, const Relativ
     {
         terminate_serialization_exception(a_assertContext);
     }
+}
+
+SceneSaveOutcome save_scene_document(FilesystemRoot &a_filesystem, const RelativePath &a_path,
+                                     const SceneDocument &a_document, const schema::SchemaRegistry &a_schemaRegistry,
+                                     const ComponentValueSchemaRegistry &a_valueSchemaRegistry,
+                                     const SceneMigrationRegistry &a_migrationRegistry,
+                                     const ComponentMigrationRegistry &a_componentMigrations,
+                                     const AssertContext &a_assertContext) noexcept
+{
+    return save_scene_document_internal(a_filesystem, nullptr, nullptr, a_path, a_document, a_schemaRegistry,
+                                        a_valueSchemaRegistry, a_migrationRegistry, a_componentMigrations,
+                                        a_assertContext);
+}
+
+SceneSaveOutcome save_scene_document_if_unchanged(
+    FilesystemRoot &a_filesystem, FileWriteLease &a_lease, const RelativePath &a_path, FileFingerprint a_expected,
+    const SceneDocument &a_document, const schema::SchemaRegistry &a_schemaRegistry,
+    const ComponentValueSchemaRegistry &a_valueSchemaRegistry, const SceneMigrationRegistry &a_migrationRegistry,
+    const ComponentMigrationRegistry &a_componentMigrations, const AssertContext &a_assertContext) noexcept
+{
+    return save_scene_document_internal(a_filesystem, &a_lease, &a_expected, a_path, a_document, a_schemaRegistry,
+                                        a_valueSchemaRegistry, a_migrationRegistry, a_componentMigrations,
+                                        a_assertContext);
 }
 } // namespace cue::scene

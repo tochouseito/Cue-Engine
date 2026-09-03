@@ -1,14 +1,12 @@
 #pragma once
 
-#include <Cue/IO/RelativePath.h>
+#include <Cue/IO/Filesystem.h>
 
 #include <cstdint>
 #include <string>
 
 namespace cue
 {
-class FilesystemRoot;
-
 namespace schema
 {
 class SchemaRegistry;
@@ -47,15 +45,7 @@ class ScenePersistenceServices final
 };
 
 /// @brief Scene Fileの存在状態、Byte数、Content Digestを一つの比較値として保持する
-struct SceneFileFingerprint final
-{
-    bool exists = false;
-    std::uint64_t byteSize = 0U;
-    std::uint64_t contentDigest = 0U;
-
-    /// @brief Fingerprintの全要素を比較する
-    [[nodiscard]] bool operator==(const SceneFileFingerprint &) const noexcept = default;
-};
+using SceneFileFingerprint = FileFingerprint;
 
 /// @brief EditorDocumentのSave公開結果が確定済みか表す
 enum class DocumentPersistenceState : std::uint8_t

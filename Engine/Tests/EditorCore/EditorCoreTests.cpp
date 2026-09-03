@@ -92,6 +92,25 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
         m_uncertainPath = a_uncertain ? std::string(a_path) : std::string{};
     }
 
+    /// @brief 次回Conditional Publish直前に外部変更を注入する
+    void mutate_before_publish(std::string_view a_path, std::string_view a_text)
+    {
+        m_mutationPath = std::string(a_path);
+        m_mutationText = std::string(a_text);
+    }
+
+    /// @brief 指定PathのFile削除失敗注入を切り替える
+    void fail_remove(std::string_view a_path, bool a_fail)
+    {
+        m_failedRemovePath = a_fail ? std::string(a_path) : std::string{};
+    }
+
+    /// @brief 指定Pathの次回Publish後Readを破損Dataとして返す
+    void fail_next_verification(std::string_view a_path)
+    {
+        m_verificationFailurePath = std::string(a_path);
+    }
+
     /// @brief Memory上のEntry種別を返す
     [[nodiscard]] cue::Result<cue::EntryType> query_entry(const cue::RelativePath &a_path) noexcept override
     {
@@ -103,6 +122,13 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
     [[nodiscard]] cue::Result<std::vector<std::byte>> read_file(const cue::RelativePath &a_path,
                                                                 std::size_t a_maxBytes) noexcept override
     {
+        if (a_path.text() == m_corruptNextReadPath)
+        {
+            m_corruptNextReadPath.clear();
+            constexpr std::string_view invalid = "invalid verification data";
+            const auto bytes = std::as_bytes(std::span(invalid.data(), invalid.size()));
+            return cue::Result<std::vector<std::byte>>::success(std::vector<std::byte>(bytes.begin(), bytes.end()));
+        }
         const auto found = m_files.find(std::string(a_path.text()));
         if (found == m_files.end())
         {
@@ -133,11 +159,64 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
                 cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Injected atomic write failure"));
         }
         m_files[std::string(a_path.text())] = std::vector<std::byte>(a_bytes.begin(), a_bytes.end());
+        if (a_path.text() == m_verificationFailurePath)
+        {
+            m_corruptNextReadPath = m_verificationFailurePath;
+            m_verificationFailurePath.clear();
+        }
         if (a_path.text() == m_uncertainPath)
         {
             return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::DurabilityUnknown,
                                                                  "Injected durability uncertainty"));
         }
+        return cue::Result<void>::success();
+    }
+
+    /// @brief Memory Test内でDestination所有情報を保持するLeaseを発行する
+    [[nodiscard]] cue::Result<cue::FileWriteLease> acquire_file_write_lease(
+        const cue::RelativePath &a_path) noexcept override
+    {
+        auto state = std::make_unique<MemoryFileWriteLeaseState>(this, std::string(a_path.text()));
+        return cue::Result<cue::FileWriteLease>::success(make_file_write_lease(std::move(state)));
+    }
+
+    /// @brief Publish直前のFingerprint一致を検査してMemory Fileを更新する
+    [[nodiscard]] cue::Result<void> write_file_atomic_if_unchanged(cue::FileWriteLease &a_lease,
+                                                                   const cue::RelativePath &a_path,
+                                                                   cue::FileFingerprint a_expected,
+                                                                   std::size_t a_maximumExpectedBytes,
+                                                                   std::span<const std::byte> a_bytes) noexcept override
+    {
+        auto *state = dynamic_cast<MemoryFileWriteLeaseState *>(file_write_lease_state(a_lease));
+        if (state == nullptr || state->owner != this || state->path != a_path.text())
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::PreconditionFailed, "Memory lease mismatch"));
+        }
+        if (a_path.text() == m_mutationPath)
+        {
+            set(m_mutationPath, m_mutationText);
+            m_mutationPath.clear();
+            m_mutationText.clear();
+        }
+        auto current = cue::fingerprint_file(*this, a_path, a_maximumExpectedBytes, *m_assertContext);
+        if (!current || *current.try_value() != a_expected)
+        {
+            return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::PreconditionFailed,
+                                                                 "Memory file changed before publish"));
+        }
+        return write_file_atomic(a_path, a_bytes);
+    }
+
+    /// @brief Memory Fileを削除し、存在しない場合も成功する
+    [[nodiscard]] cue::Result<void> remove_file(const cue::RelativePath &a_path) noexcept override
+    {
+        if (a_path.text() == m_failedRemovePath)
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Injected file removal failure"));
+        }
+        m_files.erase(std::string(a_path.text()));
         return cue::Result<void>::success();
     }
 
@@ -164,9 +243,25 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
     }
 
   private:
+    struct MemoryFileWriteLeaseState final : cue::FileWriteLeaseState
+    {
+        MemoryFileWriteLeaseState(const MemoryFilesystemRoot *a_owner, std::string a_path) noexcept
+            : owner(a_owner), path(std::move(a_path))
+        {
+        }
+
+        const MemoryFilesystemRoot *owner;
+        std::string path;
+    };
+
     std::map<std::string, std::vector<std::byte>> m_files;
     std::string m_failedPath;
     std::string m_uncertainPath;
+    std::string m_mutationPath;
+    std::string m_mutationText;
+    std::string m_failedRemovePath;
+    std::string m_verificationFailurePath;
+    std::string m_corruptNextReadPath;
     const cue::AssertContext *m_assertContext;
 };
 
@@ -950,6 +1045,16 @@ void test_scene_persistence_workflow() noexcept
     require(document != nullptr && document->is_dirty());
     require(document->scene_locator().text() == "Scenes/Main.cuescene");
     sourceAssets.fail_write("Scenes/Renamed.cuescene", false);
+    sourceAssets.mutate_before_publish("Scenes/Renamed.cuescene", externalJson);
+    auto racedSaveAs = controller->save_document_as(
+        documentId, take_value(cue::RelativePath::parse("Scenes/Renamed.cuescene", assertContext)));
+    require(!racedSaveAs.has_value());
+    require(racedSaveAs.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::ExternalConflict));
+    document = controller->session().find_document(documentId);
+    require(document != nullptr && document->is_dirty());
+    require(document->scene_locator().text() == "Scenes/Main.cuescene");
+    require(sourceAssets.text("Scenes/Renamed.cuescene") == externalJson);
     auto saveAs = controller->save_document_as(
         documentId, take_value(cue::RelativePath::parse("Scenes/Renamed.cuescene", assertContext)));
     require(saveAs.has_value() && saveAs.try_value()->status() == cue::scene::SceneSaveStatus::Committed);
@@ -996,10 +1101,66 @@ void test_scene_persistence_workflow() noexcept
     require(secondDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::SaveUncertain);
     require(secondDocument->requires_close_decision());
     sourceAssets.make_write_uncertain("Scenes/Second.cuescene", false);
-    require(controller->reload_document(secondDocumentId).has_value());
+    require(!controller->reload_document(secondDocumentId).has_value());
+    secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr && secondDocument->is_dirty());
+    require(secondDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::SaveUncertain);
+    require(take_value(controller->retry_uncertain_save(secondDocumentId)) == cue::scene::SceneSaveStatus::Committed);
     secondDocument = controller->session().find_document(secondDocumentId);
     require(secondDocument != nullptr && !secondDocument->is_dirty());
     require(secondDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::Idle);
+
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    secondDocumentId, secondSceneAssetId,
+                    cue::editor_core::RenameObjectCommand{secondRootId, "Uncertain Save As"}})
+                .has_value());
+    sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene", true);
+    auto uncertainSaveAs = controller->save_document_as(
+        secondDocumentId, take_value(cue::RelativePath::parse("Scenes/Second-Renamed.cuescene", assertContext)));
+    require(uncertainSaveAs.has_value());
+    require(uncertainSaveAs.try_value()->status() == cue::scene::SceneSaveStatus::PublishedButDurabilityUnknown);
+    secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr && secondDocument->is_dirty());
+    require(secondDocument->scene_locator().text() == "Scenes/Second.cuescene");
+    require(!controller->reload_document(secondDocumentId).has_value());
+    sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene", false);
+    require(take_value(controller->retry_uncertain_save(secondDocumentId)) == cue::scene::SceneSaveStatus::Committed);
+    secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr && !secondDocument->is_dirty());
+    require(secondDocument->scene_locator().text() == "Scenes/Second-Renamed.cuescene");
+
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    secondDocumentId, secondSceneAssetId,
+                    cue::editor_core::RenameObjectCommand{secondRootId, "Discarded Uncertain Record"}})
+                .has_value());
+    sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene", true);
+    auto discardedUncertainSave = controller->save_document(secondDocumentId);
+    require(discardedUncertainSave.has_value());
+    require(discardedUncertainSave.try_value()->status() == cue::scene::SceneSaveStatus::PublishedButDurabilityUnknown);
+    sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene", false);
+    require(controller->discard_uncertain_save(secondDocumentId).has_value());
+    secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr && secondDocument->is_dirty());
+    require(secondDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::Idle);
+    require(!controller->discard_uncertain_save(secondDocumentId).has_value());
+    require(controller->reload_document(secondDocumentId).has_value());
+
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    secondDocumentId, secondSceneAssetId,
+                    cue::editor_core::RenameObjectCommand{secondRootId, "Verification Retry"}})
+                .has_value());
+    sourceAssets.fail_next_verification("Scenes/Second-Renamed.cuescene");
+    auto verificationFailedSave = controller->save_document(secondDocumentId);
+    require(verificationFailedSave.has_value());
+    require(verificationFailedSave.try_value()->status() ==
+            cue::scene::SceneSaveStatus::PublishedButVerificationFailed);
+    require(!controller->reload_document(secondDocumentId).has_value());
+    require(take_value(controller->retry_uncertain_save(secondDocumentId)) == cue::scene::SceneSaveStatus::Committed);
+    secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr && !secondDocument->is_dirty());
 
     require(controller
                 ->execute_command(cue::editor_core::SceneCommandRequest{
@@ -1081,6 +1242,15 @@ void test_scene_persistence_workflow() noexcept
             static_cast<std::int64_t>(cue::editor_core::EditorCoreError::UnsupportedRecovery));
     require(savedRoot.text(recoveryPath) == unsupportedRecovery);
     savedRoot.set(recoveryPath, validRecovery);
+    require(verification->inspect_recovery(verificationId).has_value());
+    savedRoot.fail_remove(recoveryPath, true);
+    require(!verification->discard_recovery(verificationId).has_value());
+    verifiedDocument = verification->session().find_document(verificationId);
+    require(verifiedDocument != nullptr && verifiedDocument->has_recovery_candidate());
+    require(savedRoot.text(recoveryPath) == validRecovery);
+    savedRoot.fail_remove(recoveryPath, false);
+    require(verification->discard_recovery(verificationId).has_value());
+    require(savedRoot.text(recoveryPath).empty());
 
     require(verification
                 ->execute_command(cue::editor_core::SceneCommandRequest{

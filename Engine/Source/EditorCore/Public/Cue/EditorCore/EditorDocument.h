@@ -198,6 +198,23 @@ class EditorDocument final
         std::size_t estimatedBytes;
     };
 
+    enum class PendingSaveReason : std::uint8_t
+    {
+        DurabilityUnknown,
+        VerificationFailed
+    };
+
+    struct PendingSaveRecord final
+    {
+        DocumentStateId sourceStateId;
+        RelativePath destination;
+        SceneFileFingerprint expectedFingerprint;
+        scene::SceneDocumentCheckpoint candidateCheckpoint;
+        std::uint64_t candidateDigest;
+        PendingSaveReason reason;
+        bool switchDestination;
+    };
+
     /// @brief Open 済み Scene と初期 Session 状態を束ねる
     EditorDocument(EditorDocumentId a_id, std::shared_ptr<const DocumentStateOrigin> a_stateOrigin,
                    scene::SceneDocument &&a_document, RelativePath &&a_locator, bool a_hasSavedDestination) noexcept;
@@ -215,6 +232,7 @@ class EditorDocument final
     DocumentPersistenceState m_persistenceState = DocumentPersistenceState::Idle;
     bool m_hasRecoveryCandidate = false;
     std::optional<SceneFileFingerprint> m_baseFingerprint;
+    std::optional<PendingSaveRecord> m_pendingSave;
     DocumentCloseState m_closeState = DocumentCloseState::Open;
     std::vector<HistoryEntry> m_history;
     std::size_t m_historyCursor = 0U;

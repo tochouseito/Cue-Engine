@@ -228,6 +228,23 @@ class FailingFilesystemRoot final : public cue::FilesystemRoot
         return cue::Result<void>::success();
     }
 
+    [[nodiscard]] cue::Result<cue::FileWriteLease> acquire_file_write_lease(const cue::RelativePath &) noexcept override
+    {
+        return cue::Result<cue::FileWriteLease>::failure(make_failure());
+    }
+
+    [[nodiscard]] cue::Result<void> write_file_atomic_if_unchanged(cue::FileWriteLease &, const cue::RelativePath &,
+                                                                   cue::FileFingerprint, std::size_t,
+                                                                   std::span<const std::byte>) noexcept override
+    {
+        return cue::Result<void>::failure(make_failure());
+    }
+
+    [[nodiscard]] cue::Result<void> remove_file(const cue::RelativePath &) noexcept override
+    {
+        return cue::Result<void>::failure(make_failure());
+    }
+
     /// @brief Staging 作成 Failure Point または偽造不能 Token を返す
     [[nodiscard]] cue::Result<cue::StagingArea> create_staging_area(const cue::RelativePath &) noexcept override
     {
@@ -426,8 +443,64 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     CloseHandle(locked);
 
     auto preserved = a_filesystem.read_file(*file.try_value(), 16);
-    return has_io_error(failedReplace, cue::IoError::PermissionDenied) && preserved &&
-           *preserved.try_value() == std::vector<std::byte>(second.begin(), second.end());
+    if (!has_io_error(failedReplace, cue::IoError::PermissionDenied) || !preserved ||
+        *preserved.try_value() != std::vector<std::byte>(second.begin(), second.end()))
+    {
+        return false;
+    }
+
+    auto expected = cue::fingerprint_file(a_filesystem, *file.try_value(), 16U, a_assertContext);
+    auto competingRoot = cue::create_windows_filesystem_root(a_directory.utf8_path(), a_assertContext);
+    if (!expected || !competingRoot)
+    {
+        return false;
+    }
+    {
+        auto lease = a_filesystem.acquire_file_write_lease(*file.try_value());
+        if (!lease)
+        {
+            return false;
+        }
+        auto busy = (*competingRoot.try_value())->acquire_file_write_lease(*file.try_value());
+        if (!has_io_error(busy, cue::IoError::Busy) ||
+            !a_filesystem.write_file_atomic_if_unchanged(*lease.try_value(), *file.try_value(), *expected.try_value(),
+                                                         16U, first))
+        {
+            return false;
+        }
+    }
+    {
+        auto lease = a_filesystem.acquire_file_write_lease(*file.try_value());
+        if (!lease)
+        {
+            return false;
+        }
+        auto stale = a_filesystem.write_file_atomic_if_unchanged(*lease.try_value(), *file.try_value(),
+                                                                 *expected.try_value(), 16U, second);
+        if (!has_io_error(stale, cue::IoError::PreconditionFailed))
+        {
+            return false;
+        }
+    }
+    auto afterStale = a_filesystem.read_file(*file.try_value(), 16U);
+    if (!afterStale || *afterStale.try_value() != std::vector<std::byte>(first.begin(), first.end()))
+    {
+        return false;
+    }
+    const std::wstring hardLinkPath = a_directory.child_path(L"Data\\Nested\\StateAlias.bin");
+    if (CreateHardLinkW(hardLinkPath.c_str(), nativePath.c_str(), nullptr) == FALSE)
+    {
+        return false;
+    }
+    auto hardLinkLease = a_filesystem.acquire_file_write_lease(*file.try_value());
+    const bool hardLinkRejected = has_io_error(hardLinkLease, cue::IoError::UnsupportedEntry);
+    const bool hardLinkRemoved = DeleteFileW(hardLinkPath.c_str()) != FALSE;
+    if (!hardLinkRejected || !hardLinkRemoved || !a_filesystem.remove_file(*file.try_value()))
+    {
+        return false;
+    }
+    auto removed = a_filesystem.query_entry(*file.try_value());
+    return removed && *removed.try_value() == cue::EntryType::Missing && a_filesystem.remove_file(*file.try_value());
 }
 
 /// @brief Staging Directory の Publish、既存 Destination 拒否、Rollback を検証する

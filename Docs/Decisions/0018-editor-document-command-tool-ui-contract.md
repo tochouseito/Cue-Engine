@@ -215,6 +215,11 @@ File名へ解決されるLock Sidecarを、Write／Delete共有を許可しな�
 別Rootから同じ実Fileへ到達するCueEngine Writerも同じSidecarで競合し、Lease取得失敗を待機または診断可能なBusyとして返す。
 Sidecar削除失敗は本文Saveの成否を変更せずSecondary診断とする。
 
+M12の同期実装では、Owner Thread限定の`EditorController` Save WorkflowがSession内Coordinatorを担い、`Cue.IO`のMove-only
+`FileWriteLease`をSave結果の状態記録まで保持する。Windows Adapterは`.cuelock` Sidecarを共有なし・Delete-on-close Handleで所有する。
+`write_file_atomic_if_unchanged`はLease所有PathとExpected FingerprintをTemporary FileのPublish直前に再検査し、`Missing`期待では
+Replace Flagを使用しない。既存File期待では再検査後に限りReplaceし、上記の非協調Writerに対する残存競合窓を許容する。
+
 M12では既存Scene本文が複数Hard Link名を持つ場合を`UnsupportedEntry`としてSave／Save Asの置換対象から拒否する。
 Windows AdapterはLease取得後、Backup作成前にNative File InformationのLink Countを検査する。別名ごとに異なるSidecarを取得して
 同じFile Identityを同時置換することを許可しない。Hard Linkを安全に編集する必要が生じた場合は、Volume／File IdentityをKeyにする
@@ -269,6 +274,8 @@ Byte列のDigestをCandidate Digestと比較してよい。DigestとScene Identi
 External Conflictへ遷移し、RecordとCandidate Checkpointを保持したままReload、Save As、Retry Save／Verification、Cancelの
 明示Intentを要求する。
 明示的なDiscardまたはSession CloseまでRecordを破棄しない。
+Save Uncertain中の通常SaveとReloadはRecordを暗黙破棄またはClean化し得るため拒否する。`retry_uncertain_save`または
+`discard_uncertain_save`の明示Intentを先に要求し、DiscardはDocument、History、Dirtyを変更しない。
 
 File Fingerprintは最終更新時刻だけに依存せず、File SizeとContent Digestを含む。外部変更を検出した場合は暗黙に上書きせず、
 Reload、Save As、Cancelの明示Intentを要求する。
@@ -288,6 +295,8 @@ State ID、Scene Data Digestを含む。既知の古いVersionは`N -> N + 1`の
 
 Recovery書込み成功は`savedStateId`を更新しない。起動時に有効なRecoveryを検出した場合は、正本を暗黙置換せず、Recover、Discard、
 Inspectの明示Intentを要求する。Recover後のDocumentはDirtyな新Stateとして開き、通常Saveが成功するまで正本としない。
+`ignore_recovery`は現在Sessionの表示だけを解除し、`discard_recovery`はSaved RootのRecovery File削除成功時だけ候補を解除する。
+削除失敗時はRecovery Fileと候補状態を維持する。
 
 #### Recovery Envelope v1
 
