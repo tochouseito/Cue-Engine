@@ -229,6 +229,11 @@ void test_component_data() noexcept
         cue::scene::FieldValue::asset_reference(std::move(movedAssetToken)),
         cue::scene::FieldValueKind::AssetReference, assertContext);
     require(!movedAssetField.has_value());
+    auto selfMovedAssetToken = take_value(cue::scene::AssetReferenceValue::create(
+        "asset:self", assertContext));
+    auto &selfMovedAssetTokenAlias = selfMovedAssetToken;
+    selfMovedAssetToken = std::move(selfMovedAssetTokenAlias);
+    require(selfMovedAssetToken.token().empty());
     const auto invalidOpaqueField = cue::scene::OpaqueFieldData::create(
         unknownField, invalidUtf8, assertContext);
     require(!invalidOpaqueField.has_value());

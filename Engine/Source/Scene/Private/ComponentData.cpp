@@ -655,8 +655,8 @@ AssetReferenceValue &AssetReferenceValue::operator=(AssetReferenceValue &&a_othe
     if (this != &a_other)
     {
         m_token = std::move(a_other.m_token);
-        a_other.m_token.clear();
     }
+    a_other.m_token.clear();
     return *this;
 }
 
