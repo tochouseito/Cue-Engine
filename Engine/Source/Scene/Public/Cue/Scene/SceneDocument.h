@@ -97,6 +97,7 @@ class SceneDocument final
     [[nodiscard]] const SceneObject *find_object(const ObjectId &a_id) const noexcept;
 
     /// @brief 検証済みStable IDとAuthoring DataでObjectを追加する
+    /// @details Object上限到達時はResourceLimitExceededを返しDocumentを変更しない
     [[nodiscard]] Result<void> add_object(ObjectId a_id, std::string_view a_name, bool a_isActive,
                                           std::optional<ObjectId> a_parentId, math::Transform a_transform) noexcept;
     /// @brief Childを持たないObjectを削除する
@@ -110,6 +111,7 @@ class SceneDocument final
     /// @brief ObjectのCore Transform Dataを置き換える
     [[nodiscard]] Result<void> set_transform(const ObjectId &a_id, math::Transform a_transform) noexcept;
     /// @brief Stable Instance IDが重複しないComponent DataをObjectへ追加する
+    /// @details 対象ObjectのComponent上限到達時はResourceLimitExceededを返しDocumentを変更しない
     [[nodiscard]] Result<void> add_component(const ObjectId &a_objectId, SceneComponent a_component) noexcept;
     /// @brief Stable Instance IDに対応するComponent DataをObjectから削除する
     [[nodiscard]] Result<void> remove_component(const ObjectId &a_objectId,

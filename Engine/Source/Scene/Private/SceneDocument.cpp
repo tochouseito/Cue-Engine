@@ -115,6 +115,12 @@ Result<void> SceneDocument::add_object(ObjectId a_id, std::string_view a_name, b
         return Result<void>::failure(make_scene_error(*m_assertContext, SceneError::HierarchyDepthExceeded,
                                                       "Scene object hierarchy exceeds the supported depth"));
     }
+    if (m_objects.size() >= k_maximumSceneObjectCount)
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::ResourceLimitExceeded,
+            "Scene object count exceeds the 4096 element limit"));
+    }
 
     try
     {
@@ -255,23 +261,42 @@ Result<void> SceneDocument::add_component(const ObjectId &a_objectId, SceneCompo
                     /// @brief Document内Objectが追加対象Component Identityを既に所有するか判定する
                     [&a_component](const SceneObject &a_existingObject) noexcept
                     {
-                        return std::any_of(a_existingObject.m_components.begin(), a_existingObject.m_components.end(),
-                                           /// @brief Component Instance Identityが追加値と一致するか判定する
-                                           [&a_component](const SceneComponent &a_existing) noexcept
-                                           { return a_existing.instance_id() == a_component.instance_id(); });
+                        const auto found = std::lower_bound(
+                            a_existingObject.m_components.begin(),
+                            a_existingObject.m_components.end(),
+                            a_component.instance_id(),
+                            /// @brief Componentを検索Identityより前へ並べるか判定する
+                            [](const SceneComponent &a_existing,
+                               const ComponentInstanceId &a_id) noexcept
+                            {
+                                return a_existing.instance_id() < a_id;
+                            });
+                        return found != a_existingObject.m_components.end() &&
+                               found->instance_id() == a_component.instance_id();
                     });
     if (isDuplicate)
     {
         return Result<void>::failure(make_scene_error(*m_assertContext, SceneError::DuplicateComponentId,
                                                       "Component instance identity must be unique within a document"));
     }
+    if (object->m_components.size() >= k_maximumSceneComponentsPerObject)
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::ResourceLimitExceeded,
+            "Scene component count exceeds the 4096 element limit"));
+    }
     try
     {
-        object->m_components.push_back(std::move(a_component));
-        std::sort(object->m_components.begin(), object->m_components.end(),
-                  /// @brief ComponentをStable Instance Identity順へ並べる
-                  [](const SceneComponent &a_left, const SceneComponent &a_right) noexcept
-                  { return a_left.instance_id() < a_right.instance_id(); });
+        const auto insertion = std::lower_bound(
+            object->m_components.begin(), object->m_components.end(),
+            a_component.instance_id(),
+            /// @brief Componentを挿入Identityより前へ並べるか判定する
+            [](const SceneComponent &a_existing,
+               const ComponentInstanceId &a_id) noexcept
+            {
+                return a_existing.instance_id() < a_id;
+            });
+        object->m_components.insert(insertion, std::move(a_component));
     }
     catch (...)
     {
@@ -304,10 +329,10 @@ Result<void> SceneDocument::remove_component(const ObjectId &a_objectId,
 
 Result<void> SceneDocument::validate() const noexcept
 {
-    if (m_objects.size() > k_maximumSceneContainerElements)
+    if (m_objects.size() > k_maximumSceneObjectCount)
     {
         return Result<void>::failure(make_scene_error(
-            *m_assertContext, SceneError::InvalidFormat,
+            *m_assertContext, SceneError::ResourceLimitExceeded,
             "Scene object count exceeds the 4096 element limit"));
     }
     if (m_objectIndex.size() != m_objects.size())
@@ -320,10 +345,10 @@ Result<void> SceneDocument::validate() const noexcept
     {
         for (const auto &object : m_objects)
         {
-            if (object.m_components.size() > k_maximumSceneContainerElements)
+            if (object.m_components.size() > k_maximumSceneComponentsPerObject)
             {
                 return Result<void>::failure(make_scene_error(
-                    *m_assertContext, SceneError::InvalidFormat,
+                    *m_assertContext, SceneError::ResourceLimitExceeded,
                     "Scene component count exceeds the 4096 element limit"));
             }
             for (const auto &component : object.m_components)

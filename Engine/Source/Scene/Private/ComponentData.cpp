@@ -1249,12 +1249,12 @@ Result<KnownComponentData> create_known_component(
     const ComponentValueSchemaRegistry &a_valueSchemaRegistry,
     const AssertContext &a_assertContext) noexcept
 {
-    if (a_knownFields.size() > k_maximumSceneContainerElements ||
+    if (a_knownFields.size() > k_maximumSceneFieldsPerComponent ||
         a_unknownFields.size() >
-            k_maximumSceneContainerElements - a_knownFields.size())
+            k_maximumSceneFieldsPerComponent - a_knownFields.size())
     {
         return Result<KnownComponentData>::failure(make_scene_error(
-            a_assertContext, SceneError::InvalidComponentData,
+            a_assertContext, SceneError::ResourceLimitExceeded,
             "Scene component field count exceeds the 4096 element limit"));
     }
     if (!a_valueSchemaRegistry.is_bound_to(a_schemaRegistry))
