@@ -372,6 +372,9 @@ class SceneComponent final
     Storage m_storage;
 };
 
+/// @brief Field Value の Kind と内部 Value が公開不変条件を満たすか判定する
+[[nodiscard]] bool is_valid_field_value(const FieldValue &a_value) noexcept;
+
 /// @brief Field ValueのKind一致を検証して既知Field Dataを生成する
 [[nodiscard]] Result<KnownFieldData> create_known_field(
     schema::FieldId a_id, FieldValue a_value, FieldValueKind a_expectedKind,

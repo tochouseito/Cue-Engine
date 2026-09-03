@@ -603,7 +603,7 @@ class JsonSyntaxValidator final
 }
 
 /// @brief FieldValueのKindと内部Valueが公開不変条件を満たすか判定する
-[[nodiscard]] bool is_valid_field_value(
+[[nodiscard]] bool is_valid_field_value_contents(
     const cue::scene::FieldValue &a_value) noexcept
 {
     using cue::scene::FieldValueKind;
@@ -634,6 +634,11 @@ class JsonSyntaxValidator final
 
 namespace cue::scene
 {
+bool is_valid_field_value(const FieldValue &a_value) noexcept
+{
+    return is_valid_field_value_contents(a_value);
+}
+
 AssetReferenceValue::AssetReferenceValue(std::string a_token) noexcept
     : m_token(std::move(a_token))
 {

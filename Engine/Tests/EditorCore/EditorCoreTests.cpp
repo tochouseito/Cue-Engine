@@ -107,6 +107,12 @@ cue::schema::FieldId make_health_field_id(const cue::AssertContext &a_assertCont
     return take_value(cue::schema::FieldId::create(1U, a_assertContext));
 }
 
+/// @brief Scene Command Test 用 Asset Reference Field Identity を生成する
+cue::schema::FieldId make_asset_field_id(const cue::AssertContext &a_assertContext) noexcept
+{
+    return take_value(cue::schema::FieldId::create(2U, a_assertContext));
+}
+
 /// @brief Scene Command Test 用 Schema Version を生成する
 cue::schema::SchemaVersion make_component_version(const cue::AssertContext &a_assertContext) noexcept
 {
@@ -120,6 +126,8 @@ std::unique_ptr<cue::schema::SchemaRegistry> make_component_registry(
     std::vector<cue::schema::FieldDescriptor> fields;
     fields.push_back(take_value(
         cue::schema::create_field_descriptor(make_health_field_id(a_assertContext), "health", a_assertContext)));
+    fields.push_back(take_value(
+        cue::schema::create_field_descriptor(make_asset_field_id(a_assertContext), "asset", a_assertContext)));
     std::vector<cue::schema::FieldId> reserved;
     auto descriptor = take_value(cue::schema::create_type_descriptor(
         make_component_type_id(a_assertContext), "Cue.EditorCore.TestComponent",
@@ -134,7 +142,8 @@ cue::scene::ComponentValueSchemaRegistry make_component_value_registry(
     const cue::schema::SchemaRegistry &a_registry, const cue::AssertContext &a_assertContext) noexcept
 {
     std::vector<cue::scene::FieldKindBinding> bindings{
-        {make_health_field_id(a_assertContext), cue::scene::FieldValueKind::SignedInteger}};
+        {make_health_field_id(a_assertContext), cue::scene::FieldValueKind::SignedInteger},
+        {make_asset_field_id(a_assertContext), cue::scene::FieldValueKind::AssetReference}};
     std::vector<cue::scene::ComponentValueSchema> schemas;
     schemas.push_back(take_value(cue::scene::create_component_value_schema(
         make_component_type_id(a_assertContext), make_component_version(a_assertContext), std::move(bindings),
@@ -153,6 +162,10 @@ cue::scene::SceneComponent make_health_component(cue::scene::ComponentInstanceId
     fields.push_back(take_value(cue::scene::create_known_field(
         make_health_field_id(a_assertContext), cue::scene::FieldValue::signed_integer(a_health),
         cue::scene::FieldValueKind::SignedInteger, a_assertContext)));
+    auto assetReference = take_value(cue::scene::AssetReferenceValue::create("asset://default", a_assertContext));
+    fields.push_back(take_value(cue::scene::create_known_field(
+        make_asset_field_id(a_assertContext), cue::scene::FieldValue::asset_reference(std::move(assetReference)),
+        cue::scene::FieldValueKind::AssetReference, a_assertContext)));
     std::vector<cue::scene::OpaqueFieldData> unknownFields;
     auto component = take_value(cue::scene::create_known_component(
         std::move(a_componentId), make_component_type_id(a_assertContext), make_component_version(a_assertContext),
@@ -172,10 +185,40 @@ std::int64_t component_health(const cue::scene::SceneObject &a_object,
         }
         const cue::scene::KnownComponentData *known = component.try_known();
         require(known != nullptr);
-        require(known->known_fields().size() == 1U);
-        const std::int64_t *value = known->known_fields()[0].value().try_signed_integer();
-        require(value != nullptr);
-        return *value;
+        for (const cue::scene::KnownFieldData &field : known->known_fields())
+        {
+            if (field.id().value() == 1U)
+            {
+                const std::int64_t *value = field.value().try_signed_integer();
+                require(value != nullptr);
+                return *value;
+            }
+        }
+    }
+    std::abort();
+}
+
+/// @brief Object 内の指定 Component から Asset Reference Token を取得する
+std::string_view component_asset_token(const cue::scene::SceneObject &a_object,
+                                       const cue::scene::ComponentInstanceId &a_componentId) noexcept
+{
+    for (const cue::scene::SceneComponent &component : a_object.components())
+    {
+        if (component.instance_id() != a_componentId)
+        {
+            continue;
+        }
+        const cue::scene::KnownComponentData *known = component.try_known();
+        require(known != nullptr);
+        for (const cue::scene::KnownFieldData &field : known->known_fields())
+        {
+            if (field.id().value() == 2U)
+            {
+                const cue::scene::AssetReferenceValue *value = field.value().try_asset_reference();
+                require(value != nullptr);
+                return value->token();
+            }
+        }
     }
     std::abort();
 }
@@ -421,6 +464,22 @@ void test_scene_commands() noexcept
     document = controller->session().find_document(documentId);
     require(document->current_state_id().value() == 6U);
     require(component_health(*document->scene_document().find_object(childId), componentId) == 250);
+
+    auto movedAssetReference = take_value(cue::scene::AssetReferenceValue::create("asset://moved", assertContext));
+    const auto consumedAssetValue = cue::scene::FieldValue::asset_reference(std::move(movedAssetReference));
+    (void)consumedAssetValue;
+    auto invalidAssetValue = cue::scene::FieldValue::asset_reference(std::move(movedAssetReference));
+    require(!cue::scene::is_valid_field_value(invalidAssetValue));
+    const auto invalidAsset = controller->execute_command(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId,
+        cue::editor_core::EditFieldCommand{childId, componentId, make_asset_field_id(assertContext),
+                                           std::move(invalidAssetValue)}});
+    require(!invalidAsset.has_value());
+    require(invalidAsset.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::scene::SceneError::FieldTypeMismatch));
+    document = controller->session().find_document(documentId);
+    require(document->current_state_id().value() == 6U);
+    require(component_asset_token(*document->scene_document().find_object(childId), componentId) == "asset://default");
 
     state = take_value(controller->execute_command(cue::editor_core::SceneCommandRequest{
         documentId, sceneAssetId, cue::editor_core::EditTransformCommand{childId, cue::math::Transform{}}}));

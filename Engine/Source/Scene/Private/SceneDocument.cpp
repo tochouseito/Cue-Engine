@@ -438,7 +438,7 @@ Result<void> SceneDocument::set_component_field(
             *m_assertContext, SceneError::UnknownSchemaField,
             "Scene component field identity was not found"));
     }
-    if (field->value().kind() != a_value.kind())
+    if (!is_valid_field_value(a_value) || field->value().kind() != a_value.kind())
     {
         return Result<void>::failure(make_scene_error(
             *m_assertContext, SceneError::FieldTypeMismatch,
