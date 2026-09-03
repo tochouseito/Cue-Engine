@@ -30,7 +30,7 @@ M11対象の`Scene` Label 9 Testは全構成で実行され、成功した。
 | Malformed Input | `Cue.Scene.Serialization`が空入力、BOM、構文不正、重複Key、Trailing Data、不正UTF-8、過剰Nest／Object／Container／File Sizeを拒否し、既存Documentを維持することを検証 |
 | Runtime Instantiation | `Cue.Scene.Instantiation`がObjectIdからEntityIdへの対応、Hierarchy、Transform、既知Component、決定的構築順、空Sceneを検証 |
 | Rollbackと寿命 | `Cue.Scene.Instantiation`が途中失敗時の全Entity Rollback、World不一致拒否、明示終了、Destructor／Move契約を検証 |
-| Process境界 | `Cue.Scene.Process.*` 4 TestがSceneInstanceの正常終了、Move、Destructorによる後始末を別Processで検証 |
+| Process境界 | `Cue.Scene.Process.*` 4 Testがlive所有権を残した破棄／Move代入のfail-fastと、明示終了後／moved-fromのDestructorが無害であることを別Processで検証 |
 
 SceneDocumentは編集・保存の正本、SceneSnapshotはRuntime実体化の入力、RuntimeWorldは実行状態として分離される。
 `test_successful_instantiation`ではSnapshot作成後にDocumentのActive状態とParentを変更してもSnapshotから生成したRuntime状態が変わらず、Runtime側のActive状態変更もDocumentへ戻らないことを検証している。
