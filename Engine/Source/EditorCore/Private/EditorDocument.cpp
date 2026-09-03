@@ -63,6 +63,16 @@ ExternalChangeState EditorDocument::external_change_state() const noexcept
     return m_externalChangeState;
 }
 
+DocumentPersistenceState EditorDocument::persistence_state() const noexcept
+{
+    return m_persistenceState;
+}
+
+bool EditorDocument::has_recovery_candidate() const noexcept
+{
+    return m_hasRecoveryCandidate;
+}
+
 DocumentCloseState EditorDocument::close_state() const noexcept
 {
     return m_closeState;
@@ -70,7 +80,8 @@ DocumentCloseState EditorDocument::close_state() const noexcept
 
 bool EditorDocument::requires_close_decision() const noexcept
 {
-    return is_dirty() || !m_hasSavedDestination || m_externalChangeState != ExternalChangeState::None;
+    return is_dirty() || !m_hasSavedDestination || m_externalChangeState != ExternalChangeState::None ||
+           m_persistenceState != DocumentPersistenceState::Idle;
 }
 
 bool EditorDocument::can_undo() const noexcept

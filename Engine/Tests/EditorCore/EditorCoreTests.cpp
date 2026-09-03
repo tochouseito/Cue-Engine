@@ -3,6 +3,8 @@
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Fatal.h>
 #include <Cue/Foundation/Log.h>
+#include <Cue/IO/Error.h>
+#include <Cue/IO/Filesystem.h>
 #include <Cue/Math/Transform.h>
 #include <Cue/Project/Descriptor.h>
 #include <Cue/Scene/Error.h>
@@ -13,7 +15,9 @@
 #include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <map>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -35,6 +39,135 @@ class TestFatalHandler final : public cue::FatalHandler
     {
         std::abort();
     }
+};
+
+/// @brief Editor Persistence Test用のRoot境界付きMemory Filesystem
+class MemoryFilesystemRoot final : public cue::FilesystemRoot
+{
+  public:
+    /// @brief 診断Contextを非所有で保持する空Filesystemを構築する
+    explicit MemoryFilesystemRoot(const cue::AssertContext &a_assertContext) noexcept
+        : m_assertContext(&a_assertContext)
+    {
+    }
+
+    /// @brief Memory Filesystemの複製を禁止する
+    MemoryFilesystemRoot(const MemoryFilesystemRoot &) = delete;
+    /// @brief Memory Filesystemの複製代入を禁止する
+    MemoryFilesystemRoot &operator=(const MemoryFilesystemRoot &) = delete;
+    /// @brief Memory Filesystemの移動を禁止する
+    MemoryFilesystemRoot(MemoryFilesystemRoot &&) = delete;
+    /// @brief Memory Filesystemの移動代入を禁止する
+    MemoryFilesystemRoot &operator=(MemoryFilesystemRoot &&) = delete;
+    /// @brief 所有Byte列を破棄する
+    ~MemoryFilesystemRoot() override = default;
+
+    /// @brief Test用File本文を直接設定する
+    void set(std::string_view a_path, std::string_view a_text)
+    {
+        const auto bytes = std::as_bytes(std::span(a_text.data(), a_text.size()));
+        m_files[std::string(a_path)] = std::vector<std::byte>(bytes.begin(), bytes.end());
+    }
+
+    /// @brief Test用File本文をText Viewで返す
+    [[nodiscard]] std::string_view text(std::string_view a_path) const noexcept
+    {
+        const auto found = m_files.find(std::string(a_path));
+        if (found == m_files.end())
+        {
+            return {};
+        }
+        return {reinterpret_cast<const char *>(found->second.data()), found->second.size()};
+    }
+
+    /// @brief 指定PathのAtomic Write失敗注入を切り替える
+    void fail_write(std::string_view a_path, bool a_fail)
+    {
+        m_failedPath = a_fail ? std::string(a_path) : std::string{};
+    }
+
+    /// @brief 指定Pathの次回Writeを公開済みDurability不明として報告する
+    void make_write_uncertain(std::string_view a_path, bool a_uncertain)
+    {
+        m_uncertainPath = a_uncertain ? std::string(a_path) : std::string{};
+    }
+
+    /// @brief Memory上のEntry種別を返す
+    [[nodiscard]] cue::Result<cue::EntryType> query_entry(const cue::RelativePath &a_path) noexcept override
+    {
+        return cue::Result<cue::EntryType>::success(
+            m_files.contains(std::string(a_path.text())) ? cue::EntryType::RegularFile : cue::EntryType::Missing);
+    }
+
+    /// @brief 上限内のMemory Fileを複製して返す
+    [[nodiscard]] cue::Result<std::vector<std::byte>> read_file(const cue::RelativePath &a_path,
+                                                                std::size_t a_maxBytes) noexcept override
+    {
+        const auto found = m_files.find(std::string(a_path.text()));
+        if (found == m_files.end())
+        {
+            return cue::Result<std::vector<std::byte>>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::NotFound, "Memory file was not found"));
+        }
+        if (found->second.size() > a_maxBytes)
+        {
+            return cue::Result<std::vector<std::byte>>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::CapacityExceeded, "Memory file exceeds limit"));
+        }
+        return cue::Result<std::vector<std::byte>>::success(std::vector<std::byte>(found->second));
+    }
+
+    /// @brief Memory TestではDirectory作成を副作用なしで成功させる
+    [[nodiscard]] cue::Result<void> create_directories(const cue::RelativePath &) noexcept override
+    {
+        return cue::Result<void>::success();
+    }
+
+    /// @brief 指定PathへByte列を一回で公開する
+    [[nodiscard]] cue::Result<void> write_file_atomic(const cue::RelativePath &a_path,
+                                                      std::span<const std::byte> a_bytes) noexcept override
+    {
+        if (a_path.text() == m_failedPath)
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Injected atomic write failure"));
+        }
+        m_files[std::string(a_path.text())] = std::vector<std::byte>(a_bytes.begin(), a_bytes.end());
+        if (a_path.text() == m_uncertainPath)
+        {
+            return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::DurabilityUnknown,
+                                                                 "Injected durability uncertainty"));
+        }
+        return cue::Result<void>::success();
+    }
+
+    /// @brief Scene Persistence対象外のStaging作成を拒否する
+    [[nodiscard]] cue::Result<cue::StagingArea> create_staging_area(const cue::RelativePath &) noexcept override
+    {
+        return cue::Result<cue::StagingArea>::failure(
+            cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Staging is not used"));
+    }
+
+    /// @brief Scene Persistence対象外のStaging公開を拒否する
+    [[nodiscard]] cue::Result<void> publish_staging_area(cue::StagingArea &&,
+                                                         const cue::RelativePath &) noexcept override
+    {
+        return cue::Result<void>::failure(
+            cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Staging is not used"));
+    }
+
+    /// @brief Scene Persistence対象外のStaging破棄を拒否する
+    [[nodiscard]] cue::Result<void> rollback_staging_area(cue::StagingArea &&) noexcept override
+    {
+        return cue::Result<void>::failure(
+            cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Staging is not used"));
+    }
+
+  private:
+    std::map<std::string, std::vector<std::byte>> m_files;
+    std::string m_failedPath;
+    std::string m_uncertainPath;
+    const cue::AssertContext *m_assertContext;
 };
 
 /// @brief 条件が偽なら Test Process を失敗終了する
@@ -668,8 +801,9 @@ void test_transaction_history() noexcept
     for (std::size_t index = 0U; index < 100U; ++index)
     {
         const std::string_view name = index % 2U == 0U ? "Loop A" : "Loop B";
-        require(controller->execute_command(cue::editor_core::SceneCommandRequest{
-                    documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, std::string(name)}})
+        require(controller
+                    ->execute_command(cue::editor_core::SceneCommandRequest{
+                        documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, std::string(name)}})
                     .has_value());
     }
     document = controller->session().find_document(documentId);
@@ -693,8 +827,9 @@ void test_transaction_history() noexcept
     for (std::size_t index = 0U; index < 160U; ++index)
     {
         const std::string_view name = index % 2U == 0U ? "Limit A" : "Limit B";
-        require(controller->execute_command(cue::editor_core::SceneCommandRequest{
-                    documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, std::string(name)}})
+        require(controller
+                    ->execute_command(cue::editor_core::SceneCommandRequest{
+                        documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, std::string(name)}})
                     .has_value());
     }
     document = controller->session().find_document(documentId);
@@ -709,14 +844,255 @@ void test_transaction_history() noexcept
     require(!document->can_undo() && !document->can_redo());
     require(document->history_entry_count() == 0U && document->history_byte_size() == 0U);
 
-    require(controller->execute_command(cue::editor_core::SceneCommandRequest{
-                documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "History Restart"}})
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "History Restart"}})
                 .has_value());
     document = controller->session().find_document(documentId);
     require(document->can_undo() && !document->can_redo());
     require(controller->record_persistent_change(documentId).has_value());
     document = controller->session().find_document(documentId);
     require(!document->can_undo() && !document->can_redo());
+}
+
+/// @brief Save失敗、競合、Reload、Save All、Recovery、再Openを一連で検証する
+void test_scene_persistence_workflow() noexcept
+{
+    TestFatalHandler fatalHandler;
+    std::vector<std::unique_ptr<cue::LogSink>> sinks;
+    cue::Logger logger(fatalHandler, std::move(sinks));
+    cue::AssertContext assertContext(logger, fatalHandler);
+    cue::schema::SchemaRegistryIdentitySource registryIdentitySource;
+    auto registry = make_component_registry(registryIdentitySource, assertContext);
+    auto valueRegistry = make_component_value_registry(*registry, assertContext);
+    cue::scene::SceneMigrationRegistry sceneMigrations;
+    cue::scene::ComponentMigrationRegistry componentMigrations;
+    MemoryFilesystemRoot sourceAssets(assertContext);
+    MemoryFilesystemRoot savedRoot(assertContext);
+
+    const auto rootId = make_object_id("00000000-0000-4000-8000-000000000711", assertContext);
+    auto initialScene = make_scene_document("00000000-0000-4000-8000-000000000701", assertContext);
+    const auto sceneAssetId = initialScene.scene_asset_id();
+    require(initialScene.add_object(rootId, "Initial", true, std::nullopt, cue::math::Transform{}).has_value());
+    const auto initialJson = take_value(cue::scene::serialize_scene_document(initialScene, assertContext));
+    sourceAssets.set("Scenes/Main.cuescene", initialJson);
+
+    cue::editor_core::ScenePersistenceServices services(sourceAssets, savedRoot, *registry, valueRegistry,
+                                                        sceneMigrations, componentMigrations);
+    auto controller =
+        cue::editor_core::EditorController::create(make_project_descriptor(assertContext), services, assertContext);
+    const auto documentId = take_value(controller->open_document_from_storage(
+        take_value(cue::RelativePath::parse("Scenes/Main.cuescene", assertContext))));
+    const auto *document = controller->session().find_document(documentId);
+    require(document != nullptr && !document->is_dirty() && !document->has_recovery_candidate());
+
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "Edited"}})
+                .has_value());
+    const std::string originalFile(sourceAssets.text("Scenes/Main.cuescene"));
+    sourceAssets.fail_write("Scenes/Main.cuescene", true);
+    auto failedSave = controller->save_document(documentId);
+    require(failedSave.has_value());
+    require(failedSave.try_value()->status() == cue::scene::SceneSaveStatus::NotPublished);
+    document = controller->session().find_document(documentId);
+    require(document != nullptr && document->is_dirty());
+    require(sourceAssets.text("Scenes/Main.cuescene") == originalFile);
+
+    sourceAssets.fail_write("Scenes/Main.cuescene", false);
+    auto committedSave = controller->save_document(documentId);
+    require(committedSave.has_value());
+    require(committedSave.try_value()->status() == cue::scene::SceneSaveStatus::Committed);
+    document = controller->session().find_document(documentId);
+    require(document != nullptr && !document->is_dirty());
+
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "Local Conflict"}})
+                .has_value());
+    auto externalScene = make_scene_document("00000000-0000-4000-8000-000000000701", assertContext);
+    require(externalScene.add_object(rootId, "External", true, std::nullopt, cue::math::Transform{}).has_value());
+    const auto externalJson = take_value(cue::scene::serialize_scene_document(externalScene, assertContext));
+    sourceAssets.set("Scenes/Main.cuescene", externalJson);
+    const auto conflictingSave = controller->save_document(documentId);
+    require(!conflictingSave.has_value());
+    require(conflictingSave.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::ExternalConflict));
+    require(sourceAssets.text("Scenes/Main.cuescene") == externalJson);
+    require(take_value(controller->poll_external_change(documentId)) ==
+            cue::editor_core::ExternalChangeState::Modified);
+
+    sourceAssets.set("Scenes/Main.cuescene", "invalid scene data");
+    const auto failedReload = controller->reload_document(documentId);
+    require(!failedReload.has_value());
+    document = controller->session().find_document(documentId);
+    require(document != nullptr && document->is_dirty() && document->history_entry_count() == 2U);
+    require(document->scene_document().find_object(rootId)->name() == "Local Conflict");
+    sourceAssets.set("Scenes/Main.cuescene", externalJson);
+
+    const auto reloadedState = take_value(controller->reload_document(documentId));
+    document = controller->session().find_document(documentId);
+    require(document != nullptr && !document->is_dirty() && document->history_entry_count() == 0U);
+    require(document->current_state_id() == reloadedState && document->saved_state_id() == reloadedState);
+    require(document->scene_document().find_object(rootId)->name() == "External");
+    require(document->external_change_state() == cue::editor_core::ExternalChangeState::None);
+
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "Save As Content"}})
+                .has_value());
+    sourceAssets.fail_write("Scenes/Renamed.cuescene", true);
+    auto failedSaveAs = controller->save_document_as(
+        documentId, take_value(cue::RelativePath::parse("Scenes/Renamed.cuescene", assertContext)));
+    require(failedSaveAs.has_value());
+    require(failedSaveAs.try_value()->status() == cue::scene::SceneSaveStatus::NotPublished);
+    document = controller->session().find_document(documentId);
+    require(document != nullptr && document->is_dirty());
+    require(document->scene_locator().text() == "Scenes/Main.cuescene");
+    sourceAssets.fail_write("Scenes/Renamed.cuescene", false);
+    auto saveAs = controller->save_document_as(
+        documentId, take_value(cue::RelativePath::parse("Scenes/Renamed.cuescene", assertContext)));
+    require(saveAs.has_value() && saveAs.try_value()->status() == cue::scene::SceneSaveStatus::Committed);
+    document = controller->session().find_document(documentId);
+    require(document != nullptr && !document->is_dirty());
+    require(document->scene_locator().text() == "Scenes/Renamed.cuescene");
+    require(sourceAssets.text("Scenes/Main.cuescene") == externalJson);
+
+    const auto secondRootId = make_object_id("00000000-0000-4000-8000-000000000712", assertContext);
+    auto secondScene = make_scene_document("00000000-0000-4000-8000-000000000702", assertContext);
+    const auto secondSceneAssetId = secondScene.scene_asset_id();
+    require(secondScene.add_object(secondRootId, "Second", true, std::nullopt, cue::math::Transform{}).has_value());
+    sourceAssets.set("Scenes/Second.cuescene",
+                     take_value(cue::scene::serialize_scene_document(secondScene, assertContext)));
+    const auto secondDocumentId = take_value(controller->open_document_from_storage(
+        take_value(cue::RelativePath::parse("Scenes/Second.cuescene", assertContext))));
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "Batch First"}})
+                .has_value());
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    secondDocumentId, secondSceneAssetId,
+                    cue::editor_core::RenameObjectCommand{secondRootId, "Batch Second"}})
+                .has_value());
+    const auto allStatuses = take_value(controller->save_all_documents());
+    require(allStatuses.size() == 2U);
+    require(allStatuses[0] == cue::scene::SceneSaveStatus::Committed &&
+            allStatuses[1] == cue::scene::SceneSaveStatus::Committed);
+    require(!controller->session().find_document(documentId)->is_dirty());
+    require(!controller->session().find_document(secondDocumentId)->is_dirty());
+
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    secondDocumentId, secondSceneAssetId,
+                    cue::editor_core::RenameObjectCommand{secondRootId, "Uncertain Publish"}})
+                .has_value());
+    sourceAssets.make_write_uncertain("Scenes/Second.cuescene", true);
+    auto uncertainSave = controller->save_document(secondDocumentId);
+    require(uncertainSave.has_value());
+    require(uncertainSave.try_value()->status() == cue::scene::SceneSaveStatus::PublishedButDurabilityUnknown);
+    const auto *secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr && secondDocument->is_dirty());
+    require(secondDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::SaveUncertain);
+    require(secondDocument->requires_close_decision());
+    sourceAssets.make_write_uncertain("Scenes/Second.cuescene", false);
+    require(controller->reload_document(secondDocumentId).has_value());
+    secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr && !secondDocument->is_dirty());
+    require(secondDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::Idle);
+
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "Recovered Content"}})
+                .has_value());
+    document = controller->session().find_document(documentId);
+    const auto recoverySourceState = document->current_state_id().value();
+    const auto canonicalBeforeRecovery = std::string(sourceAssets.text("Scenes/Renamed.cuescene"));
+    savedRoot.fail_write("Editor/Recovery/00000000-0000-4000-8000-000000000701.cuerecovery", true);
+    require(!controller->autosave_recovery(documentId).has_value());
+    document = controller->session().find_document(documentId);
+    require(document->is_dirty() && !document->has_recovery_candidate());
+    require(sourceAssets.text("Scenes/Renamed.cuescene") == canonicalBeforeRecovery);
+    savedRoot.fail_write("Editor/Recovery/00000000-0000-4000-8000-000000000701.cuerecovery", false);
+    require(controller->autosave_recovery(documentId).has_value());
+    document = controller->session().find_document(documentId);
+    require(document->is_dirty() && document->has_recovery_candidate());
+    require(sourceAssets.text("Scenes/Renamed.cuescene") == canonicalBeforeRecovery);
+    require(!savedRoot.text("Editor/Recovery/00000000-0000-4000-8000-000000000701.cuerecovery").empty());
+
+    cue::editor_core::ScenePersistenceServices restartServices(sourceAssets, savedRoot, *registry, valueRegistry,
+                                                               sceneMigrations, componentMigrations);
+    auto restarted = cue::editor_core::EditorController::create(make_project_descriptor(assertContext), restartServices,
+                                                                assertContext);
+    const auto restartedId = take_value(restarted->open_document_from_storage(
+        take_value(cue::RelativePath::parse("Scenes/Renamed.cuescene", assertContext))));
+    const auto *restartedDocument = restarted->session().find_document(restartedId);
+    require(restartedDocument != nullptr && restartedDocument->has_recovery_candidate());
+    require(restartedDocument->scene_document().find_object(rootId)->name() == "Batch First");
+    const auto recoveryMetadata = take_value(restarted->inspect_recovery(restartedId));
+    require(recoveryMetadata.format_version() == 1U);
+    require(recoveryMetadata.source_state_value() == recoverySourceState);
+    require(recoveryMetadata.source_locator().text() == "Scenes/Renamed.cuescene");
+
+    auto recoveryConflictScene = make_scene_document("00000000-0000-4000-8000-000000000701", assertContext);
+    require(
+        recoveryConflictScene.add_object(rootId, "External Before Recover", true, std::nullopt, cue::math::Transform{})
+            .has_value());
+    const auto recoveryConflictJson =
+        take_value(cue::scene::serialize_scene_document(recoveryConflictScene, assertContext));
+    sourceAssets.set("Scenes/Renamed.cuescene", recoveryConflictJson);
+    require(restarted->recover_document(restartedId).has_value());
+    restartedDocument = restarted->session().find_document(restartedId);
+    require(restartedDocument->is_dirty() && restartedDocument->history_entry_count() == 0U);
+    require(restartedDocument->scene_document().find_object(rootId)->name() == "Recovered Content");
+    require(restartedDocument->external_change_state() == cue::editor_core::ExternalChangeState::Modified);
+    const auto recoveryConflictSave = restarted->save_document(restartedId);
+    require(!recoveryConflictSave.has_value());
+    require(sourceAssets.text("Scenes/Renamed.cuescene") == recoveryConflictJson);
+
+    sourceAssets.set("Scenes/Renamed.cuescene", canonicalBeforeRecovery);
+    require(restarted->reload_document(restartedId).has_value());
+    require(restarted->recover_document(restartedId).has_value());
+    auto recoveredSave = restarted->save_document(restartedId);
+    require(recoveredSave.has_value() && recoveredSave.try_value()->status() == cue::scene::SceneSaveStatus::Committed);
+
+    cue::editor_core::ScenePersistenceServices verificationServices(sourceAssets, savedRoot, *registry, valueRegistry,
+                                                                    sceneMigrations, componentMigrations);
+    auto verification = cue::editor_core::EditorController::create(make_project_descriptor(assertContext),
+                                                                   verificationServices, assertContext);
+    const auto verificationId = take_value(verification->open_document_from_storage(
+        take_value(cue::RelativePath::parse("Scenes/Renamed.cuescene", assertContext))));
+    const auto *verifiedDocument = verification->session().find_document(verificationId);
+    require(verifiedDocument != nullptr && !verifiedDocument->is_dirty());
+    require(verifiedDocument->scene_document().find_object(rootId)->name() == "Recovered Content");
+    require(verification->ignore_recovery(verificationId).has_value());
+    verifiedDocument = verification->session().find_document(verificationId);
+    require(verifiedDocument != nullptr && !verifiedDocument->has_recovery_candidate());
+    constexpr std::string_view recoveryPath = "Editor/Recovery/00000000-0000-4000-8000-000000000701.cuerecovery";
+    const std::string validRecovery(savedRoot.text(recoveryPath));
+    require(!validRecovery.empty());
+    std::string unsupportedRecovery = validRecovery;
+    require(unsupportedRecovery.starts_with("CueRecovery\n1\n"));
+    unsupportedRecovery[12] = '2';
+    savedRoot.set(recoveryPath, unsupportedRecovery);
+    const auto unsupportedInspect = verification->inspect_recovery(verificationId);
+    require(!unsupportedInspect.has_value());
+    require(unsupportedInspect.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::UnsupportedRecovery));
+    require(savedRoot.text(recoveryPath) == unsupportedRecovery);
+    savedRoot.set(recoveryPath, validRecovery);
+
+    require(verification
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    verificationId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "Close Saved"}})
+                .has_value());
+    require(take_value(verification->request_close(verificationId)) ==
+            cue::editor_core::DocumentCloseState::AwaitingDecision);
+    require(take_value(verification->respond_to_close(verificationId, cue::editor_core::CloseDecision::Save)) ==
+            cue::editor_core::DocumentCloseState::SaveRequested);
+    auto closeSave = verification->save_document(verificationId);
+    require(closeSave.has_value() && closeSave.try_value()->status() == cue::scene::SceneSaveStatus::Committed);
+    require(verification->session().find_document(verificationId) == nullptr);
 }
 
 /// @brief 外部変更と Close 判断の状態遷移を検証する
@@ -814,6 +1190,7 @@ int main()
     test_selection_reconciliation();
     test_scene_commands();
     test_transaction_history();
+    test_scene_persistence_workflow();
     test_external_change_and_close();
     return 0;
 }

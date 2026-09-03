@@ -1,10 +1,13 @@
 #pragma once
 
 #include <Cue/EditorCore/EditorDocument.h>
+#include <Cue/EditorCore/Persistence.h>
 #include <Cue/EditorCore/SceneCommand.h>
 #include <Cue/Foundation/Result.h>
 #include <Cue/Project/Descriptor.h>
+#include <Cue/Scene/Serialization.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -84,9 +87,16 @@ class EditorController final
     /// @param a_assertContext Controller より長く生存させる診断 Context
     [[nodiscard]] static std::unique_ptr<EditorController> create(ProjectDescriptor &&a_descriptor,
                                                                   const AssertContext &a_assertContext) noexcept;
+    /// @brief Scene Save／Reload／Recovery依存を束ねたProject Workspace Sessionを生成する
+    [[nodiscard]] static std::unique_ptr<EditorController> create(ProjectDescriptor &&a_descriptor,
+                                                                  ScenePersistenceServices a_persistenceServices,
+                                                                  const AssertContext &a_assertContext) noexcept;
 
     /// @brief Factory Passkey と Project Descriptor から Controller を構築する
     EditorController(ConstructionKey, ProjectDescriptor &&a_descriptor, const AssertContext &a_assertContext);
+    /// @brief Factory Passkey、Project Descriptor、Persistence依存からControllerを構築する
+    EditorController(ConstructionKey, ProjectDescriptor &&a_descriptor, ScenePersistenceServices a_persistenceServices,
+                     const AssertContext &a_assertContext);
 
     /// @brief Controller 破棄まで有効な Project Workspace Session の Read-only View を返す
     [[nodiscard]] const ProjectWorkspaceSession &session() const noexcept;
@@ -94,6 +104,8 @@ class EditorController final
     /// @brief 検証済み SceneDocument を一意な Scene と Locator で開く
     [[nodiscard]] Result<EditorDocumentId> open_document(scene::SceneDocument &&a_document, RelativePath &&a_locator,
                                                          bool a_hasSavedDestination) noexcept;
+    /// @brief Source Assets RootからSceneを完全Loadし、Base FingerprintとRecovery有無を記録して開く
+    [[nodiscard]] Result<EditorDocumentId> open_document_from_storage(RelativePath a_locator) noexcept;
     /// @brief Stable Identity だけを保持する Scene 編集 Command を検証し一つの Revision として適用する
     /// @details Open 中の対象 Document と Scene Identity の一致を要求し、失敗時は Authoring Scene、Selection、
     /// Revision を呼び出し前の状態に維持する。同値更新は現在 Revision を返し新しい State を発行しない
@@ -104,6 +116,25 @@ class EditorController final
     [[nodiscard]] Result<DocumentStateId> undo(EditorDocumentId a_documentId) noexcept;
     /// @brief Undo済みTransactionのAfter CheckpointとStateを再適用する
     [[nodiscard]] Result<DocumentStateId> redo(EditorDocumentId a_documentId) noexcept;
+    /// @brief 現在Locatorへ外部競合を検査してAtomic Saveする
+    [[nodiscard]] Result<scene::SceneSaveOutcome> save_document(EditorDocumentId a_documentId) noexcept;
+    /// @brief 指定Locatorを事前検査し、Committed時だけDocumentの正本Locatorへ切り替える
+    [[nodiscard]] Result<scene::SceneSaveOutcome> save_document_as(EditorDocumentId a_documentId,
+                                                                   RelativePath a_locator) noexcept;
+    /// @brief 開いているDirty Documentを順番に保存し、各Atomic Save状態を返す
+    [[nodiscard]] Result<std::vector<scene::SceneSaveStatus>> save_all_documents() noexcept;
+    /// @brief 現在Fileを一時Documentへ完全LoadしてからHistoryを破棄して入れ替える
+    [[nodiscard]] Result<DocumentStateId> reload_document(EditorDocumentId a_documentId) noexcept;
+    /// @brief 正本Fingerprintとの差を検査してExternal Change状態を更新する
+    [[nodiscard]] Result<ExternalChangeState> poll_external_change(EditorDocumentId a_documentId) noexcept;
+    /// @brief Dirty SceneをSaved RootのVersion付きRecovery EnvelopeへAtomic保存する
+    [[nodiscard]] Result<void> autosave_recovery(EditorDocumentId a_documentId) noexcept;
+    /// @brief Documentに対応するRecovery Envelopeを検証してMetadataを返す
+    [[nodiscard]] Result<RecoveryMetadata> inspect_recovery(EditorDocumentId a_documentId) noexcept;
+    /// @brief 検証済みRecovery本文をDirtyな新StateとしてDocumentへ適用する
+    [[nodiscard]] Result<DocumentStateId> recover_document(EditorDocumentId a_documentId) noexcept;
+    /// @brief Recovery Fileを変更せず、このSessionでの候補表示だけを解除する
+    [[nodiscard]] Result<void> ignore_recovery(EditorDocumentId a_documentId) noexcept;
     /// @brief Stable ObjectId だけを保持し、存在しない ID と重複を安全に除く
     [[nodiscard]] Result<void> set_selection(EditorDocumentId a_documentId,
                                              std::span<const scene::ObjectId> a_objectIds,
@@ -139,6 +170,12 @@ class EditorController final
     /// @brief 永続変更のStateを発行し、要求された場合はCheckpointを持たない既存Historyを破棄する
     [[nodiscard]] Result<DocumentStateId> issue_persistent_state(EditorDocumentId a_documentId,
                                                                  bool a_invalidateHistory) noexcept;
+    /// @brief Persistence依存が注入済みであることを検証する
+    [[nodiscard]] Result<void> require_persistence_services() const noexcept;
+    /// @brief 指定Destinationへ競合検査付きSaveを実行する共通経路
+    [[nodiscard]] Result<scene::SceneSaveOutcome> save_document_to(EditorDocumentId a_documentId,
+                                                                   RelativePath a_locator,
+                                                                   bool a_switchDestination) noexcept;
     /// @brief 現在 Thread が Controller 作成 Thread であることを全構成で検証する
     void assert_owner_thread() const noexcept;
     /// @brief Allocation 失敗を Fatal 境界へ変換する
@@ -151,5 +188,11 @@ class EditorController final
     const AssertContext *m_assertContext;
     std::thread::id m_ownerThread;
     std::uint64_t m_nextDocumentId = 1U;
+    FilesystemRoot *m_sourceAssetsRoot = nullptr;
+    FilesystemRoot *m_savedRoot = nullptr;
+    const schema::SchemaRegistry *m_schemaRegistry = nullptr;
+    const scene::ComponentValueSchemaRegistry *m_valueSchemaRegistry = nullptr;
+    const scene::SceneMigrationRegistry *m_sceneMigrations = nullptr;
+    const scene::ComponentMigrationRegistry *m_componentMigrations = nullptr;
 };
 } // namespace cue::editor_core

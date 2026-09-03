@@ -289,6 +289,31 @@ State ID、Scene Data Digestを含む。既知の古いVersionは`N -> N + 1`の
 Recovery書込み成功は`savedStateId`を更新しない。起動時に有効なRecoveryを検出した場合は、正本を暗黙置換せず、Recover、Discard、
 Inspectの明示Intentを要求する。Recover後のDocumentはDirtyな新Stateとして開き、通常Saveが成功するまで正本としない。
 
+#### Recovery Envelope v1
+
+M12のRecovery本文はSaved Root基準の`Editor/Recovery/<SceneAssetId>.cuerecovery`へ保存する。
+Envelope v1は次のUTF-8 Headerを改行区切りで保持し、空行の後へ現行Scene JSONを指定Byte数だけ連結する。
+
+1. Magic `CueRecovery`
+2. Recovery Format Version
+3. Project ID
+4. Scene ID
+5. Source Assets Root基準の正本Locator
+6. Base Fileの存在Flag
+7. Base File Byte Size
+8. Base File Content Digest
+9. Recovery作成時のDocument State値
+10. Scene JSON Content Digest
+11. Scene JSON Byte Size
+
+DigestはFirst-partyのFNV-1a 64-bitを用い、File Sizeと組み合わせて偶発的な外部変更と破損を検出する。
+これは暗号学的な真正性を保証せず、信頼境界を越える改ざん検出には使用しない。Header、本文Size、Digest、Project ID、Scene ID、
+Locator、Scene Parse／Migration／Validationの全検査に成功した候補だけをRecover可能とする。未知Version、欠落Field、上限超過、
+Digest不一致は元Fileを変更せず`UnsupportedRecovery`または`InvalidRecovery`として返す。
+
+RecoveryのBase Fingerprintが現在の正本Fingerprintと異なる場合、Recover自体は明示IntentとしてMemoryへ適用するが、Documentを
+External Conflict状態にする。これによりRecover後の通常Saveは正本を暗黙上書きせず、Save As、Reload、Cancelの明示判断を要求する。
+
 ### Close State Machine
 
 Close要求はCoreの状態遷移として処理し、UI Dialogを状態の正本にしない。

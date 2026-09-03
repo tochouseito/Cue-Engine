@@ -1,0 +1,869 @@
+#include <Cue/EditorCore/EditorController.h>
+
+#include <Cue/EditorCore/Error.h>
+#include <Cue/Foundation/Assert.h>
+#include <Cue/IO/Filesystem.h>
+#include <Cue/Project/Descriptor.h>
+#include <Cue/Scene/Identity.h>
+#include <Cue/Scene/Serialization.h>
+
+#include <algorithm>
+#include <charconv>
+#include <cstddef>
+#include <exception>
+#include <limits>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace cue::editor_core
+{
+namespace
+{
+constexpr std::uint32_t k_recoveryFormatVersion = 1U;
+constexpr std::size_t k_maximumRecoveryHeaderBytes = 4096U;
+constexpr std::string_view k_recoveryMagic = "CueRecovery";
+
+struct ParsedRecovery final
+{
+    RecoveryMetadata metadata;
+    std::string sceneJson;
+};
+
+/// @brief Byte列の決定的FNV-1a 64-bit Digestを返す
+[[nodiscard]] std::uint64_t digest_bytes(std::span<const std::byte> a_bytes) noexcept
+{
+    std::uint64_t digest = 14695981039346656037ULL;
+    for (const std::byte value : a_bytes)
+    {
+        digest ^= static_cast<std::uint64_t>(std::to_integer<std::uint8_t>(value));
+        digest *= 1099511628211ULL;
+    }
+    return digest;
+}
+
+/// @brief UTF-8文字列の決定的Digestを返す
+[[nodiscard]] std::uint64_t digest_text(std::string_view a_text) noexcept
+{
+    return digest_bytes(std::as_bytes(std::span(a_text.data(), a_text.size())));
+}
+
+/// @brief Scene Stable IDからSaved Root内のRecovery Locatorを構築する
+[[nodiscard]] Result<RelativePath> make_recovery_path(const scene::SceneAssetId &a_sceneId,
+                                                      const AssertContext &a_assertContext) noexcept
+{
+    const scene::IdentityText sceneText = a_sceneId.canonical_text();
+    try
+    {
+        std::string path("Editor/Recovery/");
+        path.append(sceneText.data(), sceneText.size());
+        path.append(".cuerecovery");
+        return RelativePath::parse(path, a_assertContext);
+    }
+    catch (...)
+    {
+        a_assertContext.fatal_handler().terminate("Cue.EditorCore recovery path allocation failed");
+    }
+    std::terminate();
+}
+
+/// @brief Fileの存在状態、Size、Content DigestをRoot境界内で取得する
+[[nodiscard]] Result<SceneFileFingerprint> fingerprint_file(FilesystemRoot &a_filesystem, const RelativePath &a_path,
+                                                            const AssertContext &a_assertContext) noexcept
+{
+    auto entry = a_filesystem.query_entry(a_path);
+    if (!entry)
+    {
+        return Result<SceneFileFingerprint>::failure(std::move(*entry.try_error()));
+    }
+    if (*entry.try_value() == EntryType::Missing)
+    {
+        return Result<SceneFileFingerprint>::success(SceneFileFingerprint{});
+    }
+    if (*entry.try_value() != EntryType::RegularFile)
+    {
+        return Result<SceneFileFingerprint>::failure(make_editor_core_error(
+            a_assertContext, EditorCoreError::ExternalConflict, "Scene destination is not a regular file"));
+    }
+
+    auto bytes = a_filesystem.read_file(a_path, scene::k_maximumSceneBytes);
+    if (!bytes)
+    {
+        return Result<SceneFileFingerprint>::failure(std::move(*bytes.try_error()));
+    }
+    const auto &storage = *bytes.try_value();
+    return Result<SceneFileFingerprint>::success(
+        SceneFileFingerprint{true, static_cast<std::uint64_t>(storage.size()), digest_bytes(storage)});
+}
+
+/// @brief Recovery Headerから一行を取り出してCursorを進める
+[[nodiscard]] bool take_line(std::string_view a_text, std::size_t &a_cursor, std::string_view &a_line) noexcept
+{
+    if (a_cursor > a_text.size())
+    {
+        return false;
+    }
+    const std::size_t end = a_text.find('\n', a_cursor);
+    if (end == std::string_view::npos || end - a_cursor > k_maximumRecoveryHeaderBytes)
+    {
+        return false;
+    }
+    a_line = a_text.substr(a_cursor, end - a_cursor);
+    a_cursor = end + 1U;
+    return true;
+}
+
+/// @brief 10進数の全Input消費を要求して符号なし値を解析する
+template <typename Value> [[nodiscard]] bool parse_unsigned(std::string_view a_text, Value &a_value) noexcept
+{
+    if (a_text.empty())
+    {
+        return false;
+    }
+    const auto parsed = std::from_chars(a_text.data(), a_text.data() + a_text.size(), a_value);
+    return parsed.ec == std::errc{} && parsed.ptr == a_text.data() + a_text.size();
+}
+
+/// @brief Version付きRecovery Envelopeを完全検証して所有値へ変換する
+[[nodiscard]] Result<ParsedRecovery> parse_recovery_envelope(std::string_view a_text,
+                                                             const AssertContext &a_assertContext) noexcept
+{
+    std::size_t cursor = 0U;
+    std::string_view magic;
+    std::string_view versionText;
+    std::string_view projectId;
+    std::string_view sceneId;
+    std::string_view locatorText;
+    std::string_view baseExistsText;
+    std::string_view baseSizeText;
+    std::string_view baseDigestText;
+    std::string_view stateText;
+    std::string_view sceneDigestText;
+    std::string_view sceneSizeText;
+    std::string_view separator;
+    if (!take_line(a_text, cursor, magic) || !take_line(a_text, cursor, versionText) ||
+        !take_line(a_text, cursor, projectId) || !take_line(a_text, cursor, sceneId) ||
+        !take_line(a_text, cursor, locatorText) || !take_line(a_text, cursor, baseExistsText) ||
+        !take_line(a_text, cursor, baseSizeText) || !take_line(a_text, cursor, baseDigestText) ||
+        !take_line(a_text, cursor, stateText) || !take_line(a_text, cursor, sceneDigestText) ||
+        !take_line(a_text, cursor, sceneSizeText) || !take_line(a_text, cursor, separator) ||
+        magic != k_recoveryMagic || !separator.empty())
+    {
+        return Result<ParsedRecovery>::failure(make_editor_core_error(a_assertContext, EditorCoreError::InvalidRecovery,
+                                                                      "Recovery envelope header is malformed"));
+    }
+
+    std::uint32_t version = 0U;
+    if (!parse_unsigned(versionText, version) || version == 0U)
+    {
+        return Result<ParsedRecovery>::failure(make_editor_core_error(a_assertContext, EditorCoreError::InvalidRecovery,
+                                                                      "Recovery format version is invalid"));
+    }
+    if (version != k_recoveryFormatVersion)
+    {
+        return Result<ParsedRecovery>::failure(make_editor_core_error(
+            a_assertContext, EditorCoreError::UnsupportedRecovery, "Recovery format version is unsupported"));
+    }
+
+    auto parsedProjectId = ProjectId::parse(projectId, a_assertContext);
+    auto parsedSceneId = scene::SceneAssetId::parse(sceneId, a_assertContext);
+    auto locator = RelativePath::parse(locatorText, a_assertContext);
+    std::uint64_t baseSize = 0U;
+    std::uint64_t baseDigest = 0U;
+    std::uint64_t stateValue = 0U;
+    std::uint64_t sceneDigest = 0U;
+    std::uint64_t sceneSize = 0U;
+    const bool baseExists = baseExistsText == "1";
+    if (!parsedProjectId || !parsedSceneId || !locator || (baseExistsText != "0" && !baseExists) ||
+        !parse_unsigned(baseSizeText, baseSize) || !parse_unsigned(baseDigestText, baseDigest) ||
+        !parse_unsigned(stateText, stateValue) || stateValue == 0U || !parse_unsigned(sceneDigestText, sceneDigest) ||
+        !parse_unsigned(sceneSizeText, sceneSize) || sceneSize > scene::k_maximumSceneBytes ||
+        sceneSize != a_text.size() - cursor || (!baseExists && (baseSize != 0U || baseDigest != 0U)))
+    {
+        return Result<ParsedRecovery>::failure(make_editor_core_error(a_assertContext, EditorCoreError::InvalidRecovery,
+                                                                      "Recovery envelope metadata is invalid"));
+    }
+
+    const std::string_view sceneJson = a_text.substr(cursor, static_cast<std::size_t>(sceneSize));
+    if (digest_text(sceneJson) != sceneDigest)
+    {
+        return Result<ParsedRecovery>::failure(make_editor_core_error(
+            a_assertContext, EditorCoreError::InvalidRecovery, "Recovery scene digest does not match its payload"));
+    }
+
+    try
+    {
+        RecoveryMetadata metadata(version, std::string(projectId), std::string(sceneId),
+                                  std::move(*locator.try_value()),
+                                  SceneFileFingerprint{baseExists, baseSize, baseDigest}, stateValue, sceneDigest);
+        return Result<ParsedRecovery>::success(ParsedRecovery{std::move(metadata), std::string(sceneJson)});
+    }
+    catch (...)
+    {
+        a_assertContext.fatal_handler().terminate("Cue.EditorCore recovery parsing allocation failed");
+    }
+    std::terminate();
+}
+
+/// @brief Recovery Metadataが現在SessionとDocumentに対応することを検証する
+[[nodiscard]] Result<void> validate_recovery_identity(const RecoveryMetadata &a_metadata,
+                                                      const ProjectDescriptor &a_project,
+                                                      const EditorDocument &a_document,
+                                                      const AssertContext &a_assertContext) noexcept
+{
+    const scene::IdentityText sceneText = a_document.scene_document().scene_asset_id().canonical_text();
+    const std::string_view currentSceneId(sceneText.data(), sceneText.size());
+    if (a_metadata.project_id() != a_project.project_id().text() || a_metadata.scene_id() != currentSceneId ||
+        a_metadata.source_locator().comparison_key(a_assertContext) !=
+            a_document.scene_locator().comparison_key(a_assertContext))
+    {
+        return Result<void>::failure(make_editor_document_error(
+            a_assertContext, EditorCoreError::InvalidRecovery,
+            "Recovery metadata does not match the current project and scene", a_document.id().value()));
+    }
+    return Result<void>::success();
+}
+} // namespace
+
+ScenePersistenceServices::ScenePersistenceServices(
+    FilesystemRoot &a_sourceAssetsRoot, FilesystemRoot &a_savedRoot, const schema::SchemaRegistry &a_schemaRegistry,
+    const scene::ComponentValueSchemaRegistry &a_valueSchemaRegistry,
+    const scene::SceneMigrationRegistry &a_sceneMigrations,
+    const scene::ComponentMigrationRegistry &a_componentMigrations) noexcept
+    : m_sourceAssetsRoot(&a_sourceAssetsRoot), m_savedRoot(&a_savedRoot), m_schemaRegistry(&a_schemaRegistry),
+      m_valueSchemaRegistry(&a_valueSchemaRegistry), m_sceneMigrations(&a_sceneMigrations),
+      m_componentMigrations(&a_componentMigrations)
+{
+}
+
+RecoveryMetadata::RecoveryMetadata(std::uint32_t a_formatVersion, std::string a_projectId, std::string a_sceneId,
+                                   RelativePath a_sourceLocator, SceneFileFingerprint a_baseFingerprint,
+                                   std::uint64_t a_sourceStateValue, std::uint64_t a_sceneDigest) noexcept
+    : m_formatVersion(a_formatVersion), m_projectId(std::move(a_projectId)), m_sceneId(std::move(a_sceneId)),
+      m_sourceLocator(std::move(a_sourceLocator)), m_baseFingerprint(a_baseFingerprint),
+      m_sourceStateValue(a_sourceStateValue), m_sceneDigest(a_sceneDigest)
+{
+}
+
+std::uint32_t RecoveryMetadata::format_version() const noexcept
+{
+    return m_formatVersion;
+}
+
+const std::string &RecoveryMetadata::project_id() const noexcept
+{
+    return m_projectId;
+}
+
+const std::string &RecoveryMetadata::scene_id() const noexcept
+{
+    return m_sceneId;
+}
+
+const RelativePath &RecoveryMetadata::source_locator() const noexcept
+{
+    return m_sourceLocator;
+}
+
+SceneFileFingerprint RecoveryMetadata::base_fingerprint() const noexcept
+{
+    return m_baseFingerprint;
+}
+
+std::uint64_t RecoveryMetadata::source_state_value() const noexcept
+{
+    return m_sourceStateValue;
+}
+
+std::uint64_t RecoveryMetadata::scene_digest() const noexcept
+{
+    return m_sceneDigest;
+}
+
+Result<void> EditorController::require_persistence_services() const noexcept
+{
+    if (m_sourceAssetsRoot == nullptr || m_savedRoot == nullptr || m_schemaRegistry == nullptr ||
+        m_valueSchemaRegistry == nullptr || m_sceneMigrations == nullptr || m_componentMigrations == nullptr)
+    {
+        return Result<void>::failure(
+            make_editor_core_error(*m_assertContext, EditorCoreError::PersistenceUnavailable,
+                                   "Editor controller was created without scene persistence services"));
+    }
+    return Result<void>::success();
+}
+
+Result<EditorDocumentId> EditorController::open_document_from_storage(RelativePath a_locator) noexcept
+{
+    assert_owner_thread();
+    auto services = require_persistence_services();
+    if (!services)
+    {
+        return Result<EditorDocumentId>::failure(std::move(*services.try_error()));
+    }
+
+    auto beforeFingerprint = fingerprint_file(*m_sourceAssetsRoot, a_locator, *m_assertContext);
+    if (!beforeFingerprint)
+    {
+        return Result<EditorDocumentId>::failure(std::move(*beforeFingerprint.try_error()));
+    }
+    auto loaded = scene::load_scene_document(*m_sourceAssetsRoot, a_locator, *m_schemaRegistry, *m_valueSchemaRegistry,
+                                             *m_sceneMigrations, *m_componentMigrations, *m_assertContext);
+    if (!loaded)
+    {
+        return Result<EditorDocumentId>::failure(std::move(*loaded.try_error()));
+    }
+    auto afterFingerprint = fingerprint_file(*m_sourceAssetsRoot, a_locator, *m_assertContext);
+    if (!afterFingerprint)
+    {
+        return Result<EditorDocumentId>::failure(std::move(*afterFingerprint.try_error()));
+    }
+    if (*beforeFingerprint.try_value() != *afterFingerprint.try_value())
+    {
+        return Result<EditorDocumentId>::failure(make_editor_core_error(
+            *m_assertContext, EditorCoreError::ExternalConflict, "Scene changed while it was being opened"));
+    }
+
+    const scene::SceneAssetId sceneId = loaded.try_value()->document().scene_asset_id();
+    auto recoveryPath = make_recovery_path(sceneId, *m_assertContext);
+    if (!recoveryPath)
+    {
+        return Result<EditorDocumentId>::failure(std::move(*recoveryPath.try_error()));
+    }
+    auto recoveryEntry = m_savedRoot->query_entry(*recoveryPath.try_value());
+    if (!recoveryEntry)
+    {
+        return Result<EditorDocumentId>::failure(std::move(*recoveryEntry.try_error()));
+    }
+    if (*recoveryEntry.try_value() != EntryType::Missing && *recoveryEntry.try_value() != EntryType::RegularFile)
+    {
+        return Result<EditorDocumentId>::failure(make_editor_core_error(
+            *m_assertContext, EditorCoreError::InvalidRecovery, "Recovery destination is not a regular file"));
+    }
+
+    auto opened = open_document(std::move(loaded.try_value()->document()), std::move(a_locator), true);
+    if (!opened)
+    {
+        return opened;
+    }
+    EditorDocument *document = find_document(*opened.try_value());
+    document->m_baseFingerprint = *afterFingerprint.try_value();
+    document->m_hasRecoveryCandidate = *recoveryEntry.try_value() == EntryType::RegularFile;
+    return opened;
+}
+
+Result<ExternalChangeState> EditorController::poll_external_change(EditorDocumentId a_documentId) noexcept
+{
+    assert_owner_thread();
+    auto services = require_persistence_services();
+    if (!services)
+    {
+        return Result<ExternalChangeState>::failure(std::move(*services.try_error()));
+    }
+    EditorDocument *document = find_document(a_documentId);
+    if (document == nullptr)
+    {
+        return Result<ExternalChangeState>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                       "Editor document was not found", a_documentId.value()));
+    }
+    if (!document->m_hasSavedDestination || !document->m_baseFingerprint.has_value())
+    {
+        document->m_externalChangeState = ExternalChangeState::None;
+        return Result<ExternalChangeState>::success(ExternalChangeState::None);
+    }
+
+    auto current = fingerprint_file(*m_sourceAssetsRoot, document->m_locator, *m_assertContext);
+    if (!current)
+    {
+        return Result<ExternalChangeState>::failure(std::move(*current.try_error()));
+    }
+    if (*current.try_value() == *document->m_baseFingerprint)
+    {
+        document->m_externalChangeState = ExternalChangeState::None;
+    }
+    else
+    {
+        document->m_externalChangeState =
+            current.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed;
+    }
+    return Result<ExternalChangeState>::success(ExternalChangeState(document->m_externalChangeState));
+}
+
+Result<scene::SceneSaveOutcome> EditorController::save_document(EditorDocumentId a_documentId) noexcept
+{
+    assert_owner_thread();
+    EditorDocument *document = find_document(a_documentId);
+    if (document == nullptr)
+    {
+        return Result<scene::SceneSaveOutcome>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                       "Editor document was not found", a_documentId.value()));
+    }
+    return save_document_to(a_documentId, document->m_locator, false);
+}
+
+Result<scene::SceneSaveOutcome> EditorController::save_document_as(EditorDocumentId a_documentId,
+                                                                   RelativePath a_locator) noexcept
+{
+    return save_document_to(a_documentId, std::move(a_locator), true);
+}
+
+Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumentId a_documentId,
+                                                                   RelativePath a_locator,
+                                                                   bool a_switchDestination) noexcept
+{
+    assert_owner_thread();
+    auto services = require_persistence_services();
+    if (!services)
+    {
+        return Result<scene::SceneSaveOutcome>::failure(std::move(*services.try_error()));
+    }
+    EditorDocument *document = find_document(a_documentId);
+    if (document == nullptr)
+    {
+        return Result<scene::SceneSaveOutcome>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                       "Editor document was not found", a_documentId.value()));
+    }
+    if (document->m_closeState == DocumentCloseState::Closed)
+    {
+        return Result<scene::SceneSaveOutcome>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
+                                       "Closed document cannot be saved", a_documentId.value()));
+    }
+
+    if (a_switchDestination)
+    {
+        const std::string destinationKey = a_locator.comparison_key(*m_assertContext);
+        for (const EditorDocument &other : m_session.m_documents)
+        {
+            if (other.id() != a_documentId && other.scene_locator().comparison_key(*m_assertContext) == destinationKey)
+            {
+                return Result<scene::SceneSaveOutcome>::failure(make_editor_document_error(
+                    *m_assertContext, EditorCoreError::DuplicateLocator,
+                    "Save As destination is already open in another document", a_documentId.value()));
+            }
+        }
+    }
+    else if (!document->m_hasSavedDestination || !document->m_baseFingerprint.has_value())
+    {
+        return Result<scene::SceneSaveOutcome>::failure(make_editor_document_error(
+            *m_assertContext, EditorCoreError::PersistenceUnavailable,
+            "Normal save requires a destination with a captured base fingerprint", a_documentId.value()));
+    }
+
+    auto destinationFingerprint = fingerprint_file(*m_sourceAssetsRoot, a_locator, *m_assertContext);
+    if (!destinationFingerprint)
+    {
+        return Result<scene::SceneSaveOutcome>::failure(std::move(*destinationFingerprint.try_error()));
+    }
+    if (!a_switchDestination && (document->m_externalChangeState != ExternalChangeState::None ||
+                                 *destinationFingerprint.try_value() != *document->m_baseFingerprint))
+    {
+        document->m_externalChangeState =
+            destinationFingerprint.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed;
+        if (document->m_closeState == DocumentCloseState::SaveRequested)
+        {
+            document->m_closeState = DocumentCloseState::AwaitingDecision;
+        }
+        return Result<scene::SceneSaveOutcome>::failure(make_editor_document_error(
+            *m_assertContext, EditorCoreError::ExternalConflict,
+            "Scene destination changed since the document was loaded", a_documentId.value()));
+    }
+
+    const DocumentStateId savedState = document->m_currentStateId;
+    scene::SceneSaveOutcome outcome = scene::save_scene_document(
+        *m_sourceAssetsRoot, a_locator, document->m_document, *m_schemaRegistry, *m_valueSchemaRegistry,
+        *m_sceneMigrations, *m_componentMigrations, *m_assertContext);
+    if (outcome.status() == scene::SceneSaveStatus::Committed)
+    {
+        auto committedFingerprint = fingerprint_file(*m_sourceAssetsRoot, a_locator, *m_assertContext);
+        if (!committedFingerprint)
+        {
+            document->m_persistenceState = DocumentPersistenceState::SaveUncertain;
+            if (document->m_closeState == DocumentCloseState::SaveRequested)
+            {
+                document->m_closeState = DocumentCloseState::AwaitingDecision;
+            }
+            return Result<scene::SceneSaveOutcome>::failure(std::move(*committedFingerprint.try_error()));
+        }
+        if (a_switchDestination)
+        {
+            document->m_locator = std::move(a_locator);
+        }
+        document->m_baseFingerprint = *committedFingerprint.try_value();
+        document->m_externalChangeState = ExternalChangeState::None;
+        document->m_persistenceState = DocumentPersistenceState::Idle;
+        auto marked = mark_saved(a_documentId, savedState);
+        if (!marked)
+        {
+            return Result<scene::SceneSaveOutcome>::failure(std::move(*marked.try_error()));
+        }
+    }
+    else
+    {
+        if (outcome.status() == scene::SceneSaveStatus::PublishedButDurabilityUnknown ||
+            outcome.status() == scene::SceneSaveStatus::PublishedButVerificationFailed)
+        {
+            document->m_persistenceState = DocumentPersistenceState::SaveUncertain;
+        }
+        if (document->m_closeState == DocumentCloseState::SaveRequested)
+        {
+            document->m_closeState = DocumentCloseState::AwaitingDecision;
+        }
+    }
+    return Result<scene::SceneSaveOutcome>::success(std::move(outcome));
+}
+
+Result<std::vector<scene::SceneSaveStatus>> EditorController::save_all_documents() noexcept
+{
+    assert_owner_thread();
+    try
+    {
+        std::vector<EditorDocumentId> targets;
+        for (const EditorDocument &document : m_session.m_documents)
+        {
+            if (document.is_dirty())
+            {
+                targets.push_back(document.id());
+            }
+        }
+        std::vector<scene::SceneSaveStatus> statuses;
+        statuses.reserve(targets.size());
+        for (const EditorDocumentId id : targets)
+        {
+            auto saved = save_document(id);
+            if (!saved)
+            {
+                return Result<std::vector<scene::SceneSaveStatus>>::failure(std::move(*saved.try_error()));
+            }
+            statuses.push_back(saved.try_value()->status());
+        }
+        return Result<std::vector<scene::SceneSaveStatus>>::success(std::move(statuses));
+    }
+    catch (const std::bad_alloc &)
+    {
+        terminate_allocation();
+    }
+    catch (...)
+    {
+        terminate_exception();
+    }
+}
+
+Result<DocumentStateId> EditorController::reload_document(EditorDocumentId a_documentId) noexcept
+{
+    assert_owner_thread();
+    auto services = require_persistence_services();
+    if (!services)
+    {
+        return Result<DocumentStateId>::failure(std::move(*services.try_error()));
+    }
+    EditorDocument *document = find_document(a_documentId);
+    if (document == nullptr)
+    {
+        return Result<DocumentStateId>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                       "Editor document was not found", a_documentId.value()));
+    }
+    if (!document->m_hasSavedDestination || document->m_nextStateId == std::numeric_limits<std::uint64_t>::max())
+    {
+        return Result<DocumentStateId>::failure(make_editor_document_error(
+            *m_assertContext, EditorCoreError::InvalidDocumentState,
+            "Reload requires a saved destination and available state identity", a_documentId.value()));
+    }
+    if (document->m_closeState != DocumentCloseState::Open)
+    {
+        return Result<DocumentStateId>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
+                                       "Reload requires an open document", a_documentId.value()));
+    }
+
+    auto beforeFingerprint = fingerprint_file(*m_sourceAssetsRoot, document->m_locator, *m_assertContext);
+    if (!beforeFingerprint)
+    {
+        return Result<DocumentStateId>::failure(std::move(*beforeFingerprint.try_error()));
+    }
+    auto loaded =
+        scene::load_scene_document(*m_sourceAssetsRoot, document->m_locator, *m_schemaRegistry, *m_valueSchemaRegistry,
+                                   *m_sceneMigrations, *m_componentMigrations, *m_assertContext);
+    if (!loaded)
+    {
+        return Result<DocumentStateId>::failure(std::move(*loaded.try_error()));
+    }
+    if (loaded.try_value()->document().scene_asset_id() != document->m_document.scene_asset_id())
+    {
+        return Result<DocumentStateId>::failure(make_editor_document_error(
+            *m_assertContext, EditorCoreError::SceneMismatch,
+            "Reloaded scene identity does not match the open document", a_documentId.value()));
+    }
+    auto afterFingerprint = fingerprint_file(*m_sourceAssetsRoot, document->m_locator, *m_assertContext);
+    if (!afterFingerprint)
+    {
+        return Result<DocumentStateId>::failure(std::move(*afterFingerprint.try_error()));
+    }
+    if (*beforeFingerprint.try_value() != *afterFingerprint.try_value())
+    {
+        return Result<DocumentStateId>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::ExternalConflict,
+                                       "Scene changed while reload was in progress", a_documentId.value()));
+    }
+
+    document->m_document = std::move(loaded.try_value()->document());
+    auto state = issue_persistent_state(a_documentId, true);
+    if (!state)
+    {
+        return state;
+    }
+    document->m_savedStateId = *state.try_value();
+    document->m_baseFingerprint = *afterFingerprint.try_value();
+    document->m_externalChangeState = ExternalChangeState::None;
+    document->m_persistenceState = DocumentPersistenceState::Idle;
+    document->m_closeState = DocumentCloseState::Open;
+    return state;
+}
+
+Result<void> EditorController::autosave_recovery(EditorDocumentId a_documentId) noexcept
+{
+    assert_owner_thread();
+    auto services = require_persistence_services();
+    if (!services)
+    {
+        return services;
+    }
+    EditorDocument *document = find_document(a_documentId);
+    if (document == nullptr)
+    {
+        return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                                                "Editor document was not found", a_documentId.value()));
+    }
+    if (!document->is_dirty())
+    {
+        return Result<void>::success();
+    }
+
+    auto serialized = scene::serialize_scene_document(document->m_document, *m_assertContext);
+    if (!serialized)
+    {
+        return Result<void>::failure(std::move(*serialized.try_error()));
+    }
+    auto recoveryDirectory = RelativePath::parse("Editor/Recovery", *m_assertContext);
+    auto recoveryPath = make_recovery_path(document->m_document.scene_asset_id(), *m_assertContext);
+    if (!recoveryDirectory || !recoveryPath)
+    {
+        return Result<void>::failure(
+            std::move(*(recoveryDirectory ? recoveryPath.try_error() : recoveryDirectory.try_error())));
+    }
+    auto created = m_savedRoot->create_directories(*recoveryDirectory.try_value());
+    if (!created)
+    {
+        return created;
+    }
+
+    const scene::IdentityText sceneText = document->m_document.scene_asset_id().canonical_text();
+    const SceneFileFingerprint base = document->m_baseFingerprint.value_or(SceneFileFingerprint{});
+    const std::uint64_t sceneDigest = digest_text(*serialized.try_value());
+    try
+    {
+        std::string envelope;
+        envelope.reserve(k_maximumRecoveryHeaderBytes + serialized.try_value()->size());
+        envelope.append(k_recoveryMagic);
+        envelope.push_back('\n');
+        envelope.append(std::to_string(k_recoveryFormatVersion));
+        envelope.push_back('\n');
+        envelope.append(m_session.m_descriptor.project_id().text());
+        envelope.push_back('\n');
+        envelope.append(sceneText.data(), sceneText.size());
+        envelope.push_back('\n');
+        envelope.append(document->m_locator.text());
+        envelope.push_back('\n');
+        envelope.append(base.exists ? "1\n" : "0\n");
+        envelope.append(std::to_string(base.byteSize));
+        envelope.push_back('\n');
+        envelope.append(std::to_string(base.contentDigest));
+        envelope.push_back('\n');
+        envelope.append(std::to_string(document->m_currentStateId.value()));
+        envelope.push_back('\n');
+        envelope.append(std::to_string(sceneDigest));
+        envelope.push_back('\n');
+        envelope.append(std::to_string(serialized.try_value()->size()));
+        envelope.append("\n\n");
+        envelope.append(*serialized.try_value());
+        const auto bytes = std::as_bytes(std::span(envelope.data(), envelope.size()));
+        auto written = m_savedRoot->write_file_atomic(*recoveryPath.try_value(), bytes);
+        if (!written)
+        {
+            return written;
+        }
+        document->m_hasRecoveryCandidate = true;
+        return Result<void>::success();
+    }
+    catch (const std::bad_alloc &)
+    {
+        terminate_allocation();
+    }
+    catch (...)
+    {
+        terminate_exception();
+    }
+}
+
+Result<RecoveryMetadata> EditorController::inspect_recovery(EditorDocumentId a_documentId) noexcept
+{
+    assert_owner_thread();
+    auto services = require_persistence_services();
+    if (!services)
+    {
+        return Result<RecoveryMetadata>::failure(std::move(*services.try_error()));
+    }
+    EditorDocument *document = find_document(a_documentId);
+    if (document == nullptr)
+    {
+        return Result<RecoveryMetadata>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                       "Editor document was not found", a_documentId.value()));
+    }
+    auto recoveryPath = make_recovery_path(document->m_document.scene_asset_id(), *m_assertContext);
+    if (!recoveryPath)
+    {
+        return Result<RecoveryMetadata>::failure(std::move(*recoveryPath.try_error()));
+    }
+    auto bytes =
+        m_savedRoot->read_file(*recoveryPath.try_value(), scene::k_maximumSceneBytes + k_maximumRecoveryHeaderBytes);
+    if (!bytes)
+    {
+        return Result<RecoveryMetadata>::failure(std::move(*bytes.try_error()));
+    }
+    const auto &storage = *bytes.try_value();
+    auto parsed = parse_recovery_envelope(
+        std::string_view(reinterpret_cast<const char *>(storage.data()), storage.size()), *m_assertContext);
+    if (!parsed)
+    {
+        return Result<RecoveryMetadata>::failure(std::move(*parsed.try_error()));
+    }
+    auto identity =
+        validate_recovery_identity(parsed.try_value()->metadata, m_session.m_descriptor, *document, *m_assertContext);
+    if (!identity)
+    {
+        return Result<RecoveryMetadata>::failure(std::move(*identity.try_error()));
+    }
+    auto sceneDocument =
+        scene::parse_scene_document(parsed.try_value()->sceneJson, *m_schemaRegistry, *m_valueSchemaRegistry,
+                                    *m_sceneMigrations, *m_componentMigrations, *m_assertContext);
+    if (!sceneDocument)
+    {
+        return Result<RecoveryMetadata>::failure(std::move(*sceneDocument.try_error()));
+    }
+    if (sceneDocument.try_value()->document().scene_asset_id() != document->m_document.scene_asset_id())
+    {
+        return Result<RecoveryMetadata>::failure(make_editor_document_error(
+            *m_assertContext, EditorCoreError::SceneMismatch,
+            "Recovery scene identity does not match the open document", a_documentId.value()));
+    }
+    document->m_hasRecoveryCandidate = true;
+    return Result<RecoveryMetadata>::success(std::move(parsed.try_value()->metadata));
+}
+
+Result<DocumentStateId> EditorController::recover_document(EditorDocumentId a_documentId) noexcept
+{
+    assert_owner_thread();
+    auto services = require_persistence_services();
+    if (!services)
+    {
+        return Result<DocumentStateId>::failure(std::move(*services.try_error()));
+    }
+    EditorDocument *document = find_document(a_documentId);
+    if (document == nullptr)
+    {
+        return Result<DocumentStateId>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                       "Editor document was not found", a_documentId.value()));
+    }
+    if (document->m_nextStateId == std::numeric_limits<std::uint64_t>::max())
+    {
+        return Result<DocumentStateId>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::RevisionExhausted,
+                                       "Recovery requires an available document state identity", a_documentId.value()));
+    }
+    if (document->m_closeState != DocumentCloseState::Open)
+    {
+        return Result<DocumentStateId>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::InvalidDocumentState,
+                                       "Recovery requires an open document", a_documentId.value()));
+    }
+    auto recoveryPath = make_recovery_path(document->m_document.scene_asset_id(), *m_assertContext);
+    if (!recoveryPath)
+    {
+        return Result<DocumentStateId>::failure(std::move(*recoveryPath.try_error()));
+    }
+    auto bytes =
+        m_savedRoot->read_file(*recoveryPath.try_value(), scene::k_maximumSceneBytes + k_maximumRecoveryHeaderBytes);
+    if (!bytes)
+    {
+        return Result<DocumentStateId>::failure(std::move(*bytes.try_error()));
+    }
+    const auto &storage = *bytes.try_value();
+    auto parsed = parse_recovery_envelope(
+        std::string_view(reinterpret_cast<const char *>(storage.data()), storage.size()), *m_assertContext);
+    if (!parsed)
+    {
+        return Result<DocumentStateId>::failure(std::move(*parsed.try_error()));
+    }
+    auto identity =
+        validate_recovery_identity(parsed.try_value()->metadata, m_session.m_descriptor, *document, *m_assertContext);
+    if (!identity)
+    {
+        return Result<DocumentStateId>::failure(std::move(*identity.try_error()));
+    }
+    auto recovered =
+        scene::parse_scene_document(parsed.try_value()->sceneJson, *m_schemaRegistry, *m_valueSchemaRegistry,
+                                    *m_sceneMigrations, *m_componentMigrations, *m_assertContext);
+    if (!recovered)
+    {
+        return Result<DocumentStateId>::failure(std::move(*recovered.try_error()));
+    }
+    if (recovered.try_value()->document().scene_asset_id() != document->m_document.scene_asset_id())
+    {
+        return Result<DocumentStateId>::failure(make_editor_document_error(
+            *m_assertContext, EditorCoreError::SceneMismatch,
+            "Recovery scene identity does not match the open document", a_documentId.value()));
+    }
+
+    const SceneFileFingerprint recoveryBase = parsed.try_value()->metadata.base_fingerprint();
+    auto currentBase = fingerprint_file(*m_sourceAssetsRoot, document->m_locator, *m_assertContext);
+    if (!currentBase)
+    {
+        return Result<DocumentStateId>::failure(std::move(*currentBase.try_error()));
+    }
+    document->m_document = std::move(recovered.try_value()->document());
+    auto state = issue_persistent_state(a_documentId, true);
+    if (!state)
+    {
+        return state;
+    }
+    document->m_baseFingerprint = recoveryBase;
+    document->m_externalChangeState =
+        recoveryBase == *currentBase.try_value()
+            ? ExternalChangeState::None
+            : (currentBase.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed);
+    document->m_persistenceState = DocumentPersistenceState::Idle;
+    document->m_closeState = DocumentCloseState::Open;
+    document->m_hasRecoveryCandidate = true;
+    return state;
+}
+
+Result<void> EditorController::ignore_recovery(EditorDocumentId a_documentId) noexcept
+{
+    assert_owner_thread();
+    EditorDocument *document = find_document(a_documentId);
+    if (document == nullptr)
+    {
+        return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                                                "Editor document was not found", a_documentId.value()));
+    }
+    document->m_hasRecoveryCandidate = false;
+    return Result<void>::success();
+}
+} // namespace cue::editor_core
