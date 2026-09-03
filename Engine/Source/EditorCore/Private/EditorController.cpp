@@ -59,8 +59,8 @@ std::unique_ptr<EditorController> EditorController::create(ProjectDescriptor &&a
 }
 
 EditorController::EditorController(ProjectDescriptor &&a_descriptor, const AssertContext &a_assertContext)
-    : m_stateOrigin(new DocumentStateOrigin()), m_session(std::move(a_descriptor)), m_assertContext(&a_assertContext),
-      m_ownerThread(std::this_thread::get_id())
+    : m_stateOrigin(std::make_shared<DocumentStateOrigin>()), m_session(std::move(a_descriptor)),
+      m_assertContext(&a_assertContext), m_ownerThread(std::this_thread::get_id())
 {
 }
 
