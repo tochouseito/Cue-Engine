@@ -56,6 +56,28 @@ SceneDocumentCheckpoint::SceneDocumentCheckpoint(
 {
 }
 
+SceneDocumentCheckpoint::SceneDocumentCheckpoint(SceneDocumentCheckpoint &&a_other) noexcept
+    : m_sceneAssetId(std::move(a_other.m_sceneAssetId)),
+      m_objects(std::move(a_other.m_objects)),
+      m_extensionsJson(std::move(a_other.m_extensionsJson)),
+      m_isValid(a_other.m_isValid)
+{
+    a_other.m_isValid = false;
+}
+
+SceneDocumentCheckpoint &SceneDocumentCheckpoint::operator=(SceneDocumentCheckpoint &&a_other) noexcept
+{
+    if (this != &a_other)
+    {
+        m_sceneAssetId = std::move(a_other.m_sceneAssetId);
+        m_objects = std::move(a_other.m_objects);
+        m_extensionsJson = std::move(a_other.m_extensionsJson);
+        m_isValid = a_other.m_isValid;
+    }
+    a_other.m_isValid = false;
+    return *this;
+}
+
 const SceneAssetId &SceneDocumentCheckpoint::scene_asset_id() const noexcept
 {
     return m_sceneAssetId;
@@ -119,6 +141,12 @@ SceneDocumentCheckpoint SceneDocument::create_checkpoint() const noexcept
 Result<void> SceneDocument::restore_checkpoint(
     SceneDocumentCheckpoint a_checkpoint) noexcept
 {
+    if (!a_checkpoint.m_isValid)
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::InvalidCheckpoint,
+            "Scene checkpoint has already been consumed"));
+    }
     if (a_checkpoint.m_sceneAssetId != m_sceneAssetId)
     {
         return Result<void>::failure(make_scene_error(

@@ -142,40 +142,51 @@ Error add_request_context(Error a_error, const AssertContext &a_assertContext,
     {
         return Result<void>::failure(std::move(*collected.try_error()));
     }
-    std::vector<scene::ObjectId> remaining = std::move(*collected.try_value());
-    while (!remaining.empty())
+    struct RemovalEntry final
     {
-        bool removed = false;
-        for (auto candidate = remaining.begin(); candidate != remaining.end(); ++candidate)
-        {
-            const bool hasRemainingChild =
-                std::any_of(remaining.begin(), remaining.end(),
-                            /// @brief Remaining Object が Candidate を Parent として参照するか判定する
-                            [&a_document, &candidate](const scene::ObjectId &a_otherId) noexcept
-                            {
-                                const scene::SceneObject *other = a_document.find_object(a_otherId);
-                                const scene::ObjectId *parentId = other != nullptr ? other->try_parent_id() : nullptr;
-                                return parentId != nullptr && *parentId == *candidate;
-                            });
-            if (hasRemainingChild)
-            {
-                continue;
-            }
+        scene::ObjectId id;
+        std::size_t depth;
+    };
 
-            auto result = a_document.remove_object(*candidate);
-            if (!result)
+    std::vector<RemovalEntry> removalOrder;
+    removalOrder.reserve(collected.try_value()->size());
+    for (const scene::ObjectId &id : *collected.try_value())
+    {
+        std::size_t depth = 0U;
+        const scene::SceneObject *current = a_document.find_object(id);
+        while (current != nullptr && current->id() != a_command.objectId)
+        {
+            const scene::ObjectId *parentId = current->try_parent_id();
+            if (parentId == nullptr)
             {
-                return result;
+                return Result<void>::failure(
+                    make_editor_core_error(a_assertContext, EditorCoreError::InvalidCommand,
+                                           "Scene command subtree contains an invalid parent chain"));
             }
-            remaining.erase(candidate);
-            removed = true;
-            break;
+            current = a_document.find_object(*parentId);
+            ++depth;
         }
-        if (!removed)
+        if (current == nullptr)
         {
             return Result<void>::failure(
                 make_editor_core_error(a_assertContext, EditorCoreError::InvalidCommand,
-                                       "Scene command subtree could not produce a leaf removal order"));
+                                       "Scene command subtree contains an invalid parent chain"));
+        }
+        removalOrder.push_back(RemovalEntry{id, depth});
+    }
+    std::sort(removalOrder.begin(), removalOrder.end(),
+              /// @brief Descendant を Parent より先に削除できる順序へ並べる
+              [](const RemovalEntry &a_left, const RemovalEntry &a_right) noexcept
+              {
+                  return a_left.depth > a_right.depth;
+              });
+
+    for (const RemovalEntry &entry : removalOrder)
+    {
+        auto result = a_document.remove_object(entry.id);
+        if (!result)
+        {
+            return result;
         }
     }
     return Result<void>::success();

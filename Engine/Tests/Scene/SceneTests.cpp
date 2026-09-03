@@ -127,6 +127,17 @@ void test_scene_document() noexcept
     require(document.find_object(childId)->name() == "Renamed");
     require(!document.find_object(childId)->is_active());
 
+    auto checkpoint = document.create_checkpoint();
+    require(document.rename_object(childId, "CheckpointChanged").has_value());
+    require(document.restore_checkpoint(std::move(checkpoint)).has_value());
+    require(document.find_object(childId)->name() == "Renamed");
+    const auto consumedCheckpoint = document.restore_checkpoint(std::move(checkpoint));
+    require(!consumedCheckpoint.has_value());
+    require(consumedCheckpoint.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::scene::SceneError::InvalidCheckpoint));
+    require(document.find_object(childId)->name() == "Renamed");
+    require(document.validate().has_value());
+
     const auto removeParent = document.remove_object(rootId);
     require(!removeParent.has_value());
     require(removeParent.try_error()->code().value() ==

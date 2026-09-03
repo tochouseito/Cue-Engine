@@ -65,10 +65,10 @@ class SceneDocumentCheckpoint final
     SceneDocumentCheckpoint(const SceneDocumentCheckpoint &) = default;
     /// @brief Authoring 復元点を複製代入する
     SceneDocumentCheckpoint &operator=(const SceneDocumentCheckpoint &) = default;
-    /// @brief Authoring 復元点を移動する
-    SceneDocumentCheckpoint(SceneDocumentCheckpoint &&) noexcept = default;
-    /// @brief Authoring 復元点を移動代入する
-    SceneDocumentCheckpoint &operator=(SceneDocumentCheckpoint &&) noexcept = default;
+    /// @brief Authoring 復元点を移動し、移動元を消費済み状態へ確定する
+    SceneDocumentCheckpoint(SceneDocumentCheckpoint &&a_other) noexcept;
+    /// @brief Authoring 復元点を移動代入し、移動元を消費済み状態へ確定する
+    SceneDocumentCheckpoint &operator=(SceneDocumentCheckpoint &&a_other) noexcept;
     /// @brief Authoring 復元点の所有 Data を破棄する
     ~SceneDocumentCheckpoint() noexcept = default;
 
@@ -85,6 +85,7 @@ class SceneDocumentCheckpoint final
     SceneAssetId m_sceneAssetId;
     std::vector<SceneObject> m_objects;
     std::string m_extensionsJson;
+    bool m_isValid = true;
 };
 
 /// @brief RuntimeとEditor一時状態を含まないAuthoring Sceneの編集・保存正本
@@ -129,7 +130,7 @@ class SceneDocument final
     /// @brief 現在の完全な Authoring Scene 状態を Editor Transaction 用に複製する
     [[nodiscard]] SceneDocumentCheckpoint create_checkpoint() const noexcept;
     /// @brief 同じ Scene Identity の完全 Checkpoint から Authoring Scene 状態を復元する
-    /// @details Scene Identity 不一致時は Document を変更しない
+    /// @details Copy は再利用できるが Move 元は消費済みとなり、Identity 不一致または消費済みなら Document を変更しない
     [[nodiscard]] Result<void> restore_checkpoint(SceneDocumentCheckpoint a_checkpoint) noexcept;
 
     /// @brief 検証済みStable IDとAuthoring DataでObjectを追加する
