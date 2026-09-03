@@ -27,7 +27,7 @@ class ProjectWorkspaceSession final
     ProjectWorkspaceSession &operator=(ProjectWorkspaceSession &&) noexcept = default;
     ~ProjectWorkspaceSession() noexcept = default;
 
-    /// @brief Sessionが所有するProject Descriptorを返す
+    /// @brief Session破棄まで有効なProject Descriptorを返す
     [[nodiscard]] const ProjectDescriptor &project_descriptor() const noexcept;
     /// @brief 次のController MutationまたはController破棄まで有効なDocument Viewを返す
     [[nodiscard]] std::span<const EditorDocument> documents() const noexcept;
@@ -61,7 +61,7 @@ class EditorController final
     [[nodiscard]] static std::unique_ptr<EditorController> create(ProjectDescriptor &&a_descriptor,
                                                                   const AssertContext &a_assertContext) noexcept;
 
-    /// @brief Project Workspace SessionのRead-only Viewを返す
+    /// @brief Controller破棄まで有効なProject Workspace SessionのRead-only Viewを返す
     [[nodiscard]] const ProjectWorkspaceSession &session() const noexcept;
 
     /// @brief 検証済みSceneDocumentを一意なSceneとLocatorで開く

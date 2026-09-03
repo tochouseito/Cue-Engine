@@ -129,13 +129,21 @@ void test_revision_and_dirty() noexcept
 
     const auto secondState = take_value(controller->record_persistent_change(documentId));
     require(secondState.value() == 2U);
+    document = controller->session().find_document(documentId);
+    require(document != nullptr);
     require(document->is_dirty());
     require(controller->mark_saved(documentId, secondState).has_value());
+    document = controller->session().find_document(documentId);
+    require(document != nullptr);
     require(!document->is_dirty());
 
     const auto thirdState = take_value(controller->record_persistent_change(documentId));
     require(thirdState.value() == 3U);
+    document = controller->session().find_document(documentId);
+    require(document != nullptr);
     require(controller->mark_saved(documentId, secondState).has_value());
+    document = controller->session().find_document(documentId);
+    require(document != nullptr);
     require(document->is_dirty());
 
     const auto invalidSave = controller->mark_saved(documentId, cue::editor_core::DocumentStateId(100U));
@@ -173,6 +181,8 @@ void test_selection_reconciliation() noexcept
 
     const std::array staleSelection{removed};
     require(controller->set_selection(documentId, staleSelection, &removed).has_value());
+    document = controller->session().find_document(documentId);
+    require(document != nullptr);
     require(document->selection().empty());
     require(document->try_primary_selection() == nullptr);
 }
