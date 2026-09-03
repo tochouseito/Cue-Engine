@@ -53,6 +53,12 @@ class EditorController final
     /// @brief make_unique経由のFactory構築だけを許可する非公開Key
     struct ConstructionKey final
     {
+      private:
+        friend class EditorController;
+
+        ConstructionKey() noexcept
+        {
+        }
     };
 
   public:
