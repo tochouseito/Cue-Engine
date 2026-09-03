@@ -18,6 +18,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -25,6 +26,25 @@ namespace
 {
 constexpr std::size_t k_maxWindowsPathLength = 32767;
 constexpr std::size_t k_randomByteCount = 16;
+SRWLOCK g_writeLeaseRegistryLock = SRWLOCK_INIT;
+std::unordered_set<std::wstring> g_heldWriteLeaseNames;
+
+/// @brief Process内で同じNamed Mutexを再帰取得しないようLease名を予約する
+[[nodiscard]] bool register_write_lease(const std::wstring &a_name)
+{
+    AcquireSRWLockExclusive(&g_writeLeaseRegistryLock);
+    const bool inserted = g_heldWriteLeaseNames.emplace(a_name).second;
+    ReleaseSRWLockExclusive(&g_writeLeaseRegistryLock);
+    return inserted;
+}
+
+/// @brief Process内Lease名の予約を解除する
+void unregister_write_lease(const std::wstring &a_name) noexcept
+{
+    AcquireSRWLockExclusive(&g_writeLeaseRegistryLock);
+    g_heldWriteLeaseNames.erase(a_name);
+    ReleaseSRWLockExclusive(&g_writeLeaseRegistryLock);
+}
 
 /// @brief Win32 Handle を一意所有して全ての終了経路で Close する
 class UniqueHandle final
@@ -93,17 +113,31 @@ class UniqueHandle final
     HANDLE m_handle = INVALID_HANDLE_VALUE;
 };
 
-/// @brief Windows Sidecar Handleと取得元Root／Pathを一意所有するWrite Lease State
+/// @brief Windows Mutex Handleと取得元Root／Pathを一意所有するWrite Lease State
 class WindowsFileWriteLeaseState final : public cue::FileWriteLeaseState
 {
   public:
-    WindowsFileWriteLeaseState(const void *a_owner, std::string a_pathKey, UniqueHandle a_handle) noexcept
-        : owner(a_owner), pathKey(std::move(a_pathKey)), handle(std::move(a_handle))
+    WindowsFileWriteLeaseState(const void *a_owner, std::string a_exactPathKey, std::string a_familyPathKey,
+                               std::wstring a_mutexName, UniqueHandle a_handle) noexcept
+        : owner(a_owner), exactPathKey(std::move(a_exactPathKey)), familyPathKey(std::move(a_familyPathKey)),
+          mutexName(std::move(a_mutexName)), handle(std::move(a_handle))
     {
     }
 
+    /// @brief 所有中のMutexを解放して待機中Writerへ進行を許可する
+    ~WindowsFileWriteLeaseState() override
+    {
+        if (handle.is_valid())
+        {
+            unregister_write_lease(mutexName);
+            ReleaseMutex(handle.get());
+        }
+    }
+
     const void *owner;
-    std::string pathKey;
+    std::string exactPathKey;
+    std::string familyPathKey;
+    std::wstring mutexName;
     UniqueHandle handle;
 };
 
@@ -971,42 +1005,49 @@ cue::Result<cue::FileWriteLease> WindowsFilesystemRoot::acquire_file_write_lease
 
     try
     {
-        std::string pathKey = write_lease_path_key(a_path, *m_assertContext);
-        std::string sidecarText(pathKey);
-        sidecarText.append(".cuelock");
-        cue::Result<cue::RelativePath> sidecar = cue::RelativePath::parse(sidecarText, *m_assertContext);
-        if (!sidecar)
+        std::string exactPathKey = a_path.comparison_key(*m_assertContext);
+        std::string familyPathKey = write_lease_path_key(a_path, *m_assertContext);
+        const std::uint64_t familyDigest =
+            cue::file_content_digest(std::as_bytes(std::span(familyPathKey.data(), familyPathKey.size())));
+        std::array<wchar_t, 160> mutexName{};
+        const int mutexNameLength = _snwprintf_s(
+            mutexName.data(), mutexName.size(), _TRUNCATE, L"Local\\CueEngine.WriteLease.%08lx.%08lx%08lx.%016llx",
+            static_cast<unsigned long>(m_rootVolumeSerial), static_cast<unsigned long>(m_rootFileIndexHigh),
+            static_cast<unsigned long>(m_rootFileIndexLow), static_cast<unsigned long long>(familyDigest));
+        if (mutexNameLength < 0)
         {
-            return cue::Result<cue::FileWriteLease>::failure(std::move(*sidecar.try_error()));
-        }
-        cue::Result<std::wstring> sidecarPath = absolute_path(*sidecar.try_value());
-        if (!sidecarPath)
-        {
-            return cue::Result<cue::FileWriteLease>::failure(std::move(*sidecarPath.try_error()));
-        }
-        UniqueHandle sidecarHandle(CreateFileW(
-            sidecarPath.try_value()->c_str(), GENERIC_READ | GENERIC_WRITE | DELETE, 0, nullptr, OPEN_ALWAYS,
-            FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE | FILE_FLAG_OPEN_REPARSE_POINT,
-            nullptr));
-        if (!sidecarHandle.is_valid())
-        {
-            const DWORD code = GetLastError();
-            if (code == ERROR_SHARING_VIOLATION || code == ERROR_LOCK_VIOLATION)
-            {
-                return cue::Result<cue::FileWriteLease>::failure(cue::make_io_error(
-                    *m_assertContext, cue::IoError::Busy, "Scene write lease is already held", code));
-            }
-            return cue::Result<cue::FileWriteLease>::failure(
-                make_windows_error(*m_assertContext, code, "Scene write lease acquisition failed"));
-        }
-        BY_HANDLE_FILE_INFORMATION sidecarInformation{};
-        if (GetFileInformationByHandle(sidecarHandle.get(), &sidecarInformation) == FALSE ||
-            (sidecarInformation.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
-        {
-            const DWORD code = GetLastError();
             return cue::Result<cue::FileWriteLease>::failure(cue::make_io_error(
-                *m_assertContext, cue::IoError::UnsupportedEntry, "Scene write lease sidecar is unsupported", code));
+                *m_assertContext, cue::IoError::CapacityExceeded, "Scene write lease mutex name exceeds limit"));
         }
+
+        UniqueHandle mutexHandle(CreateMutexW(nullptr, FALSE, mutexName.data()));
+        if (!mutexHandle.is_valid())
+        {
+            return cue::Result<cue::FileWriteLease>::failure(
+                make_windows_error(*m_assertContext, GetLastError(), "Scene write lease mutex creation failed"));
+        }
+        const DWORD waitResult = WaitForSingleObject(mutexHandle.get(), 0U);
+        if (waitResult == WAIT_TIMEOUT)
+        {
+            return cue::Result<cue::FileWriteLease>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::Busy, "Scene write lease is already held"));
+        }
+        if (waitResult != WAIT_OBJECT_0 && waitResult != WAIT_ABANDONED)
+        {
+            const DWORD code = waitResult == WAIT_FAILED ? GetLastError() : ERROR_INVALID_HANDLE;
+            return cue::Result<cue::FileWriteLease>::failure(
+                make_windows_error(*m_assertContext, code, "Scene write lease mutex acquisition failed"));
+        }
+        std::wstring mutexNameText(mutexName.data());
+        if (!register_write_lease(mutexNameText))
+        {
+            ReleaseMutex(mutexHandle.get());
+            return cue::Result<cue::FileWriteLease>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::Busy, "Scene write lease is already held"));
+        }
+
+        auto state = std::make_unique<WindowsFileWriteLeaseState>(
+            this, std::move(exactPathKey), std::move(familyPathKey), std::move(mutexNameText), std::move(mutexHandle));
 
         if (*destinationType.try_value() == cue::EntryType::RegularFile)
         {
@@ -1037,7 +1078,6 @@ cue::Result<cue::FileWriteLease> WindowsFilesystemRoot::acquire_file_write_lease
             }
         }
 
-        auto state = std::make_unique<WindowsFileWriteLeaseState>(this, std::move(pathKey), std::move(sidecarHandle));
         return cue::Result<cue::FileWriteLease>::success(make_file_write_lease(std::move(state)));
     }
     catch (...)
@@ -1104,7 +1144,8 @@ cue::Result<void> WindowsFilesystemRoot::write_file_atomic_internal(const cue::R
     {
         auto *state = dynamic_cast<WindowsFileWriteLeaseState *>(file_write_lease_state(*a_lease));
         if (state == nullptr || state->owner != this ||
-            state->pathKey != write_lease_path_key(a_path, *m_assertContext) || !state->handle.is_valid())
+            state->exactPathKey != a_path.comparison_key(*m_assertContext) ||
+            state->familyPathKey != write_lease_path_key(a_path, *m_assertContext) || !state->handle.is_valid())
         {
             return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::PreconditionFailed,
                                                                  "Atomic write lease does not own destination"));

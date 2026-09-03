@@ -1091,14 +1091,19 @@ void test_scene_persistence_workflow() noexcept
     document = controller->session().find_document(documentId);
     require(document != nullptr && document->is_dirty());
     require(document->scene_locator().text() == "Scenes/Main.cuescene");
+    require(document->external_change_state() == cue::editor_core::ExternalChangeState::None);
     require(sourceAssets.text("Scenes/Renamed.cuescene") == externalJson);
+    auto originalLocatorSave = controller->save_document(documentId);
+    require(originalLocatorSave.has_value() &&
+            originalLocatorSave.try_value()->status() == cue::scene::SceneSaveStatus::Committed);
+    const std::string savedOriginalLocator(sourceAssets.text("Scenes/Main.cuescene"));
     auto saveAs = controller->save_document_as(
         documentId, take_value(cue::RelativePath::parse("Scenes/Renamed.cuescene", assertContext)));
     require(saveAs.has_value() && saveAs.try_value()->status() == cue::scene::SceneSaveStatus::Committed);
     document = controller->session().find_document(documentId);
     require(document != nullptr && !document->is_dirty());
     require(document->scene_locator().text() == "Scenes/Renamed.cuescene");
-    require(sourceAssets.text("Scenes/Main.cuescene") == externalJson);
+    require(sourceAssets.text("Scenes/Main.cuescene") == savedOriginalLocator);
 
     const auto secondRootId = make_object_id("00000000-0000-4000-8000-000000000712", assertContext);
     auto secondScene = make_scene_document("00000000-0000-4000-8000-000000000702", assertContext);

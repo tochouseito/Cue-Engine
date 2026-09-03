@@ -209,21 +209,22 @@ Delete後に親や隣接Objectを自動選択するかはPresentation Policyと�
 Scene Save／Save As／Recovery Publishを直列化し、Sceneごとの進行中Saveと`SceneWriteLease`を所有する。
 `EditorDocument`はCoordinatorを所有せず、Session終了より長く参照しない。
 
-`SceneWriteLease`は本文Path、`.backup` Path、同じ親DirectoryのLock Sidecarを一つの排他範囲とする。Leaseは本文Entry確認前に取得し、
-旧Byte列読込、Backup公開、本文公開、公開結果の検証、結果状態の記録が完了するまで保持する。Windows Adapterは同じ物理Directoryと
-File名へ解決されるLock Sidecarを、Write／Delete共有を許可しないNative Handleとして開き、Process終了時にもOSが解放する。
-別Rootから同じ実Fileへ到達するCueEngine Writerも同じSidecarで競合し、Lease取得失敗を待機または診断可能なBusyとして返す。
-Sidecar削除失敗は本文Saveの成否を変更せずSecondary診断とする。
+`SceneWriteLease`は本文Pathと末尾に連鎖する`.backup` Pathを一つの排他範囲とする。Leaseは本文Entry確認前に取得し、
+旧Byte列読込、Backup公開、本文公開、公開結果の検証、結果状態の記録が完了するまで保持する。Windows AdapterはRootのVolume／File
+IdentityとFamily KeyのDigestからLocal Named Mutex名を構築し、利用者のFile名前空間へLock Entryを作成しない。
+別Rootから同じ物理RootとFile Familyへ到達するCueEngine Writerも同じMutexで競合し、非待機取得失敗を診断可能なBusyとして返す。
+Process終了時はOSがHandleを解放し、Abandoned Mutexを次のWriterが取得して処理を継続する。
 
 M12の同期実装では、Owner Thread限定の`EditorController` Save WorkflowがSession内Coordinatorを担い、`Cue.IO`のMove-only
-`FileWriteLease`をSave結果の状態記録まで保持する。Windows Adapterは`.cuelock` Sidecarを共有なし・Delete-on-close Handleで所有する。
-Lease Keyは末尾に連鎖する`.backup`を除いた本文Comparison Keyから構築し、本文、Sibling Backup、BackupをScene Locatorとして
-扱うWriterを同じCross-process排他範囲へ束ねる。
+`FileWriteLease`をSave結果の状態記録まで保持する。排他用Family Keyは末尾に連鎖する`.backup`を除いた本文Comparison Keyから
+構築し、本文、Sibling Backup、BackupをScene Locatorとして扱うWriterを同じCross-process排他範囲へ束ねる。
+Lease Stateは取得元の正確なPath Keyも別に保持し、Conditional Publish先との一致を要求する。Named Mutex名は固定長Digestを使うため、
+有効な最大長Locatorへ追加Suffixを付けず、既存の利用者FileをLock Entryとして開くこともない。
 `write_file_atomic_if_unchanged`はLease所有PathとExpected FingerprintをTemporary FileのPublish直前に再検査し、`Missing`期待では
 Replace Flagを使用しない。既存File期待では再検査後に限りReplaceし、上記の非協調Writerに対する残存競合窓を許容する。
 
 M12では既存Scene本文が複数Hard Link名を持つ場合を`UnsupportedEntry`としてSave／Save Asの置換対象から拒否する。
-Windows AdapterはLease取得後、Backup作成前にNative File InformationのLink Countを検査する。別名ごとに異なるSidecarを取得して
+Windows AdapterはLease取得後、Backup作成前にNative File InformationのLink Countを検査する。別名ごとに異なるMutexを取得して
 同じFile Identityを同時置換することを許可しない。Hard Linkを安全に編集する必要が生じた場合は、Volume／File IdentityをKeyにする
 Cross-process Leaseを別Research Issueで決定する。
 

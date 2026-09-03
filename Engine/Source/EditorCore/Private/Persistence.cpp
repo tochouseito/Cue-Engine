@@ -469,8 +469,11 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
     }
     if (*leasedFingerprint.try_value() != expectedFingerprint)
     {
-        document->m_externalChangeState =
-            leasedFingerprint.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed;
+        if (!a_switchDestination)
+        {
+            document->m_externalChangeState =
+                leasedFingerprint.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed;
+        }
         if (document->m_closeState == DocumentCloseState::SaveRequested)
         {
             document->m_closeState = DocumentCloseState::AwaitingDecision;
@@ -496,7 +499,10 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
         outcome.try_error()->root_code().domain() == "Cue.IO" &&
         outcome.try_error()->root_code().value() == static_cast<std::int64_t>(IoError::PreconditionFailed))
     {
-        document->m_externalChangeState = ExternalChangeState::Modified;
+        if (!a_switchDestination)
+        {
+            document->m_externalChangeState = ExternalChangeState::Modified;
+        }
         if (document->m_closeState == DocumentCloseState::SaveRequested)
         {
             document->m_closeState = DocumentCloseState::AwaitingDecision;
@@ -525,8 +531,12 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
             committedFingerprint.try_value()->byteSize != candidateByteSize ||
             committedFingerprint.try_value()->contentDigest != candidateDigest)
         {
-            document->m_externalChangeState =
-                committedFingerprint.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed;
+            if (!a_switchDestination)
+            {
+                document->m_externalChangeState = committedFingerprint.try_value()->exists
+                                                      ? ExternalChangeState::Modified
+                                                      : ExternalChangeState::Removed;
+            }
             if (document->m_closeState == DocumentCloseState::SaveRequested)
             {
                 document->m_closeState = DocumentCloseState::AwaitingDecision;

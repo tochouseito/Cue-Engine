@@ -452,7 +452,11 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     auto expected = cue::fingerprint_file(a_filesystem, *file.try_value(), 16U, a_assertContext);
     auto competingRoot = cue::create_windows_filesystem_root(a_directory.utf8_path(), a_assertContext);
     auto backup = cue::RelativePath::parse("Data/Nested/State.bin.backup", a_assertContext);
-    if (!expected || !competingRoot || !backup)
+    auto formerSidecar = cue::RelativePath::parse("Data/Nested/State.bin.cuelock", a_assertContext);
+    const std::string maximumSegmentText(64U, 'x');
+    auto maximumSegment = cue::RelativePath::parse(maximumSegmentText, a_assertContext);
+    if (!expected || !competingRoot || !backup || !formerSidecar || !maximumSegment ||
+        !a_filesystem.write_file_atomic(*formerSidecar.try_value(), second))
     {
         return false;
     }
@@ -470,6 +474,14 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
         {
             return false;
         }
+    }
+    auto preservedFormerSidecar = a_filesystem.read_file(*formerSidecar.try_value(), 16U);
+    auto maximumSegmentLease = a_filesystem.acquire_file_write_lease(*maximumSegment.try_value());
+    if (!preservedFormerSidecar ||
+        *preservedFormerSidecar.try_value() != std::vector<std::byte>(second.begin(), second.end()) ||
+        !maximumSegmentLease)
+    {
+        return false;
     }
     {
         auto lease = a_filesystem.acquire_file_write_lease(*file.try_value());
@@ -494,10 +506,25 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     {
         return false;
     }
+    {
+        auto hardLinkedFingerprint = cue::fingerprint_file(a_filesystem, *file.try_value(), 16U, a_assertContext);
+        auto backupLease = a_filesystem.acquire_file_write_lease(*backup.try_value());
+        if (!hardLinkedFingerprint || !backupLease)
+        {
+            return false;
+        }
+        auto mismatchedLeaseWrite = a_filesystem.write_file_atomic_if_unchanged(
+            *backupLease.try_value(), *file.try_value(), *hardLinkedFingerprint.try_value(), 16U, second);
+        if (!has_io_error(mismatchedLeaseWrite, cue::IoError::PreconditionFailed))
+        {
+            return false;
+        }
+    }
     auto hardLinkLease = a_filesystem.acquire_file_write_lease(*file.try_value());
     const bool hardLinkRejected = has_io_error(hardLinkLease, cue::IoError::UnsupportedEntry);
     const bool hardLinkRemoved = DeleteFileW(hardLinkPath.c_str()) != FALSE;
-    if (!hardLinkRejected || !hardLinkRemoved || !a_filesystem.remove_file(*file.try_value()))
+    if (!hardLinkRejected || !hardLinkRemoved || !a_filesystem.remove_file(*file.try_value()) ||
+        !a_filesystem.remove_file(*formerSidecar.try_value()))
     {
         return false;
     }
