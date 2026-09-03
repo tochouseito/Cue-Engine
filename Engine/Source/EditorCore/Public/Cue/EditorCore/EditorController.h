@@ -21,10 +21,15 @@ namespace cue::editor_core
 class ProjectWorkspaceSession final
 {
   public:
+    /// @brief Project Workspace Session の一意所有を保つため Copy 構築を禁止する
     ProjectWorkspaceSession(const ProjectWorkspaceSession &) = delete;
+    /// @brief Project Workspace Session の一意所有を保つため Copy 代入を禁止する
     ProjectWorkspaceSession &operator=(const ProjectWorkspaceSession &) = delete;
+    /// @brief Project Workspace Session の所有状態を移動する
     ProjectWorkspaceSession(ProjectWorkspaceSession &&) noexcept = default;
+    /// @brief Project Workspace Session の所有状態を移動代入する
     ProjectWorkspaceSession &operator=(ProjectWorkspaceSession &&) noexcept = default;
+    /// @brief Project Workspace Session の所有 Data を破棄する
     ~ProjectWorkspaceSession() noexcept = default;
 
     /// @brief Session 破棄まで有効な Project Descriptor を返す
@@ -63,10 +68,15 @@ class EditorController final
     };
 
   public:
+    /// @brief Editor Controller の一意所有を保つため Copy 構築を禁止する
     EditorController(const EditorController &) = delete;
+    /// @brief Editor Controller の一意所有を保つため Copy 代入を禁止する
     EditorController &operator=(const EditorController &) = delete;
+    /// @brief Owner Thread と Session Identity を固定するため Move 構築を禁止する
     EditorController(EditorController &&) = delete;
+    /// @brief Owner Thread と Session Identity を固定するため Move 代入を禁止する
     EditorController &operator=(EditorController &&) = delete;
+    /// @brief Owner Thread 上で Controller 所有 Data を破棄する
     ~EditorController() noexcept;
 
     /// @brief Project Descriptor の所有権を受け取って空 Workspace Session を生成する
@@ -95,6 +105,8 @@ class EditorController final
     [[nodiscard]] Result<DocumentStateId> record_persistent_change(EditorDocumentId a_documentId) noexcept;
     /// @brief 確定保存された発行済み State を保存地点として記録する
     [[nodiscard]] Result<void> mark_saved(EditorDocumentId a_documentId, DocumentStateId a_savedStateId) noexcept;
+    /// @brief Close Save の失敗を通知して利用者判断待ちへ戻す
+    [[nodiscard]] Result<DocumentCloseState> report_save_failure(EditorDocumentId a_documentId) noexcept;
     /// @brief Scene 正本に対する外部変更の観測状態を更新する
     [[nodiscard]] Result<void> set_external_change_state(EditorDocumentId a_documentId,
                                                          ExternalChangeState a_state) noexcept;

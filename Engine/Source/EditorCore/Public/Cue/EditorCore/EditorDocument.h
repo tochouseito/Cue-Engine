@@ -43,10 +43,15 @@ class EditorDocumentId final
 class DocumentStateId final
 {
   public:
+    /// @brief 発行元を保ったまま Authoring 状態 Identity を複製する
     DocumentStateId(const DocumentStateId &) noexcept = default;
+    /// @brief 発行元を保ったまま Authoring 状態 Identity を複製代入する
     DocumentStateId &operator=(const DocumentStateId &) noexcept = default;
+    /// @brief Authoring 状態 Identity の所有 Token を移動する
     DocumentStateId(DocumentStateId &&) noexcept = default;
+    /// @brief Authoring 状態 Identity の所有 Token を移動代入する
     DocumentStateId &operator=(DocumentStateId &&) noexcept = default;
+    /// @brief Authoring 状態 Identity の Session Token を解放する
     ~DocumentStateId() noexcept = default;
 
     /// @brief State を発行した Editor Document Identity を返す
@@ -111,10 +116,15 @@ enum class CloseDecision : std::uint8_t
 class EditorDocument final
 {
   public:
+    /// @brief Editor Document の一意所有を保つため Copy 構築を禁止する
     EditorDocument(const EditorDocument &) = delete;
+    /// @brief Editor Document の一意所有を保つため Copy 代入を禁止する
     EditorDocument &operator=(const EditorDocument &) = delete;
+    /// @brief Editor Document の所有 Data を移動する
     EditorDocument(EditorDocument &&) noexcept = default;
+    /// @brief Editor Document の所有 Data を移動代入する
     EditorDocument &operator=(EditorDocument &&) noexcept = default;
+    /// @brief Editor Document の所有 Data を破棄する
     ~EditorDocument() noexcept = default;
 
     /// @brief Editor Session 内の一時 Document Identity を返す

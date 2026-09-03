@@ -5,9 +5,14 @@
 #include <Cue/Foundation/Fatal.h>
 
 #include <algorithm>
+#include <array>
+#include <charconv>
+#include <cstddef>
 #include <exception>
 #include <limits>
 #include <new>
+#include <string_view>
+#include <tuple>
 #include <utility>
 
 namespace cue::editor_core
@@ -16,6 +21,54 @@ namespace cue::editor_core
 class DocumentStateOrigin final
 {
 };
+
+/// @brief Duplicate Open Error へ競合 Document Identity を明示的な Context として付加する
+void add_conflicting_document_context(Error &a_error, const AssertContext &a_assertContext,
+                                      EditorDocumentId a_conflictingDocumentId) noexcept
+{
+    constexpr std::string_view prefix = "ConflictingEditorDocumentId=";
+    std::array<char, prefix.size() + 20U> context{};
+    std::copy(prefix.begin(), prefix.end(), context.begin());
+    const auto converted =
+        std::to_chars(context.data() + prefix.size(), context.data() + context.size(), a_conflictingDocumentId.value());
+    if (converted.ec != std::errc{})
+    {
+        a_assertContext.fatal_handler().terminate("Cue.EditorCore conflicting document identity formatting failed");
+    }
+    a_error.add_context(a_assertContext.fatal_handler(),
+                        std::string_view(context.data(), static_cast<std::size_t>(converted.ptr - context.data())));
+}
+
+/// @brief Duplicate Scene Error へ要求 Scene と競合 Document の Identity を付加する
+[[nodiscard]] Error make_duplicate_scene_error(const AssertContext &a_assertContext,
+                                               const scene::SceneAssetId &a_requestedSceneId,
+                                               EditorDocumentId a_conflictingDocumentId) noexcept
+{
+    Error error = make_editor_core_error(a_assertContext, EditorCoreError::DuplicateScene,
+                                         "Scene is already open in this project workspace");
+    add_conflicting_document_context(error, a_assertContext, a_conflictingDocumentId);
+
+    constexpr std::string_view prefix = "RequestedSceneAssetId=";
+    const scene::IdentityText sceneText = a_requestedSceneId.canonical_text();
+    std::array<char, prefix.size() + std::tuple_size_v<scene::IdentityText>> context{};
+    std::copy(prefix.begin(), prefix.end(), context.begin());
+    std::copy(sceneText.begin(), sceneText.end(), context.begin() + static_cast<std::ptrdiff_t>(prefix.size()));
+    error.add_context(a_assertContext.fatal_handler(), std::string_view(context.data(), context.size()));
+    return error;
+}
+
+/// @brief Duplicate Locator Error へ要求 Locator と競合 Document の Identity を付加する
+[[nodiscard]] Error make_duplicate_locator_error(const AssertContext &a_assertContext,
+                                                 const RelativePath &a_requestedLocator,
+                                                 EditorDocumentId a_conflictingDocumentId) noexcept
+{
+    Error error = make_editor_core_error(a_assertContext, EditorCoreError::DuplicateLocator,
+                                         "Scene locator is already open in this project workspace");
+    add_conflicting_document_context(error, a_assertContext, a_conflictingDocumentId);
+    error.add_context(a_assertContext.fatal_handler(), "RequestedSceneLocator");
+    error.add_context(a_assertContext.fatal_handler(), a_requestedLocator.text());
+    return error;
+}
 
 ProjectWorkspaceSession::ProjectWorkspaceSession(ProjectDescriptor &&a_descriptor) noexcept
     : m_descriptor(std::move(a_descriptor))
@@ -35,6 +88,7 @@ std::span<const EditorDocument> ProjectWorkspaceSession::documents() const noexc
 const EditorDocument *ProjectWorkspaceSession::find_document(EditorDocumentId a_id) const noexcept
 {
     const auto found = std::find_if(m_documents.begin(), m_documents.end(),
+                                    /// @brief Document Identity が検索対象と一致するか判定する
                                     [a_id](const EditorDocument &a_document) { return a_document.id() == a_id; });
     return found != m_documents.end() ? &*found : nullptr;
 }
@@ -97,15 +151,14 @@ Result<EditorDocumentId> EditorController::open_document(scene::SceneDocument &&
 
         if (document.scene_document().scene_asset_id() == a_document.scene_asset_id())
         {
-            return Result<EditorDocumentId>::failure(make_editor_core_error(
-                *m_assertContext, EditorCoreError::DuplicateScene, "Scene is already open in this project workspace"));
+            return Result<EditorDocumentId>::failure(
+                make_duplicate_scene_error(*m_assertContext, a_document.scene_asset_id(), document.id()));
         }
 
         if (document.scene_locator().comparison_key(*m_assertContext) == locatorKey)
         {
             return Result<EditorDocumentId>::failure(
-                make_editor_core_error(*m_assertContext, EditorCoreError::DuplicateLocator,
-                                       "Scene locator is already open in this project workspace"));
+                make_duplicate_locator_error(*m_assertContext, a_locator, document.id()));
         }
     }
 
@@ -281,6 +334,27 @@ Result<void> EditorController::mark_saved(EditorDocumentId a_documentId, Documen
     return Result<void>::success();
 }
 
+Result<DocumentCloseState> EditorController::report_save_failure(EditorDocumentId a_documentId) noexcept
+{
+    assert_owner_thread();
+    EditorDocument *document = find_document(a_documentId);
+    if (document == nullptr)
+    {
+        return Result<DocumentCloseState>::failure(
+            make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
+                                       "Editor document was not found", a_documentId.value()));
+    }
+    if (document->m_closeState != DocumentCloseState::SaveRequested)
+    {
+        return Result<DocumentCloseState>::failure(make_editor_document_error(
+            *m_assertContext, EditorCoreError::InvalidCloseTransition,
+            "Save failure requires a document with a pending close save", a_documentId.value()));
+    }
+
+    document->m_closeState = DocumentCloseState::AwaitingDecision;
+    return Result<DocumentCloseState>::success(DocumentCloseState::AwaitingDecision);
+}
+
 Result<void> EditorController::set_external_change_state(EditorDocumentId a_documentId,
                                                          ExternalChangeState a_state) noexcept
 {
@@ -366,6 +440,7 @@ Result<DocumentCloseState> EditorController::respond_to_close(EditorDocumentId a
 EditorDocument *EditorController::find_document(EditorDocumentId a_id) noexcept
 {
     const auto found = std::find_if(m_session.m_documents.begin(), m_session.m_documents.end(),
+                                    /// @brief Document Identity が検索対象と一致するか判定する
                                     [a_id](const EditorDocument &a_document) { return a_document.id() == a_id; });
     return found != m_session.m_documents.end() ? &*found : nullptr;
 }
@@ -373,6 +448,7 @@ EditorDocument *EditorController::find_document(EditorDocumentId a_id) noexcept
 void EditorController::erase_closed_document(EditorDocumentId a_id) noexcept
 {
     const auto found = std::find_if(m_session.m_documents.begin(), m_session.m_documents.end(),
+                                    /// @brief Document Identity が削除対象と一致するか判定する
                                     [a_id](const EditorDocument &a_document) { return a_document.id() == a_id; });
     if (found != m_session.m_documents.end())
     {

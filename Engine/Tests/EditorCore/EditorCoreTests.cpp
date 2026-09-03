@@ -112,6 +112,9 @@ void test_workspace_and_open() noexcept
     require(!duplicateSceneResult.has_value());
     require(duplicateSceneResult.try_error()->code().value() ==
             static_cast<std::int64_t>(cue::editor_core::EditorCoreError::DuplicateScene));
+    require(has_error_context(*duplicateSceneResult.try_error(), "ConflictingEditorDocumentId=1"));
+    require(has_error_context(*duplicateSceneResult.try_error(),
+                              "RequestedSceneAssetId=00000000-0000-4000-8000-000000000101"));
 
     auto otherScene = make_scene_document("00000000-0000-4000-8000-000000000102", assertContext);
     auto duplicateLocator = take_value(cue::RelativePath::parse("scenes/main.cuescene", assertContext));
@@ -120,6 +123,9 @@ void test_workspace_and_open() noexcept
     require(!duplicateLocatorResult.has_value());
     require(duplicateLocatorResult.try_error()->code().value() ==
             static_cast<std::int64_t>(cue::editor_core::EditorCoreError::DuplicateLocator));
+    require(has_error_context(*duplicateLocatorResult.try_error(), "ConflictingEditorDocumentId=1"));
+    require(has_error_context(*duplicateLocatorResult.try_error(), "RequestedSceneLocator"));
+    require(has_error_context(*duplicateLocatorResult.try_error(), "scenes/main.cuescene"));
 }
 
 /// @brief Dirty が Revision 差だけから一貫して決まることを検証する
@@ -280,6 +286,19 @@ void test_external_change_and_close() noexcept
     require(advancedDocument != nullptr);
     require(advancedDocument->is_dirty());
     require(advancedDocument->close_state() == cue::editor_core::DocumentCloseState::AwaitingDecision);
+
+    auto failedSaveScene = make_scene_document("00000000-0000-4000-8000-000000000406", assertContext);
+    auto failedSaveLocator = take_value(cue::RelativePath::parse("Scenes/FailedSave.cuescene", assertContext));
+    const auto failedSaveId =
+        take_value(controller->open_document(std::move(failedSaveScene), std::move(failedSaveLocator), false));
+    require(take_value(controller->request_close(failedSaveId)) ==
+            cue::editor_core::DocumentCloseState::AwaitingDecision);
+    require(take_value(controller->respond_to_close(failedSaveId, cue::editor_core::CloseDecision::Save)) ==
+            cue::editor_core::DocumentCloseState::SaveRequested);
+    require(take_value(controller->report_save_failure(failedSaveId)) ==
+            cue::editor_core::DocumentCloseState::AwaitingDecision);
+    require(take_value(controller->respond_to_close(failedSaveId, cue::editor_core::CloseDecision::Cancel)) ==
+            cue::editor_core::DocumentCloseState::Open);
 
     auto discardScene = make_scene_document("00000000-0000-4000-8000-000000000403", assertContext);
     auto discardLocator = take_value(cue::RelativePath::parse("Scenes/Discard.cuescene", assertContext));
