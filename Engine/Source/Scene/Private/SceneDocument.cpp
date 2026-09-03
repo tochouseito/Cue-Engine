@@ -1,5 +1,7 @@
 #include <Cue/Scene/SceneDocument.h>
 
+#include "Json.h"
+
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Scene/Error.h>
 
@@ -95,6 +97,18 @@ Result<void> SceneDocument::add_object(ObjectId a_id, std::string_view a_name, b
         return Result<void>::failure(
             make_scene_error(*m_assertContext, SceneError::InvalidName, "Scene object name must not be empty"));
     }
+    if (a_name.size() > k_maximumSceneStringBytes)
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::ResourceLimitExceeded,
+            "Scene object name exceeds the 256 KiB string limit"));
+    }
+    if (!scene_private::is_valid_json_string_text(a_name))
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::InvalidName,
+            "Scene object name must be valid UTF-8"));
+    }
     if (find_object(a_id) != nullptr)
     {
         return Result<void>::failure(make_scene_error(*m_assertContext, SceneError::DuplicateObjectId,
@@ -168,6 +182,18 @@ Result<void> SceneDocument::rename_object(const ObjectId &a_id, std::string_view
     {
         return Result<void>::failure(
             make_scene_error(*m_assertContext, SceneError::InvalidName, "Scene object name must not be empty"));
+    }
+    if (a_name.size() > k_maximumSceneStringBytes)
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::ResourceLimitExceeded,
+            "Scene object name exceeds the 256 KiB string limit"));
+    }
+    if (!scene_private::is_valid_json_string_text(a_name))
+    {
+        return Result<void>::failure(make_scene_error(
+            *m_assertContext, SceneError::InvalidName,
+            "Scene object name must be valid UTF-8"));
     }
     auto *object = find_mutable_object(a_id);
     if (object == nullptr)

@@ -647,20 +647,43 @@ void test_serialization() noexcept
     auto invalidNameId = take_value(cue::scene::ObjectId::parse(
         "00000000-0000-4000-8000-000000000022", assertContext));
     const std::string invalidUtf8(1U, static_cast<char>(0xC3U));
+    const auto invalidName = invalidNameDocument.add_object(
+        invalidNameId, invalidUtf8, true, std::nullopt,
+        cue::math::Transform{});
+    require(!invalidName.has_value());
+    require(invalidName.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::scene::SceneError::InvalidName));
+    require(invalidNameDocument.object_count() == 0U);
+    std::string oversizedName(cue::scene::k_maximumSceneStringBytes + 1U,
+                              'n');
+    const auto oversizedAdd = invalidNameDocument.add_object(
+        invalidNameId, oversizedName, true, std::nullopt,
+        cue::math::Transform{});
+    require(!oversizedAdd.has_value());
+    require(oversizedAdd.try_error()->code().value() ==
+            static_cast<std::int64_t>(
+                cue::scene::SceneError::ResourceLimitExceeded));
+    require(invalidNameDocument.object_count() == 0U);
     require(invalidNameDocument
-                .add_object(invalidNameId, invalidUtf8, true, std::nullopt,
+                .add_object(invalidNameId, "Valid", true, std::nullopt,
                             cue::math::Transform{})
                 .has_value());
-    require(!cue::scene::serialize_scene_document(invalidNameDocument,
-                                                  assertContext)
-                 .has_value());
-    std::string oversizedName(256U * 1024U + 1U, 'n');
-    require(invalidNameDocument
-                .rename_object(invalidNameId, oversizedName)
+    const auto invalidRename =
+        invalidNameDocument.rename_object(invalidNameId, invalidUtf8);
+    require(!invalidRename.has_value());
+    require(invalidRename.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::scene::SceneError::InvalidName));
+    require(invalidNameDocument.find_object(invalidNameId)->name() == "Valid");
+    const auto oversizedRename =
+        invalidNameDocument.rename_object(invalidNameId, oversizedName);
+    require(!oversizedRename.has_value());
+    require(oversizedRename.try_error()->code().value() ==
+            static_cast<std::int64_t>(
+                cue::scene::SceneError::ResourceLimitExceeded));
+    require(invalidNameDocument.find_object(invalidNameId)->name() == "Valid");
+    require(cue::scene::serialize_scene_document(invalidNameDocument,
+                                                 assertContext)
                 .has_value());
-    require(!cue::scene::serialize_scene_document(invalidNameDocument,
-                                                  assertContext)
-                 .has_value());
 
     const std::string future = std::string("{\"formatVersion\":2,\"sceneAssetId\":") +
                                "\"00000000-0000-4000-8000-000000000001\",\"objects\":[],"
