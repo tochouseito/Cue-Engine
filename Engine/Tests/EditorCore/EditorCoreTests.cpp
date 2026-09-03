@@ -251,12 +251,35 @@ void test_external_change_and_close() noexcept
     auto unsavedLocator = take_value(cue::RelativePath::parse("Scenes/Unsaved.cuescene", assertContext));
     const auto unsavedId =
         take_value(controller->open_document(std::move(unsavedScene), std::move(unsavedLocator), false));
+    const auto *unsavedDocument = controller->session().find_document(unsavedId);
+    require(unsavedDocument != nullptr);
+    const auto unsavedState = unsavedDocument->current_state_id();
     require(take_value(controller->request_close(unsavedId)) == cue::editor_core::DocumentCloseState::AwaitingDecision);
     require(take_value(controller->respond_to_close(unsavedId, cue::editor_core::CloseDecision::Cancel)) ==
             cue::editor_core::DocumentCloseState::Open);
     require(take_value(controller->request_close(unsavedId)) == cue::editor_core::DocumentCloseState::AwaitingDecision);
     require(take_value(controller->respond_to_close(unsavedId, cue::editor_core::CloseDecision::Save)) ==
             cue::editor_core::DocumentCloseState::SaveRequested);
+    require(controller->mark_saved(unsavedId, unsavedState).has_value());
+    require(controller->session().find_document(unsavedId) == nullptr);
+
+    auto advancedScene = make_scene_document("00000000-0000-4000-8000-000000000405", assertContext);
+    auto advancedLocator = take_value(cue::RelativePath::parse("Scenes/Advanced.cuescene", assertContext));
+    const auto advancedId =
+        take_value(controller->open_document(std::move(advancedScene), std::move(advancedLocator), true));
+    const auto *advancedDocument = controller->session().find_document(advancedId);
+    require(advancedDocument != nullptr);
+    const auto initialAdvancedState = advancedDocument->current_state_id();
+    require(controller->record_persistent_change(advancedId).has_value());
+    require(take_value(controller->request_close(advancedId)) ==
+            cue::editor_core::DocumentCloseState::AwaitingDecision);
+    require(take_value(controller->respond_to_close(advancedId, cue::editor_core::CloseDecision::Save)) ==
+            cue::editor_core::DocumentCloseState::SaveRequested);
+    require(controller->mark_saved(advancedId, initialAdvancedState).has_value());
+    advancedDocument = controller->session().find_document(advancedId);
+    require(advancedDocument != nullptr);
+    require(advancedDocument->is_dirty());
+    require(advancedDocument->close_state() == cue::editor_core::DocumentCloseState::AwaitingDecision);
 
     auto discardScene = make_scene_document("00000000-0000-4000-8000-000000000403", assertContext);
     auto discardLocator = take_value(cue::RelativePath::parse("Scenes/Discard.cuescene", assertContext));

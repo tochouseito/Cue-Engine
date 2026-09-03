@@ -266,6 +266,18 @@ Result<void> EditorController::mark_saved(EditorDocumentId a_documentId, Documen
 
     document->m_savedStateId = a_savedStateId;
     document->m_hasSavedDestination = true;
+    if (document->m_closeState == DocumentCloseState::SaveRequested)
+    {
+        if (!document->is_dirty() && document->m_externalChangeState == ExternalChangeState::None)
+        {
+            document->m_closeState = DocumentCloseState::Closed;
+            erase_closed_document(a_documentId);
+        }
+        else
+        {
+            document->m_closeState = DocumentCloseState::AwaitingDecision;
+        }
+    }
     return Result<void>::success();
 }
 

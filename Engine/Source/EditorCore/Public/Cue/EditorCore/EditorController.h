@@ -56,7 +56,7 @@ class EditorController final
       private:
         friend class EditorController;
 
-        /// @brief EditorController Factoryだけが生成できる構築Keyを作る
+        /// @brief EditorController Factory だけが生成できる構築 Key を作る
         ConstructionKey() noexcept
         {
         }
