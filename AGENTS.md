@@ -209,3 +209,14 @@ Unreal Engine、Unity、Godotは模倣対象ではなく、設計比較の参考
 - GitHub Project Fieldの現在値
 
 確認できない外部情報が設計に影響する場合は、仮定として明記してください。
+
+## 13. Spark Agent Policy
+
+小規模で低リスクな作業では、メインエージェントの使用量を抑えるため、プロジェクト定義のSparkサブエージェントを使用してください。
+
+- `spark_worker`は、Issue scopeと実装方針が確定した小規模実装、局所的リファクタ、テスト追加、Build修正、PR指摘対応に使用する。
+- `spark_reviewer`は、小規模差分の事前レビュー、回帰候補、テスト不足、Coding Rules違反の確認に使用する。
+- 独立して並行できる作業がない場合は、サブエージェントを複数起動しない。
+- Architecture、ABI、永続形式、公開API境界、所有権、寿命、スレッド、GPU同期、D3D12、FrameGraph、Renderer、ECS設計、大規模リファクタ、最終Merge判断にはSparkを使用しない。
+- Sparkの出力は補助結果として扱い、メインエージェントが差分、検証結果、Issue scopeを確認してから採用する。
+- SparkへCommit、Push、Merge、Branch作成、Issue・PR・Review Comment投稿を委任しない。
