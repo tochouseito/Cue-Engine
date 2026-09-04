@@ -94,14 +94,18 @@ Option Dを採用し、Dear ImGuiをvcpkg Manifest Modeで導入する。
 - Dependency Control PlaneはRepository Rootの`ThirdParty`配下に置く
 - `ThirdParty/vcpkg.json`へDear ImGui Core、`win32-binding`、`dx12-binding`だけを宣言する
 - `ThirdParty/vcpkg-configuration.json`で公式vcpkg Registryと40文字のBaseline Commitを固定する
+- `ThirdParty/vcpkg-tool.json`で公式vcpkg RepositoryとTool Commit `f8be6942c0c5abd48bb325726d57af9ac39e251d`を固定する
 - 初期導入は確認済みbuiltin portのDear ImGui `1.92.6`を使用し、導入時のBaselineでVersionを固定する
 - `ThirdParty/vcpkg_installed`をProject専用Install Rootとし、生成物としてGit管理対象外にする
+- `ThirdParty/.tools/vcpkg`は明示Dependency Restoreだけが作成できるPin済みTool Checkoutとし、Git管理対象外にする
 - `ThirdParty/THIRD_PARTY_NOTICES.md`と`ThirdParty/Licenses/DearImGui-LICENSE.txt`をGit管理し、配布物にも含める
 - `examples/`、Demo Application、第三者Extension、Docking Feature、Multi-Viewportは対象にしない
 - 第三者Sourceは変更、Copy、Patch、Rename、部分抽出しない
 - `Engine`配下には第三者Source、Header、Binary、License Copyを配置しない
 - Dependency Restoreは専用Script／CI Stepとして明示実行し、通常のCMake Configure中の暗黙Network取得は無効にする
-- vcpkg Rootは`VCPKG_ROOT`で指定し、Machine固有の絶対PathをRepositoryへ記録しない
+- Dependency Restoreは`VCPKG_ROOT`で指定されたCheckoutまたは`ThirdParty/.tools/vcpkg`のCommitを
+  `vcpkg-tool.json`と照合し、不一致ならInstall前に失敗する
+- Machine固有の絶対PathをRepositoryへ記録しない
 - Updateは専用Research／Maintenance IssueでUser承認を得て、Baseline、Version、License、API差分、3構成Buildを再検証する
 - Dear ImGui以外の外部LibraryをManifestへ追加する場合は、その変更前にUserの明示承認を得る
 
@@ -119,7 +123,8 @@ Cue.ToolHost.WindowsD3D12 -> Cue.Platform.Windows
           |----------------> D3D12 / DXGI private composition
 
 Cue.ImGui.Backend.Win32D3D12 -> Cue.ImGui.Core
-          |--------------------> vcpkg imgui::imgui
+
+Cue.ImGui.Core ------------> vcpkg imgui::imgui
 ```
 
 `Cue.ProjectHub`、`Cue.EditorCore`、`Cue.Scene`、`Cue.Project`、Runtime Module は Dear ImGuiへ依存しない。
@@ -131,6 +136,29 @@ Tool Host の Native ObjectをPresentation AdapterまたはApplication Service�
 
 M12 では Runtime Renderer、Game Swap Chain、Viewport Render Target、Cue.RHI 公開APIを Tool UI のために変更しない。
 Tool用D3D12 ResourceとGame Renderer Resourceの共有は対象外とする。
+
+`Cue.ImGui.Core`はCMake上で`imgui::imgui`を`PUBLIC`または`INTERFACE`依存として公開し、Presentation Adapterへ
+Core HeaderとLink Symbolを供給する。`Cue.ImGui.Backend.Win32D3D12`は同じTargetの公式Win32／DX12 Backend APIを
+First-party Host Adapterから呼ぶ。Presentation AdapterはBackend Targetへ依存しない。
+
+## Win32 Message Delivery Contract
+
+公式Win32 BackendへInputを渡すため、#162で`Cue.Platform.Windows`にWindows固有のOpt-in Message Sink境界を追加する。
+Platform非依存の`Cue.Platform` API、`WindowEvent`、Runtime ModuleへWin32型を追加しない。
+
+- Sinkのattach／detachはWindow Owner Threadだけで行い、一つのWindowに一つだけ非所有Sinkを関連付ける
+- SinkはNative Window、Message ID、`wParam`、`lParam`を`const void*`、固定幅Integer、`std::uintptr_t`、
+  `std::intptr_t`のWindows固有Value Viewとして受け、Headerから`windows.h`を公開しない
+- SinkはHandled FlagとNative Result値を返し、Host Adapterが`ImGui_ImplWin32_WndProcHandler`の結果へ変換する
+- `WM_CLOSE`、`WM_DESTROY`、`WM_SIZE`などPlatformが所有するLifecycle Messageは既存状態更新を優先し、
+  Sinkがその処理を抑止できない
+- Keyboard、Mouse、Text、FocusなどPlatformが所有しないMessageはSinkを呼び、Handledなら`DefWindowProcW`へ渡さない
+- Sink CallbackはWindow Procedure内で同期実行し、例外を送出せず、Message引数とNative Windowを保存しない
+- SinkはImGui ContextとWin32 Backendより後にattachし、Backend ShutdownとContext破棄より前にdetachする
+- Window破棄または初期化RollbackはSink関連付けを解除し、Sinkより後にWindowを破棄する
+- `NativeWindowView`のSubclass禁止は維持し、Tool Hostによる`SetWindowLongPtrW`置換を許可しない
+
+この境界はTool UIのNative Input配送に限定し、一般Runtime Input System、IME抽象、Drag and DropはM12対象外とする。
 
 ## Ownership and Lifetime
 
@@ -193,6 +221,7 @@ Pixel完全一致、Theme、Font Raster差分、Docking、Multi-ViewportはM12 G
 
 - 実動ImGui UIと外部Code非混在を両立できる
 - Registry Baseline、Port Version、LicenseをReview可能な形で固定できる
+- vcpkg Tool自体のRevisionも開発機とCIで照合できる
 - Tool UIがRuntime RendererとRHI公開APIを拡張せずに成立する
 - Project HubとEditor CoreをHeadlessに維持できる
 - 後続のFiles、Play、Build UIが同じHost境界を再利用できる
@@ -207,7 +236,7 @@ Pixel完全一致、Theme、Font Raster差分、Docking、Multi-ViewportはM12 G
 
 ### Mitigations
 
-- 承認対象、Registry、Feature、Version、更新手順を固定する
+- 承認対象、vcpkg Tool Commit、Registry、Feature、Version、更新手順を固定する
 - External TargetへWarningとInclude境界を限定し、First-party Warningを抑止しない
 - Tool Hostの重複をM12最小Scopeに限定し、Runtime Rendererへ逆流させない
 - Dependency取得、Hash、License、3構成BuildをCI Gateへ追加する

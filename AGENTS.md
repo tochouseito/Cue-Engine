@@ -32,7 +32,7 @@ CueEngineは、旧CueEngineで得た実装経験を材料にしながら、ゲ�
 
 ## 1.2 License and External Code
 
-- 第三者Libraryを新しく導入する前に、対象、用途、License、Version、取得元、Build／配布への影響を示し、Userの明示承認を得る。
+- 第三者Libraryの新規導入またはVersion更新の前に、対象、用途、License、Version、取得元、Build／配布への影響を示し、Userの明示承認を得る。
 - 承認済み第三者Libraryはvcpkg Manifest Modeで導入し、`ThirdParty`配下にManifest、Install Tree、License、Noticeを集約する。
 - 第三者Source、Header、Binaryを`Engine`配下へ配置せず、Engine所有のFirst-party Sourceと物理的に分離する。
 - 第三者LibraryをRepositoryへ直接Copy、Git Submodule、`FetchContent`、手動Download済みBinaryとして導入しない。
