@@ -286,8 +286,17 @@ Frame開始時はImGui DX12 BackendのNew Frame、Allocator Reset、Command List
 Sentinel以外で対象値へ未到達ならProduction既定5,000 msの有限Fence Waitを行い、復帰後もSentinelと対象値を再検査する。
 完了時だけSlot Resourceを再利用し、Device Removalは待機なし制御解放、完了もRemovalも証明できない失敗は
 `ToolHostError::GpuCompletionUnavailable`のFatal経路へ移ってAllocatorまたはImGui Frame Bufferを変更しない。
-UI DrawはCommand List Execute、Present、Queue Signalの順に行い、Presentの非Removal失敗でも実行済みWorkを覆うSignalを試みる。
-Signal成功時だけ予約値をSlotの`reuseFenceValue`と`lastSignaledFence`へ保存する。
+有限WaitがTimeout、`WAIT_FAILED`、予期しない結果になった場合はFrame受付を停止し、再検査でRemovalを最優先する。
+Removal未確認で対象値の完了を証明できても現在FrameのAllocator／Command List／ImGui BufferをResetまたは更新せず、
+GPU Resourceを安全な順序で解放してWait ErrorをPrimaryにProcessを非0終了する。Wait Eventの置換や同一Session継続は行わない。
+
+UI DrawはCommand List Execute、Present、Queue Signalの順に行う。Presentの非Removal失敗ではPresent ErrorをPrimaryとして保存し、
+Frame受付を停止した上で、実行済みWorkを覆う新規予約値のQueue Signalを試みる。Signal成功時だけ予約値をSlotの
+`reuseFenceValue`と`lastSignaledFence`へ保存し、その値を有限DrainしてからGPU Resourceを安全な順序で解放し、Present Errorを
+返してProcessを非0終了する。補完Signal失敗後に予約値の完了だけを証明できた場合はPresent ErrorをPrimary、Signal／Wait Errorを
+発生順のSecondary Diagnosticsとして安全終了する。Device Removalは`DeviceRemoved`へ昇格し、完了もRemovalも証明できなければ
+集約済みPresent／Signal／Wait ErrorをImmediate Causeに`GpuCompletionUnavailable`としてResource解放前にFatal Dispatchする。
+Present成功時は通常Signal成功後だけ予約値をSlotの`reuseFenceValue`と`lastSignaledFence`へ保存して次Frameへ進む。
 
 Windowの`Minimized`またはClient Sizeが0の間はUI Frame提出と`ResizeBuffers`を行わない。有効な`Resized`／`Restored` Eventでは
 新しいFrame受付を一時停止し、`lastSignaledFence`が0なら未提出、1以上なら上記Sentinel優先の5,000 ms有限Waitで全提出Workを
@@ -358,6 +367,9 @@ Primaryとして後続を発生順のSecondary Diagnosticsへ集約した一つ�
 DRED／Cleanup ErrorはDeviceRemoved Errorの発生順Secondary Contextになり、独立ErrorがCause Chainへ直接入らないことも検証する。
 複数FrameのFault Injectionは同じSlotへ戻る前の未完了Fence、Sentinel、有限Wait成功／Timeout／Wait失敗／Removalを注入し、
 完了前にAllocator Reset、ImGui Frame Buffer更新、Command List Resetを行わないことと、成功Signal値だけをSlotへ保存することを検証する。
+Wait失敗後に完了を観測するRaceでもSlotをReset／再利用せず、Wait ErrorをPrimaryに安全終了してProcessが非0になることを検証する。
+Presentの非Removal失敗は補完Signal成功、Signal失敗後の完了、Device Removal、安全性不明を注入し、Frame受付停止、
+Present Error維持またはDeviceRemoved／GpuCompletionUnavailableへの規定どおりの昇格、Drain後の非0終了を検証する。
 Resize Integration Testは提出済みFrameをDrainした後にだけBack Bufferを解放し、`ResizeBuffers`とRTV再生成を行ってFrame提出を
 再開できることを確認する。最小化／0 Size抑止、Timeout、Device Removal、`ResizeBuffers`／再生成失敗も個別に検証する。
 Manual TestはProject作成、既存Project登録、Pin、一覧除外、Keyboard操作、Cancel、Editor Launch要求、正常Closeを確認する。
