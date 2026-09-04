@@ -262,8 +262,11 @@ Signal成功／失敗にかかわらず巻き戻しまたは再利用を行わ�
 Executeより後ろへ並ぶこの予約値だけから更新する。Signal失敗後にGPU完了を証明できるのは、その失敗したSignal用に予約した
 未使用値へFence Completed Valueが到達した場合だけとし、過去の完了済み値を判定へ使用しない。Completed Valueは大小比較より先に
 `UINT64_MAX`か判定し、このSentinelなら予約値への到達として扱わず必ずDevice Removal経路へ移る。Sentinel以外の場合だけ
-予約値と比較する。次の予約値が`UINT64_MAX`へ達する場合は新しいExecuteを開始せず、既存Workを上記終了規則でDrainして
-Tool Sessionを終端する。
+予約値と比較する。Tool Hostは最後に成功したSignal値を`lastSignaledFence`として保持する。次の予約値が`UINT64_MAX`へ
+達する場合は新しいExecuteを開始せず、Terminal Signalも発行しない。`lastSignaledFence`が0なら未提出として直ちに安全な
+終了順へ進み、1以上ならその値をProduction既定5,000 msで待つ。この値は直前までの全Execute後に成功したSignalなので、
+完了時だけRenderer Backend Shutdown以降の終了順へ進む。待機中の`UINT64_MAX`はDevice Removal経路、完了もRemovalも
+証明できない失敗はResourceを解放しないFatal経路とし、Fence値のWrapまたはSentinelのSignalを行わない。
 
 一つのUI FrameはOwner Threadだけで処理する。Windows Message、ImGui Frame、Semantic Intent適用、Application Service Mutation、
 ViewModel再取得、Draw Data提出を同じThreadで順序付ける。Background ThreadからImGui APIまたはProjectHubServiceを直接呼ばない。
