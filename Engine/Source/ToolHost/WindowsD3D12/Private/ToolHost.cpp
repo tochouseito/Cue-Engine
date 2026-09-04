@@ -1313,10 +1313,20 @@ void WindowsD3d12ToolHost::cleanup(cue::Error *a_secondaryDiagnostics) noexcept
     {
         cue::Result<void> detached =
             cue::detach_windows_message_sink(*m_window, m_messageSink, *m_assertContext);
-        if (!detached && a_secondaryDiagnostics != nullptr)
+        if (!detached)
         {
-            a_secondaryDiagnostics->append_secondary_diagnostics(
-                *m_assertContext, *detached.try_error(), "Device Removal message sink detach also failed", "Cleanup");
+            if (a_secondaryDiagnostics != nullptr)
+            {
+                a_secondaryDiagnostics->append_secondary_diagnostics(*m_assertContext, *detached.try_error(),
+                                                                     "Device Removal message sink detach also failed",
+                                                                     "Cleanup");
+            }
+            else
+            {
+                static_cast<void>(m_assertContext->logger().log(
+                    cue::LogLevel::Warning, "Tool Host message sink detach failed during cleanup",
+                    std::move(*detached.try_error())));
+            }
         }
     }
     m_isMessageSinkAttached = false;
@@ -1354,10 +1364,20 @@ void WindowsD3d12ToolHost::cleanup(cue::Error *a_secondaryDiagnostics) noexcept
     if (m_window != nullptr && m_window->state() != cue::WindowState::Destroyed)
     {
         cue::Result<void> destroyed = m_window->destroy();
-        if (!destroyed && a_secondaryDiagnostics != nullptr)
+        if (!destroyed)
         {
-            a_secondaryDiagnostics->append_secondary_diagnostics(
-                *m_assertContext, *destroyed.try_error(), "Device Removal window destruction also failed", "Cleanup");
+            if (a_secondaryDiagnostics != nullptr)
+            {
+                a_secondaryDiagnostics->append_secondary_diagnostics(*m_assertContext, *destroyed.try_error(),
+                                                                     "Device Removal window destruction also failed",
+                                                                     "Cleanup");
+            }
+            else
+            {
+                static_cast<void>(m_assertContext->logger().log(
+                    cue::LogLevel::Warning, "Tool Host window destruction failed during cleanup",
+                    std::move(*destroyed.try_error())));
+            }
         }
     }
     m_window.reset();

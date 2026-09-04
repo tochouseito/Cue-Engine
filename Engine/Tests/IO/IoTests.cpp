@@ -7,6 +7,7 @@
 #include <Cue/IO/Windows/WindowsFilesystem.h>
 
 #include <Windows.h>
+#include <ShlObj.h>
 
 #include <array>
 #include <cstddef>
@@ -118,6 +119,68 @@ class TestDirectory final
     std::wstring m_path;
     std::wstring m_outsidePath;
     bool m_isCreated = false;
+};
+
+/// @brief Known Folder Factory Test専用の一意なLocalApplicationData子Directoryを限定Cleanupする
+class KnownFolderTestDirectory final
+{
+  public:
+    /// @brief 実User Workspaceと分離した一意なRelative PathとNative Cleanup Pathを生成する
+    KnownFolderTestDirectory()
+    {
+        PWSTR localApplicationData = nullptr;
+        const HRESULT result =
+            SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &localApplicationData);
+        if (FAILED(result) || localApplicationData == nullptr)
+        {
+            CoTaskMemFree(localApplicationData);
+            return;
+        }
+
+        const std::string leaf =
+            "CueIoTests-" + std::to_string(GetCurrentProcessId()) + "-" + std::to_string(GetTickCount64());
+        const std::wstring nativeLeaf(leaf.begin(), leaf.end());
+        m_relativePath = "CueEngine/Tests/" + leaf;
+        m_testRoot = std::wstring(localApplicationData) + L"\\CueEngine\\Tests\\" + nativeLeaf;
+        m_testContainer = std::wstring(localApplicationData) + L"\\CueEngine\\Tests";
+        CoTaskMemFree(localApplicationData);
+    }
+
+    /// @brief Known Folder Test Directoryの一意Cleanup責務を保つためCopy構築を禁止する
+    KnownFolderTestDirectory(const KnownFolderTestDirectory &) = delete;
+    /// @brief Known Folder Test Directoryの一意Cleanup責務を保つためCopy代入を禁止する
+    KnownFolderTestDirectory &operator=(const KnownFolderTestDirectory &) = delete;
+    /// @brief Known Folder Test Directoryの一意Cleanup責務を保つためMove構築を禁止する
+    KnownFolderTestDirectory(KnownFolderTestDirectory &&) = delete;
+    /// @brief Known Folder Test Directoryの一意Cleanup責務を保つためMove代入を禁止する
+    KnownFolderTestDirectory &operator=(KnownFolderTestDirectory &&) = delete;
+
+    /// @brief Test専用の空Directoryを削除し、空になったTest Containerだけを除去する
+    ~KnownFolderTestDirectory()
+    {
+        if (!m_testRoot.empty())
+        {
+            static_cast<void>(RemoveDirectoryW(m_testRoot.c_str()));
+            static_cast<void>(RemoveDirectoryW(m_testContainer.c_str()));
+        }
+    }
+
+    /// @brief Known Folder解決とTest Path生成に成功したか返す
+    [[nodiscard]] bool is_ready() const noexcept
+    {
+        return !m_relativePath.empty() && !m_testRoot.empty();
+    }
+
+    /// @brief Known Folder Factoryへ渡すTest専用Relative Pathを返す
+    [[nodiscard]] const std::string &relative_path() const noexcept
+    {
+        return m_relativePath;
+    }
+
+  private:
+    std::string m_relativePath;
+    std::wstring m_testRoot;
+    std::wstring m_testContainer;
 };
 
 /// @brief Portable Path の ASCII 表現を Windows Test 用 UTF-16 へ変換する
@@ -918,7 +981,12 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
 /// @brief LocalApplicationData配下のWorkspace Rootを作成後にOpenExistingで再利用できるか検証する
 [[nodiscard]] bool test_known_folder_root(const cue::AssertContext &a_assertContext)
 {
-    auto relative = cue::RelativePath::parse("CueEngine/Workspace", a_assertContext);
+    KnownFolderTestDirectory directory;
+    if (!directory.is_ready())
+    {
+        return false;
+    }
+    auto relative = cue::RelativePath::parse(directory.relative_path(), a_assertContext);
     if (!relative)
     {
         return false;
