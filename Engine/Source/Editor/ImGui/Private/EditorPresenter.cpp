@@ -184,6 +184,23 @@ using HierarchySelectionIndex = std::unordered_set<cue::scene::ObjectId, ObjectI
     return a_selection.contains(a_objectId);
 }
 
+/// @brief Candidateが対象Object自身またはそのDescendantかRead-only Parent Chainで判定する
+[[nodiscard]] bool is_in_subtree(const cue::scene::SceneDocument &a_document, const cue::scene::ObjectId &a_candidateId,
+                                 const cue::scene::ObjectId &a_rootId) noexcept
+{
+    const cue::scene::SceneObject *candidate = a_document.find_object(a_candidateId);
+    while (candidate != nullptr)
+    {
+        if (candidate->id() == a_rootId)
+        {
+            return true;
+        }
+        const cue::scene::ObjectId *parentId = candidate->try_parent_id();
+        candidate = parentId != nullptr ? a_document.find_object(*parentId) : nullptr;
+    }
+    return false;
+}
+
 /// @brief Frame単位Child索引から一ObjectとChild群を再帰描画する
 void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyChildIndex &a_childrenByParent,
                       const HierarchySelectionIndex &a_selectionIndex,
@@ -206,7 +223,10 @@ void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyCh
     }
     const std::string name = object_name_label(a_object.name());
     const bool isOpen = ImGui::TreeNodeEx("##Object", flags, "%s", name.c_str());
-    if (!a_pendingIntent.has_value() && ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
+    const bool mouseActivated = ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen();
+    const bool keyboardActivated = ImGui::IsItemFocused() && (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                                                              ImGui::IsKeyPressed(ImGuiKey_Space, false));
+    if (!a_pendingIntent.has_value() && (mouseActivated || keyboardActivated))
     {
         std::vector<cue::scene::ObjectId> nextSelection;
         std::optional<cue::scene::ObjectId> primary;
@@ -660,7 +680,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
         }
         for (const scene::SceneObject &candidate : sceneDocument.objects())
         {
-            if (candidate.id() == object->id())
+            if (is_in_subtree(sceneDocument, candidate.id(), object->id()))
             {
                 continue;
             }
