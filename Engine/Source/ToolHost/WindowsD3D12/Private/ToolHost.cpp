@@ -40,14 +40,14 @@ constexpr std::uint32_t k_srvDescriptorCount = 64;
 constexpr DWORD k_fenceTimeoutMilliseconds = 5000;
 constexpr DXGI_FORMAT k_backBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 
-/// @brief Windows標準日本語Fontが利用可能ならProject Hubの既定Fontへ設定する
-void configure_japanese_font(const cue::AssertContext &a_context) noexcept
+/// @brief Windows標準日本語FontをProject Hubの既定Fontへ設定できたか返す
+[[nodiscard]] bool configure_japanese_font(const cue::AssertContext &a_context) noexcept
 {
     std::array<char, MAX_PATH> windowsDirectory{};
     const UINT length = GetWindowsDirectoryA(windowsDirectory.data(), static_cast<UINT>(windowsDirectory.size()));
     if (length == 0 || length >= static_cast<UINT>(windowsDirectory.size()))
     {
-        return;
+        return false;
     }
     constexpr std::array<std::string_view, 2> k_fontNames = {"meiryo.ttc", "YuGothR.ttc"};
     for (const std::string_view fontName : k_fontNames)
@@ -72,9 +72,10 @@ void configure_japanese_font(const cue::AssertContext &a_context) noexcept
         if (font != nullptr)
         {
             ImGui::GetIO().FontDefault = font;
-            return;
+            return true;
         }
     }
+    return false;
 }
 
 /// @brief Tool Host ErrorをNative診断なしで生成する
@@ -561,7 +562,12 @@ cue::Result<void> WindowsD3d12ToolHost::initialize_imgui(HWND a_window) noexcept
     }
     m_isImGuiContextInitialized = true;
     ImGui::GetIO().IniFilename = nullptr;
-    configure_japanese_font(*m_assertContext);
+    if (!configure_japanese_font(*m_assertContext))
+    {
+        return cue::Result<void>::failure(make_error(*m_assertContext,
+                                                     cue::tool_host::ToolHostError::ImGuiInitializationFailed,
+                                                     "Japanese UI font is unavailable"));
+    }
     ImGui::StyleColorsDark();
 
     if (!ImGui_ImplWin32_Init(a_window))

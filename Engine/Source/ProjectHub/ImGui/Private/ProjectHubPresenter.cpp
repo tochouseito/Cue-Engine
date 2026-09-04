@@ -452,7 +452,26 @@ void ProjectHubPresenter::draw_remove_dialog() noexcept
         }
         else
         {
-            set_error(*removed.try_error());
+            const Error &error = *removed.try_error();
+            const ErrorCode &rootCode = error.root_code();
+            const bool wasPublishedWithUnknownDurability =
+                rootCode.domain() == "Cue.IO" &&
+                rootCode.value() == static_cast<std::int64_t>(IoError::DurabilityUnknown);
+            if (wasPublishedWithUnknownDurability)
+            {
+                if (m_selectedProjectId == m_pendingRemoveProjectId)
+                {
+                    m_selectedProjectId.clear();
+                }
+                m_pendingRemoveProjectId.clear();
+                set_warning("Projectを一覧から除外しましたが、Diskへの永続化を確認できませんでした。"
+                            "一覧を更新して除外状態を再確認してください。");
+                ImGui::CloseCurrentPopup();
+            }
+            else
+            {
+                set_error(error);
+            }
         }
     }
     ImGui::SameLine();
