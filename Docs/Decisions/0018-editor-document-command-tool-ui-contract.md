@@ -211,16 +211,16 @@ Scene Save／Save As／Recovery Publishを直列化し、Sceneごとの進行中
 
 `SceneWriteLease`は本文Pathと末尾に連鎖する`.backup` Pathを一つの排他範囲とする。Leaseは本文Entry確認前に取得し、
 旧Byte列読込、Backup公開、本文公開、公開結果の検証、結果状態の記録が完了するまで保持する。Windows AdapterはRootのVolume／File
-IdentityとFamily KeyのDigestから固定長Lock名を構築し、Project Root外のProcess用Temporary Lock Directoryに置く。
-Lock FileはWrite／Delete共有を許可しないNative Handleで開き、別Rootから同じ物理RootとFile Familyへ到達するCueEngine Writerも
-同じLockで競合する。取得失敗は非待機のBusyとして返し、HandleはThreadに束縛されないためLeaseのMove後も排他を維持する。
-Process終了時はOSがHandleを閉じ、残る固定長Lock Fileは次回取得に再利用する。
+IdentityとFamily KeyのDigestからProcess環境に依存しないGlobal Named Mutex名を構築する。
+別Rootから同じ物理RootとFile Familyへ到達するCueEngine Writerは、`TEMP`／`TMP`やCurrent Directoryが異なっても同じMutexで競合する。
+取得失敗は非待機のBusyとして返し、Process終了時はOSがMutexをAbandonedとして次のWriterへ回収可能にする。
 
 M12の同期実装では、Owner Thread限定の`EditorController` Save WorkflowがSession内Coordinatorを担い、`Cue.IO`のMove-only
 `FileWriteLease`をSave結果の状態記録まで保持する。排他用Family Keyは末尾に連鎖する`.backup`を除いた本文Comparison Keyから
 構築し、本文、Sibling Backup、BackupをScene Locatorとして扱うWriterを同じCross-process排他範囲へ束ねる。
-Lease Stateは取得元の正確なPath Keyも別に保持し、Conditional Publish先との一致を要求する。Lock File名は固定長Digestを使うため、
-有効な最大長Locatorへ追加Suffixを付けず、既存の利用者FileをLock Entryとして開くこともない。
+Lease Stateは取得元の正確なPath Keyと取得Thread IDも保持し、Conditional Publish先と実行Threadの一致を要求する。
+`FileWriteLease`のMove、Conditional Write、破棄は取得Threadに限定し、違反したWriteは拒否、違反した破棄はFatalとする。
+Named Mutex名は固定長Digestを使うため、有効な最大長Locatorへ追加Suffixを付けず、利用者FileをLock Entryとして開くこともない。
 `write_file_atomic_if_unchanged`はLease所有PathとExpected FingerprintをTemporary FileのPublish直前に再検査し、`Missing`期待では
 Replace Flagを使用しない。既存File期待では再検査後に限りReplaceし、上記の非協調Writerに対する残存競合窓を許容する。
 
@@ -234,6 +234,9 @@ Cross-process Leaseを別Research Issueで決定する。
 `Missing`の場合は、Destinationが存在しない場合だけ成功するCreate-new Publishを使用し、公開直前に作成されたEntryを置換しない。
 Backup元Byte列もExpected FingerprintのSize／Digestと照合し、一致した旧Byte列だけをSibling Backupへ公開する。
 本文のConditional Publish直前には別のFingerprint再検査を維持し、Backup前検査後の変更を本文へ上書きしない。
+旧Byte列は本文Publishが成功するまでMemoryに保持し、本文が未公開またはDurability不明なら既存Backupを変更しない。
+本文Publish成功後だけSibling BackupをAtomic更新する。Backup更新失敗時は本文を公開済みとしてVerification Failedを返し、
+既存Backupを維持する。
 
 既存Destinationの置換について、WindowsのPath単位Fingerprint再検査と`MoveFileExW`による公開の間を、Lease Protocolへ参加しない
 Processに対してAtomicなCompare-and-Publishにはできない。Publish後の再読込はCandidateが公開されたことの検証であり、その間に上書きした

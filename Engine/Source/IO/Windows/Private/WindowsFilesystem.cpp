@@ -25,6 +25,25 @@ namespace
 {
 constexpr std::size_t k_maxWindowsPathLength = 32767;
 constexpr std::size_t k_randomByteCount = 16;
+SRWLOCK g_writeLeaseRegistryLock = SRWLOCK_INIT;
+std::unordered_map<std::wstring, DWORD> g_heldWriteLeaseThreads;
+
+/// @brief Process内で同じNamed Mutexを再帰取得しないよう取得Threadを登録する
+[[nodiscard]] bool register_write_lease(const std::wstring &a_name, DWORD a_threadId)
+{
+    AcquireSRWLockExclusive(&g_writeLeaseRegistryLock);
+    const bool inserted = g_heldWriteLeaseThreads.emplace(a_name, a_threadId).second;
+    ReleaseSRWLockExclusive(&g_writeLeaseRegistryLock);
+    return inserted;
+}
+
+/// @brief Process内Lease登録を取得Threadから解除する
+void unregister_write_lease(const std::wstring &a_name) noexcept
+{
+    AcquireSRWLockExclusive(&g_writeLeaseRegistryLock);
+    g_heldWriteLeaseThreads.erase(a_name);
+    ReleaseSRWLockExclusive(&g_writeLeaseRegistryLock);
+}
 
 /// @brief Win32 Handle を一意所有して全ての終了経路で Close する
 class UniqueHandle final
@@ -93,20 +112,40 @@ class UniqueHandle final
     HANDLE m_handle = INVALID_HANDLE_VALUE;
 };
 
-/// @brief Windows Lock File Handleと取得元Root／Pathを一意所有するWrite Lease State
+/// @brief Windows Mutex Handleと取得元Root／Path／Threadを一意所有するWrite Lease State
 class WindowsFileWriteLeaseState final : public cue::FileWriteLeaseState
 {
   public:
     WindowsFileWriteLeaseState(const void *a_owner, std::string a_exactPathKey, std::string a_familyPathKey,
-                               UniqueHandle a_handle) noexcept
+                               std::wstring a_mutexName, DWORD a_ownerThreadId,
+                               const cue::AssertContext &a_assertContext, UniqueHandle a_handle) noexcept
         : owner(a_owner), exactPathKey(std::move(a_exactPathKey)), familyPathKey(std::move(a_familyPathKey)),
+          mutexName(std::move(a_mutexName)), ownerThreadId(a_ownerThreadId), assertContext(&a_assertContext),
           handle(std::move(a_handle))
     {
+    }
+
+    /// @brief 取得ThreadでMutexとProcess内登録を解放する
+    ~WindowsFileWriteLeaseState() override
+    {
+        if (!handle.is_valid())
+        {
+            return;
+        }
+        if (GetCurrentThreadId() != ownerThreadId)
+        {
+            assertContext->fatal_handler().terminate("Windows write lease was destroyed on a foreign thread");
+        }
+        unregister_write_lease(mutexName);
+        ReleaseMutex(handle.get());
     }
 
     const void *owner;
     std::string exactPathKey;
     std::string familyPathKey;
+    std::wstring mutexName;
+    DWORD ownerThreadId;
+    const cue::AssertContext *assertContext;
     UniqueHandle handle;
 };
 
@@ -978,74 +1017,47 @@ cue::Result<cue::FileWriteLease> WindowsFilesystemRoot::acquire_file_write_lease
         std::string familyPathKey = write_lease_path_key(a_path, *m_assertContext);
         const std::uint64_t familyDigest =
             cue::file_content_digest(std::as_bytes(std::span(familyPathKey.data(), familyPathKey.size())));
-        std::array<wchar_t, MAX_PATH + 1U> temporaryDirectory{};
-        const DWORD temporaryLength =
-            GetTempPathW(static_cast<DWORD>(temporaryDirectory.size()), temporaryDirectory.data());
-        if (temporaryLength == 0U || temporaryLength >= temporaryDirectory.size())
-        {
-            return cue::Result<cue::FileWriteLease>::failure(
-                make_windows_error(*m_assertContext, GetLastError(), "Write lease directory resolution failed"));
-        }
-        std::wstring leaseDirectory(temporaryDirectory.data(), temporaryLength);
-        leaseDirectory.append(L"CueEngine.WriteLeases");
-        if (CreateDirectoryW(leaseDirectory.c_str(), nullptr) == FALSE && GetLastError() != ERROR_ALREADY_EXISTS)
-        {
-            return cue::Result<cue::FileWriteLease>::failure(
-                make_windows_error(*m_assertContext, GetLastError(), "Write lease directory creation failed"));
-        }
-        UniqueHandle leaseDirectoryHandle(
-            CreateFileW(leaseDirectory.c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
-                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
-        BY_HANDLE_FILE_INFORMATION leaseDirectoryInformation{};
-        if (!leaseDirectoryHandle.is_valid() ||
-            GetFileInformationByHandle(leaseDirectoryHandle.get(), &leaseDirectoryInformation) == FALSE ||
-            (leaseDirectoryInformation.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0U ||
-            (leaseDirectoryInformation.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U)
-        {
-            const DWORD code = leaseDirectoryHandle.is_valid() ? ERROR_INVALID_REPARSE_DATA : GetLastError();
-            return cue::Result<cue::FileWriteLease>::failure(
-                make_windows_error(*m_assertContext, code, "Write lease directory is unsupported"));
-        }
-
-        std::array<wchar_t, 96> lockName{};
-        const int lockNameLength = _snwprintf_s(
-            lockName.data(), lockName.size(), _TRUNCATE, L"%08lx.%08lx%08lx.%016llx.lock",
+        std::array<wchar_t, 160> mutexName{};
+        const int mutexNameLength = _snwprintf_s(
+            mutexName.data(), mutexName.size(), _TRUNCATE, L"Global\\CueEngine.WriteLease.%08lx.%08lx%08lx.%016llx",
             static_cast<unsigned long>(m_rootVolumeSerial), static_cast<unsigned long>(m_rootFileIndexHigh),
             static_cast<unsigned long>(m_rootFileIndexLow), static_cast<unsigned long long>(familyDigest));
-        if (lockNameLength < 0)
+        if (mutexNameLength < 0)
         {
             return cue::Result<cue::FileWriteLease>::failure(cue::make_io_error(
-                *m_assertContext, cue::IoError::CapacityExceeded, "Scene write lease file name exceeds limit"));
+                *m_assertContext, cue::IoError::CapacityExceeded, "Scene write lease mutex name exceeds limit"));
         }
-        leaseDirectory.push_back(L'\\');
-        leaseDirectory.append(lockName.data());
 
-        UniqueHandle lockHandle(CreateFileW(leaseDirectory.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                                            OPEN_ALWAYS, FILE_ATTRIBUTE_HIDDEN | FILE_FLAG_OPEN_REPARSE_POINT,
-                                            nullptr));
-        if (!lockHandle.is_valid())
+        UniqueHandle mutexHandle(CreateMutexW(nullptr, FALSE, mutexName.data()));
+        if (!mutexHandle.is_valid())
         {
-            const DWORD code = GetLastError();
-            if (code == ERROR_SHARING_VIOLATION || code == ERROR_LOCK_VIOLATION)
-            {
-                return cue::Result<cue::FileWriteLease>::failure(cue::make_io_error(
-                    *m_assertContext, cue::IoError::Busy, "Scene write lease is already held", code));
-            }
             return cue::Result<cue::FileWriteLease>::failure(
-                make_windows_error(*m_assertContext, code, "Scene write lease file acquisition failed"));
+                make_windows_error(*m_assertContext, GetLastError(), "Scene write lease mutex creation failed"));
         }
-        BY_HANDLE_FILE_INFORMATION lockInformation{};
-        if (GetFileInformationByHandle(lockHandle.get(), &lockInformation) == FALSE ||
-            (lockInformation.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0U)
+        const DWORD waitResult = WaitForSingleObject(mutexHandle.get(), 0U);
+        if (waitResult == WAIT_TIMEOUT)
         {
-            const DWORD code = GetLastError();
-            return cue::Result<cue::FileWriteLease>::failure(cue::make_io_error(
-                *m_assertContext, cue::IoError::UnsupportedEntry, "Scene write lease file is unsupported", code));
+            return cue::Result<cue::FileWriteLease>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::Busy, "Scene write lease is already held"));
+        }
+        if (waitResult != WAIT_OBJECT_0 && waitResult != WAIT_ABANDONED)
+        {
+            const DWORD code = waitResult == WAIT_FAILED ? GetLastError() : ERROR_INVALID_HANDLE;
+            return cue::Result<cue::FileWriteLease>::failure(
+                make_windows_error(*m_assertContext, code, "Scene write lease mutex acquisition failed"));
+        }
+        const DWORD ownerThreadId = GetCurrentThreadId();
+        std::wstring mutexNameText(mutexName.data());
+        if (!register_write_lease(mutexNameText, ownerThreadId))
+        {
+            ReleaseMutex(mutexHandle.get());
+            return cue::Result<cue::FileWriteLease>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::Busy, "Scene write lease is already held"));
         }
 
-        auto state = std::make_unique<WindowsFileWriteLeaseState>(this, std::move(exactPathKey),
-                                                                  std::move(familyPathKey), std::move(lockHandle));
+        auto state = std::make_unique<WindowsFileWriteLeaseState>(
+            this, std::move(exactPathKey), std::move(familyPathKey), std::move(mutexNameText), ownerThreadId,
+            *m_assertContext, std::move(mutexHandle));
 
         if (*destinationType.try_value() == cue::EntryType::RegularFile)
         {
@@ -1141,7 +1153,7 @@ cue::Result<void> WindowsFilesystemRoot::write_file_atomic_internal(const cue::R
     if (a_lease != nullptr)
     {
         auto *state = dynamic_cast<WindowsFileWriteLeaseState *>(file_write_lease_state(*a_lease));
-        if (state == nullptr || state->owner != this ||
+        if (state == nullptr || state->owner != this || state->ownerThreadId != GetCurrentThreadId() ||
             state->exactPathKey != a_path.comparison_key(*m_assertContext) ||
             state->familyPathKey != write_lease_path_key(a_path, *m_assertContext) || !state->handle.is_valid())
         {

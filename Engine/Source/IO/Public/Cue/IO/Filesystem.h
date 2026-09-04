@@ -44,7 +44,9 @@ class FileWriteLeaseState
     FileWriteLeaseState() noexcept = default;
 };
 
-/// @brief 一つのDestinationとSibling Backupを直列化するMove-only Lease
+/// @brief 一つのDestinationとSibling Backupを直列化する取得Thread限定Move-only Lease
+///
+/// Move、Conditional Write、破棄は取得Thread上だけで行う
 class FileWriteLease final
 {
   public:

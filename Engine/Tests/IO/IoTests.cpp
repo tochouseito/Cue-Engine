@@ -502,26 +502,32 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     {
         return false;
     }
-    auto crossThreadExpected = cue::fingerprint_file(a_filesystem, *file.try_value(), 16U, a_assertContext);
-    auto crossThreadLease = a_filesystem.acquire_file_write_lease(*file.try_value());
-    if (!crossThreadExpected || !crossThreadLease)
     {
-        return false;
-    }
-    bool crossThreadWritten = false;
-    std::thread leaseThread(
-        [&a_filesystem, &file, &crossThreadExpected, &first, &crossThreadWritten,
-         lease = std::move(*crossThreadLease.try_value())]() mutable
+        auto crossThreadExpected = cue::fingerprint_file(a_filesystem, *file.try_value(), 16U, a_assertContext);
+        auto threadBoundLease = a_filesystem.acquire_file_write_lease(*file.try_value());
+        if (!crossThreadExpected || !threadBoundLease)
         {
-            crossThreadWritten = a_filesystem
-                                     .write_file_atomic_if_unchanged(lease, *file.try_value(),
-                                                                     *crossThreadExpected.try_value(), 16U, first)
-                                     .has_value();
-        });
-    leaseThread.join();
+            return false;
+        }
+        bool foreignThreadRejected = false;
+        std::thread leaseThread(
+            [&a_filesystem, &file, &crossThreadExpected, &threadBoundLease, &first, &foreignThreadRejected]()
+            {
+                auto foreignWrite = a_filesystem.write_file_atomic_if_unchanged(
+                    *threadBoundLease.try_value(), *file.try_value(), *crossThreadExpected.try_value(), 16U, first);
+                foreignThreadRejected = has_io_error(foreignWrite, cue::IoError::PreconditionFailed);
+            });
+        leaseThread.join();
+        auto ownerWrite = a_filesystem.write_file_atomic_if_unchanged(*threadBoundLease.try_value(), *file.try_value(),
+                                                                      *crossThreadExpected.try_value(), 16U, first);
+        if (!foreignThreadRejected || !ownerWrite)
+        {
+            return false;
+        }
+    }
     {
-        auto leaseAfterThreadMove = a_filesystem.acquire_file_write_lease(*file.try_value());
-        if (!crossThreadWritten || !leaseAfterThreadMove)
+        auto leaseAfterThreadCheck = a_filesystem.acquire_file_write_lease(*file.try_value());
+        if (!leaseAfterThreadCheck)
         {
             return false;
         }

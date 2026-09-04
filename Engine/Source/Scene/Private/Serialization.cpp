@@ -1378,13 +1378,15 @@ SceneSaveOutcome save_scene_document_internal(
             }
             if (*beforeBackup.try_value() != *a_expected)
             {
-                return SceneSaveOutcome::not_published(storage_error(
-                    a_assertContext, SceneError::StorageNotPublished, "Scene changed before backup",
-                    make_io_error(a_assertContext, IoError::PreconditionFailed,
-                                  "Scene fingerprint changed before backup")));
+                return SceneSaveOutcome::not_published(
+                    storage_error(a_assertContext, SceneError::StorageNotPublished, "Scene changed before backup",
+                                  make_io_error(a_assertContext, IoError::PreconditionFailed,
+                                                "Scene fingerprint changed before backup")));
             }
         }
 
+        std::optional<std::vector<std::byte>> backupBytes;
+        std::optional<RelativePath> recoveryBackupPath;
         auto entry = a_filesystem.query_entry(a_path);
         if (!entry)
         {
@@ -1403,9 +1405,9 @@ SceneSaveOutcome save_scene_document_internal(
             }
             if (a_expected != nullptr)
             {
-                const FileFingerprint originalFingerprint{
-                    true, static_cast<std::uint64_t>(original.try_value()->size()),
-                    file_content_digest(*original.try_value())};
+                const FileFingerprint originalFingerprint{true,
+                                                          static_cast<std::uint64_t>(original.try_value()->size()),
+                                                          file_content_digest(*original.try_value())};
                 if (originalFingerprint != *a_expected)
                 {
                     return SceneSaveOutcome::not_published(storage_error(
@@ -1416,18 +1418,13 @@ SceneSaveOutcome save_scene_document_internal(
             }
             std::string backupText(a_path.text());
             backupText.append(".backup");
-            auto backupPath = RelativePath::parse(backupText, a_assertContext);
-            if (!backupPath)
+            auto parsedBackupPath = RelativePath::parse(backupText, a_assertContext);
+            if (!parsedBackupPath)
             {
-                return SceneSaveOutcome::not_published(std::move(*backupPath.try_error()));
+                return SceneSaveOutcome::not_published(std::move(*parsedBackupPath.try_error()));
             }
-            auto backupWritten = a_filesystem.write_file_atomic(*backupPath.try_value(), *original.try_value());
-            if (!backupWritten)
-            {
-                return SceneSaveOutcome::not_published(storage_error(a_assertContext, SceneError::StorageNotPublished,
-                                                                     "Failed to write scene recovery backup",
-                                                                     std::move(*backupWritten.try_error())));
-            }
+            backupBytes.emplace(std::move(*original.try_value()));
+            recoveryBackupPath.emplace(std::move(*parsedBackupPath.try_value()));
         }
         else if (*entry.try_value() != EntryType::Missing)
         {
@@ -1453,6 +1450,25 @@ SceneSaveOutcome save_scene_document_internal(
                                        std::move(*written.try_error()));
             return durabilityUnknown ? SceneSaveOutcome::durability_unknown(std::move(error))
                                      : SceneSaveOutcome::not_published(std::move(error));
+        }
+
+        if (backupBytes.has_value())
+        {
+            auto backupWritten = a_filesystem.write_file_atomic(*recoveryBackupPath, *backupBytes);
+            if (!backupWritten)
+            {
+                const bool durabilityUnknown = backupWritten.try_error()->root_code().domain() == "Cue.IO" &&
+                                               backupWritten.try_error()->root_code().value() ==
+                                                   static_cast<std::int64_t>(IoError::DurabilityUnknown);
+                auto error = storage_error(
+                    a_assertContext,
+                    durabilityUnknown ? SceneError::StorageDurabilityUnknown : SceneError::PublishedVerificationFailed,
+                    durabilityUnknown ? "Scene is visible but recovery backup durability is unknown"
+                                      : "Scene is visible but recovery backup publication failed",
+                    std::move(*backupWritten.try_error()));
+                return durabilityUnknown ? SceneSaveOutcome::durability_unknown(std::move(error))
+                                         : SceneSaveOutcome::verification_failed(std::move(error));
+            }
         }
 
         auto verified = load_scene_document(a_filesystem, a_path, a_schemaRegistry, a_valueSchemaRegistry,
