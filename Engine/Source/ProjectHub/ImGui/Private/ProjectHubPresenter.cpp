@@ -200,6 +200,7 @@ void ProjectHubPresenter::draw_project_list() noexcept
                 ImGui::PopID();
             }
         }
+        const bool projectListHasKeyboardFocus = ImGui::IsWindowFocused();
         ImGui::EndChild();
 
         const ProjectRowView *selected = nullptr;
@@ -212,8 +213,10 @@ void ProjectHubPresenter::draw_project_list() noexcept
             }
         }
         ImGui::BeginDisabled(selected == nullptr || !selected->canOpen);
-        if (ImGui::Button("Editorで開く") ||
-            (selected != nullptr && selected->canOpen && ImGui::IsKeyPressed(ImGuiKey_Enter)))
+        const bool canActivateWithEnter = selected != nullptr && selected->canOpen && projectListHasKeyboardFocus &&
+                                          !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId) &&
+                                          ImGui::IsKeyPressed(ImGuiKey_Enter);
+        if (ImGui::Button("Editorで開く") || canActivateWithEnter)
         {
             openProjectId = selected->projectId;
         }

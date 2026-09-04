@@ -2,6 +2,7 @@
 
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
+#include <Cue/Foundation/Fatal.h>
 #include <Cue/Platform/Window.h>
 #include <Cue/Platform/WindowSystem.h>
 #include <Cue/Platform/Windows/WindowsMessageSink.h>
@@ -96,11 +97,23 @@ void configure_japanese_font(const cue::AssertContext &a_context) noexcept
     return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(native));
 }
 
-/// @brief GPU完了もDevice Removalも証明できない状態をResource解放前にFatal終端する
-[[noreturn]] void terminate_unproven_completion(const cue::AssertContext &a_context) noexcept
+/// @brief 下位ErrorをTool Hostの回復不能なGPU完了不能Errorへ再分類する
+[[nodiscard]] cue::Error make_gpu_completion_unavailable_error(const cue::AssertContext &a_context,
+                                                               cue::Error &&a_cause) noexcept
 {
-    a_context.fatal_handler().terminate("Tool Host GPU completion could not be proven");
-    std::abort();
+    cue::ErrorCode code = cue::ErrorCode::create(
+        a_context.fatal_handler(), "Cue.ToolHost",
+        static_cast<std::int64_t>(cue::tool_host::ToolHostError::GpuCompletionUnavailable));
+    return cue::Error::reclassify(a_context.fatal_handler(), std::move(code),
+                                  "Tool Host GPU completion could not be proven", std::move(a_cause));
+}
+
+/// @brief 集約済みErrorをLog／FlushしてResource解放前にFatal終端する
+[[noreturn]] void terminate_unproven_completion(const cue::AssertContext &a_context, cue::Error &&a_cause) noexcept
+{
+    cue::Error unavailable = make_gpu_completion_unavailable_error(a_context, std::move(a_cause));
+    cue::report_fatal(a_context.logger(), a_context.fatal_handler(),
+                      "Tool Host GPU完了を証明できないためResource解放前に終了します", std::move(unavailable));
 }
 
 /// @brief Win32 HANDLEを一意所有してScope終了時に閉じる
@@ -277,8 +290,16 @@ class WindowsD3d12ToolHost final
     [[nodiscard]] cue::Result<void> wait_for_fence(std::uint64_t a_value) noexcept;
     /// @brief Device RemovalをNative Reason付きErrorへ変換する
     [[nodiscard]] cue::Error make_device_removed_error() noexcept;
+    /// @brief 先行ErrorをCauseとしてDevice Removalへ再分類する
+    [[nodiscard]] cue::Error make_device_removed_error(cue::Error &&a_cause) noexcept;
     /// @brief ErrorがTool Host Device Removalを表すか判定する
     [[nodiscard]] static bool is_device_removed_error(const cue::Error &a_error) noexcept;
+    /// @brief ErrorがGPU完了不能のFatal分類を表すか判定する
+    [[nodiscard]] static bool is_gpu_completion_unavailable_error(const cue::Error &a_error) noexcept;
+    /// @brief Device Removal時にDREDを一度だけBest-effort収集する
+    void collect_device_removed_diagnostics(cue::Error &a_primary) noexcept;
+    /// @brief DRED収集後に待機なしCleanupを行いDevice Removalを返す
+    [[nodiscard]] cue::Result<void> finish_device_removed(cue::Error &&a_removed) noexcept;
     /// @brief Wait失敗後に全提出WorkをDrainして安全に終了する
     [[nodiscard]] cue::Result<void> finish_after_wait_error(cue::Error &&a_primary) noexcept;
     /// @brief 最後のUI提出後へTerminal Signalを置いて正常終了可能にする
@@ -311,6 +332,7 @@ class WindowsD3d12ToolHost final
     bool m_isWin32BackendInitialized = false;
     bool m_isDx12BackendInitialized = false;
     bool m_isMinimized = false;
+    bool m_wasDredCollectionAttempted = false;
 };
 
 cue::Result<void> WindowsD3d12ToolHost::initialize(const cue::tool_host::ToolHostDescriptor &a_descriptor) noexcept
@@ -366,6 +388,13 @@ cue::Result<void> WindowsD3d12ToolHost::initialize_d3d12(HWND a_window, cue::Win
 {
     UINT factoryFlags = 0;
 #if CUE_ENABLE_ASSERTS
+    ComPtr<ID3D12DeviceRemovedExtendedDataSettings> dredSettings;
+    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dredSettings))))
+    {
+        dredSettings->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+        dredSettings->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+        dredSettings->SetWatsonDumpEnablement(D3D12_DRED_ENABLEMENT_FORCED_OFF);
+    }
     ComPtr<ID3D12Debug> debug;
     if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
     {
@@ -512,7 +541,13 @@ cue::Result<void> WindowsD3d12ToolHost::initialize_d3d12(HWND a_window, cue::Win
                                                             cue::tool_host::ToolHostError::D3d12InitializationFailed,
                                                             "Tool Host Fence creation failed", "HRESULT", result));
     }
-    return create_back_buffers();
+    cue::Result<void> buffers = create_back_buffers();
+    if (!buffers && FAILED(m_device->GetDeviceRemovedReason()))
+    {
+        cue::Error removed = make_device_removed_error(std::move(*buffers.try_error()));
+        return finish_device_removed(std::move(removed));
+    }
+    return buffers;
 }
 
 cue::Result<void> WindowsD3d12ToolHost::initialize_imgui(HWND a_window) noexcept
@@ -603,10 +638,93 @@ cue::Error WindowsD3d12ToolHost::make_device_removed_error() noexcept
                              "Tool Host D3D12 Device was removed", "HRESULT", reason);
 }
 
+cue::Error WindowsD3d12ToolHost::make_device_removed_error(cue::Error &&a_cause) noexcept
+{
+    const HRESULT reason = m_device != nullptr ? m_device->GetDeviceRemovedReason() : DXGI_ERROR_DEVICE_REMOVED;
+    cue::ErrorCode code = cue::ErrorCode::create(
+        m_assertContext->fatal_handler(), "Cue.ToolHost",
+        static_cast<std::int64_t>(cue::tool_host::ToolHostError::DeviceRemoved));
+    cue::NativeError native =
+        cue::NativeError::create(m_assertContext->fatal_handler(), "HRESULT", static_cast<std::int64_t>(reason));
+    return cue::Error::reclassify(m_assertContext->fatal_handler(), std::move(code),
+                                  "Tool Host D3D12 Device was removed", std::move(native), std::move(a_cause));
+}
+
 bool WindowsD3d12ToolHost::is_device_removed_error(const cue::Error &a_error) noexcept
 {
     return a_error.code().domain() == "Cue.ToolHost" &&
            a_error.code().value() == static_cast<std::int64_t>(cue::tool_host::ToolHostError::DeviceRemoved);
+}
+
+bool WindowsD3d12ToolHost::is_gpu_completion_unavailable_error(const cue::Error &a_error) noexcept
+{
+    return a_error.code().domain() == "Cue.ToolHost" &&
+           a_error.code().value() ==
+               static_cast<std::int64_t>(cue::tool_host::ToolHostError::GpuCompletionUnavailable);
+}
+
+void WindowsD3d12ToolHost::collect_device_removed_diagnostics(cue::Error &a_primary) noexcept
+{
+    if (m_wasDredCollectionAttempted || m_device == nullptr)
+    {
+        return;
+    }
+    m_wasDredCollectionAttempted = true;
+
+    ComPtr<ID3D12DeviceRemovedExtendedData1> dred;
+    HRESULT result = m_device.As(&dred);
+    if (FAILED(result))
+    {
+        cue::Error query = make_native_error(*m_assertContext,
+                                             cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                             "Tool Host DRED interface query failed", "HRESULT", result);
+        a_primary.append_secondary_diagnostics(*m_assertContext, query,
+                                               "Device Removal DRED interface query also failed", "DRED");
+        return;
+    }
+
+    D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 breadcrumbs{};
+    result = dred->GetAutoBreadcrumbsOutput1(&breadcrumbs);
+    if (FAILED(result))
+    {
+        cue::Error breadcrumb = make_native_error(*m_assertContext,
+                                                  cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                                  "Tool Host DRED breadcrumb query failed", "HRESULT", result);
+        a_primary.append_secondary_diagnostics(*m_assertContext, breadcrumb,
+                                               "Device Removal DRED breadcrumb query also failed", "DRED");
+    }
+    else if (breadcrumbs.pHeadAutoBreadcrumbNode != nullptr)
+    {
+        static_cast<void>(m_assertContext->logger().log(
+            cue::LogLevel::Error, "Tool Host D3D12 Device RemovalのAuto Breadcrumbを取得しました"));
+    }
+
+    D3D12_DRED_PAGE_FAULT_OUTPUT1 pageFault{};
+    result = dred->GetPageFaultAllocationOutput1(&pageFault);
+    if (FAILED(result))
+    {
+        cue::Error pageFaultError = make_native_error(*m_assertContext,
+                                                      cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                                      "Tool Host DRED page fault query failed", "HRESULT", result);
+        a_primary.append_secondary_diagnostics(*m_assertContext, pageFaultError,
+                                               "Device Removal DRED page fault query also failed", "DRED");
+    }
+    else
+    {
+        cue::Error address = make_native_error(*m_assertContext,
+                                               cue::tool_host::ToolHostError::DeviceRemoved,
+                                               "Tool Host DRED page fault address", "D3D12.GpuVirtualAddress",
+                                               static_cast<std::int64_t>(pageFault.PageFaultVA));
+        static_cast<void>(m_assertContext->logger().log(
+            cue::LogLevel::Error, "Tool Host D3D12 Device RemovalのPage Fault情報を取得しました", std::move(address)));
+    }
+}
+
+cue::Result<void> WindowsD3d12ToolHost::finish_device_removed(cue::Error &&a_removed) noexcept
+{
+    collect_device_removed_diagnostics(a_removed);
+    cleanup();
+    return cue::Result<void>::failure(std::move(a_removed));
 }
 
 cue::Result<void> WindowsD3d12ToolHost::wait_for_fence(std::uint64_t a_value) noexcept
@@ -652,6 +770,21 @@ cue::Result<void> WindowsD3d12ToolHost::wait_for_fence(std::uint64_t a_value) no
     completed = m_fence->GetCompletedValue();
     if (completed == std::numeric_limits<std::uint64_t>::max() || FAILED(m_device->GetDeviceRemovedReason()))
     {
+        if (FAILED(registrationCode))
+        {
+            cue::Error registration = make_native_error(
+                *m_assertContext, cue::tool_host::ToolHostError::FenceWaitFailed,
+                "Tool Host Fence completion event registration failed before Device Removal", "HRESULT",
+                registrationCode);
+            return cue::Result<void>::failure(make_device_removed_error(std::move(registration)));
+        }
+        if (waitCode != ERROR_SUCCESS)
+        {
+            cue::Error wait = make_native_error(*m_assertContext, cue::tool_host::ToolHostError::FenceWaitFailed,
+                                                "Tool Host Fence wait failed before Device Removal", "Win32",
+                                                waitCode);
+            return cue::Result<void>::failure(make_device_removed_error(std::move(wait)));
+        }
         return cue::Result<void>::failure(make_device_removed_error());
     }
     if (completed >= a_value)
@@ -670,22 +803,47 @@ cue::Result<void> WindowsD3d12ToolHost::wait_for_fence(std::uint64_t a_value) no
             make_native_error(*m_assertContext, cue::tool_host::ToolHostError::FenceWaitFailed,
                               "Tool Host Fence wait failed after completion", "Win32", waitCode));
     }
-    terminate_unproven_completion(*m_assertContext);
+
+    cue::Error waitError =
+        FAILED(registrationCode)
+            ? make_native_error(*m_assertContext, cue::tool_host::ToolHostError::FenceWaitFailed,
+                                "Tool Host Fence completion event registration failed", "HRESULT", registrationCode)
+            : waitCode != ERROR_SUCCESS
+                  ? make_native_error(*m_assertContext, cue::tool_host::ToolHostError::FenceWaitFailed,
+                                      "Tool Host Fence wait did not prove completion", "Win32", waitCode)
+                  : make_error(*m_assertContext, cue::tool_host::ToolHostError::FenceWaitFailed,
+                               "Tool Host Fence completed event did not prove completion");
+    return cue::Result<void>::failure(
+        make_gpu_completion_unavailable_error(*m_assertContext, std::move(waitError)));
 }
 
 cue::Result<void> WindowsD3d12ToolHost::finish_after_wait_error(cue::Error &&a_primary) noexcept
 {
+    if (is_device_removed_error(a_primary))
+    {
+        return finish_device_removed(std::move(a_primary));
+    }
+    if (is_gpu_completion_unavailable_error(a_primary))
+    {
+        terminate_unproven_completion(*m_assertContext, std::move(a_primary));
+    }
+
     cue::Result<void> drained = wait_for_fence(m_lastSignaledFence);
     if (!drained)
     {
-        if (is_device_removed_error(*drained.try_error()))
-        {
-            cue::Error removed = std::move(*drained.try_error());
-            cleanup();
-            return cue::Result<void>::failure(std::move(removed));
-        }
+        const bool wasDeviceRemoved = is_device_removed_error(*drained.try_error());
+        const bool wasCompletionUnavailable = is_gpu_completion_unavailable_error(*drained.try_error());
         a_primary.append_secondary_diagnostics(*m_assertContext, *drained.try_error(),
                                                "Tool Host final drain wait failed", "Drain");
+        if (wasDeviceRemoved)
+        {
+            cue::Error removed = make_device_removed_error(std::move(a_primary));
+            return finish_device_removed(std::move(removed));
+        }
+        if (wasCompletionUnavailable)
+        {
+            terminate_unproven_completion(*m_assertContext, std::move(a_primary));
+        }
     }
     cleanup();
     return cue::Result<void>::failure(std::move(a_primary));
@@ -722,9 +880,10 @@ cue::Result<void> WindowsD3d12ToolHost::render_frame(cue::tool_host::ToolHostCli
     }
     if (FAILED(result))
     {
-        return cue::Result<void>::failure(
-            make_native_error(*m_assertContext, cue::tool_host::ToolHostError::D3d12InitializationFailed,
-                              "Tool Host command recording reset failed", "HRESULT", result));
+        cue::Error reset = make_native_error(*m_assertContext,
+                                             cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                             "Tool Host command recording reset failed", "HRESULT", result);
+        return finish_after_wait_error(std::move(reset));
     }
 
     ImGui_ImplDX12_NewFrame();
@@ -758,9 +917,10 @@ cue::Result<void> WindowsD3d12ToolHost::render_frame(cue::tool_host::ToolHostCli
     result = m_commandList->Close();
     if (FAILED(result))
     {
-        return cue::Result<void>::failure(make_native_error(*m_assertContext,
-                                                            cue::tool_host::ToolHostError::D3d12InitializationFailed,
-                                                            "Tool Host command list close failed", "HRESULT", result));
+        cue::Error close = make_native_error(*m_assertContext,
+                                             cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                             "Tool Host command list close failed", "HRESULT", result);
+        return finish_after_wait_error(std::move(close));
     }
 
     ID3D12CommandList *lists[] = {m_commandList.Get()};
@@ -768,14 +928,13 @@ cue::Result<void> WindowsD3d12ToolHost::render_frame(cue::tool_host::ToolHostCli
     result = m_swapChain->Present(1, 0);
     if (FAILED(result))
     {
-        if (FAILED(m_device->GetDeviceRemovedReason()))
-        {
-            cue::Error removed = make_device_removed_error();
-            cleanup();
-            return cue::Result<void>::failure(std::move(removed));
-        }
         cue::Error present = make_native_error(*m_assertContext, cue::tool_host::ToolHostError::PresentFailed,
                                                "Tool Host Present failed", "HRESULT", result);
+        if (FAILED(m_device->GetDeviceRemovedReason()))
+        {
+            cue::Error removed = make_device_removed_error(std::move(present));
+            return finish_device_removed(std::move(removed));
+        }
         const HRESULT signaled = m_queue->Signal(m_fence.Get(), fenceValue);
         if (SUCCEEDED(signaled))
         {
@@ -784,28 +943,46 @@ cue::Result<void> WindowsD3d12ToolHost::render_frame(cue::tool_host::ToolHostCli
             cue::Result<void> drained = wait_for_fence(fenceValue);
             if (!drained)
             {
-                if (is_device_removed_error(*drained.try_error()))
+                const bool wasDeviceRemoved = is_device_removed_error(*drained.try_error());
+                const bool wasCompletionUnavailable =
+                    is_gpu_completion_unavailable_error(*drained.try_error());
+                present.append_secondary_diagnostics(*m_assertContext, *drained.try_error(),
+                                                     "Present compensation drain also failed", "Drain");
+                if (wasDeviceRemoved)
                 {
-                    cue::Error removed = std::move(*drained.try_error());
-                    cleanup();
-                    return cue::Result<void>::failure(std::move(removed));
+                    cue::Error removed = make_device_removed_error(std::move(present));
+                    return finish_device_removed(std::move(removed));
+                }
+                if (wasCompletionUnavailable)
+                {
+                    terminate_unproven_completion(*m_assertContext, std::move(present));
                 }
                 return finish_after_wait_error(std::move(present));
             }
             cleanup();
             return cue::Result<void>::failure(std::move(present));
         }
+        cue::Error signal = make_native_error(*m_assertContext, cue::tool_host::ToolHostError::FenceSignalFailed,
+                                              "Tool Host Present compensation Signal failed", "HRESULT", signaled);
+        present.append_secondary_diagnostics(*m_assertContext, signal,
+                                             "Present compensation Signal also failed", "Signal");
         cue::Result<void> uncertain = wait_for_fence(fenceValue);
         if (!uncertain)
         {
-            if (is_device_removed_error(*uncertain.try_error()))
-            {
-                cue::Error removed = std::move(*uncertain.try_error());
-                cleanup();
-                return cue::Result<void>::failure(std::move(removed));
-            }
+            const bool wasDeviceRemoved = is_device_removed_error(*uncertain.try_error());
+            const bool wasCompletionUnavailable =
+                is_gpu_completion_unavailable_error(*uncertain.try_error());
             present.append_secondary_diagnostics(*m_assertContext, *uncertain.try_error(),
-                                                 "Present compensation Signal failed", "Signal");
+                                                 "Present compensation completion check also failed", "Wait");
+            if (wasDeviceRemoved)
+            {
+                cue::Error removed = make_device_removed_error(std::move(present));
+                return finish_device_removed(std::move(removed));
+            }
+            if (wasCompletionUnavailable)
+            {
+                terminate_unproven_completion(*m_assertContext, std::move(present));
+            }
         }
         cleanup();
         return cue::Result<void>::failure(std::move(present));
@@ -819,14 +996,19 @@ cue::Result<void> WindowsD3d12ToolHost::render_frame(cue::tool_host::ToolHostCli
         cue::Result<void> proven = wait_for_fence(fenceValue);
         if (!proven)
         {
-            if (is_device_removed_error(*proven.try_error()))
-            {
-                cue::Error removed = std::move(*proven.try_error());
-                cleanup();
-                return cue::Result<void>::failure(std::move(removed));
-            }
+            const bool wasDeviceRemoved = is_device_removed_error(*proven.try_error());
+            const bool wasCompletionUnavailable = is_gpu_completion_unavailable_error(*proven.try_error());
             signal.append_secondary_diagnostics(*m_assertContext, *proven.try_error(),
                                                 "Failed frame Signal completion check failed", "Wait");
+            if (wasDeviceRemoved)
+            {
+                cue::Error removed = make_device_removed_error(std::move(signal));
+                return finish_device_removed(std::move(removed));
+            }
+            if (wasCompletionUnavailable)
+            {
+                terminate_unproven_completion(*m_assertContext, std::move(signal));
+            }
         }
         cleanup();
         return cue::Result<void>::failure(std::move(signal));
@@ -848,17 +1030,25 @@ cue::Result<void> WindowsD3d12ToolHost::resize(cue::WindowSize a_size) noexcept
     const HRESULT result = m_swapChain->ResizeBuffers(k_frameCount, a_size.width, a_size.height, k_backBufferFormat, 0);
     if (FAILED(result))
     {
-        cue::Error error =
-            FAILED(m_device->GetDeviceRemovedReason())
-                ? make_device_removed_error()
-                : make_native_error(*m_assertContext, cue::tool_host::ToolHostError::SwapChainResizeFailed,
-                                    "Tool Host Swap Chain resize failed", "HRESULT", result);
+        cue::Error resizeError = make_native_error(*m_assertContext,
+                                                   cue::tool_host::ToolHostError::SwapChainResizeFailed,
+                                                   "Tool Host Swap Chain resize failed", "HRESULT", result);
+        if (FAILED(m_device->GetDeviceRemovedReason()))
+        {
+            cue::Error removed = make_device_removed_error(std::move(resizeError));
+            return finish_device_removed(std::move(removed));
+        }
         cleanup();
-        return cue::Result<void>::failure(std::move(error));
+        return cue::Result<void>::failure(std::move(resizeError));
     }
     cue::Result<void> buffers = create_back_buffers();
     if (!buffers)
     {
+        if (FAILED(m_device->GetDeviceRemovedReason()))
+        {
+            cue::Error removed = make_device_removed_error(std::move(*buffers.try_error()));
+            return finish_device_removed(std::move(removed));
+        }
         cleanup();
         return buffers;
     }
