@@ -164,6 +164,12 @@ HostのFrame Callback内でAdapterを駆動する。共通Host TargetはProject 
 `Cue.Editor.Tool`は`Cue.IO.Windows`を介して、起動要求から再検証したProject Descriptorが示すSource Assets RootとSaved Rootを
 Windows Filesystem Rootとして生成する。両Rootと`ScenePersistenceServices`は`EditorController`および
 `ProjectWorkspaceSession`より長く一意所有し、Presentation AdapterへFilesystemまたはNative Handleを公開しない。
+Project Rootは既存DirectoryとしてBindingし、Source Assets Rootは既存の通常Directoryだけを許可する。Source Assetsが欠損、
+File、Reparse Pointの場合はSessionを公開せず、それぞれ`NotFound`、`TypeMismatch`、`UnsupportedEntry`で起動を失敗させる。
+Saved Rootが欠損している場合だけ、Binding済みProject Rootの`create_directories()`でDescriptorのProject相対Rootを作成してから
+Saved RootをBindingする。File／Reparse Point衝突は`TypeMismatch`／`UnsupportedEntry`とし、既存Entryを置換しない。
+途中で失敗した場合は生成済みFilesystem Objectと部分Sessionだけを破棄する。作成済みSaved Directoryは、競合Processの利用や
+作成後の内容を安全に判別できないため削除せず、空Directoryを残すことを許容する。再試行は同じDirectoryを冪等に再利用する。
 
 `Cue.ProjectHub.Windows`は`ProjectHubPlatform`の本番Windows Adapter Factoryを提供し、Locator正規化、Project Locator合成、
 Windows Filesystem Root生成、UUID発行を実装する。`Cue.ProjectHub.Tool`はこのAdapterと`Cue.IO.Windows`からWorkspace

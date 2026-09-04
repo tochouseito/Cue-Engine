@@ -121,6 +121,13 @@ Presentation Adapter、Platform Adapter、Filesystem Rootを組み合わせて�
 `ScenePersistenceServices`へ注入する。これらのRootは`EditorController`と`ProjectWorkspaceSession`より長く一意所有する。
 Process境界からFilesystem ObjectやNative Handleを受け取らず、Presentation Adapterへも公開しない。
 
+Editor起動時は、既存Project RootをBindingしてDescriptorを再検証した後、Source Assets RootをOpen-existing、Saved Rootを
+Create-or-openとして扱う。Source Assetsの欠損は`NotFound`、通常File衝突は`TypeMismatch`、Reparse Pointは
+`UnsupportedEntry`で起動失敗とする。Savedが欠損している場合だけ、Binding済みProject Rootの`create_directories()`で
+Project相対Rootを作成し、File／Reparse Point衝突は同じ分類で失敗する。Root BindingまたはSession生成が途中で失敗した場合、
+部分Objectは逆順に破棄するが、作成済みSaved Directoryは削除しない。競合Processの利用や作成後の内容を判別せず削除する方が
+Data Loss Riskになるためであり、空Directoryの残留を許容して再試行時に冪等に再利用する。
+
 ### EditorDocument Ownership
 
 `EditorDocument`は、一つの開いているSceneに対するEditor Session状態を一意に所有する。
