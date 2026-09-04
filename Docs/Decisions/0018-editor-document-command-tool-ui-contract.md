@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-09-04
 - Decision Owners: CueEngine Project
+- Amendment: ADR-0019 replaces the Project Hub / ImGui / Platform host dependency edges below
 
 ## Context
 
@@ -87,14 +88,21 @@ Project、Schema、Scene、Runtime World境界へ接続する。
 依存方向は次のとおりとする。
 
 ```text
-Cue.ProjectHub.ImGui ----> Cue.EditorCore ----> Cue.Project
-          |                       |-----------> Cue.Scene ----> Cue.GameCore
-          |                       |-----------> Cue.IO
-          |                       `-----------> Cue.Foundation
-          `--------------> Cue.Platform
+Cue.ProjectHub.ImGui ----> Cue.ProjectHub ----> Cue.Project / Cue.IO / Cue.Foundation
+          `--------------> Cue.ImGui.Core
 
 Cue.Editor.ImGui --------> Cue.EditorCore
-          `--------------> Cue.Platform
+          `--------------> Cue.ImGui.Core
+
+Cue.ToolHost.WindowsD3D12 -> Cue.Platform.Windows
+          `----------------> Cue.ImGui.Backend.Win32D3D12
+
+Cue.ProjectHub.Windows --> Cue.ProjectHub / Cue.IO.Windows / Cue.Foundation.Windows
+
+Cue.ProjectHub.Tool -----> Cue.ToolHost.WindowsD3D12 / Cue.ProjectHub.ImGui
+          `--------------> Cue.ProjectHub.Windows / Cue.IO.Windows
+
+Cue.Editor.Tool ---------> Cue.ToolHost.WindowsD3D12 / Cue.Editor.ImGui / Cue.EditorCore / Cue.IO.Windows
 
 Cue.RuntimeHost ---------> Cue.GameCore / Cue.Scene
 ```
@@ -104,6 +112,23 @@ Cue.RuntimeHost ---------> Cue.GameCore / Cue.Scene
 
 M12のImGui HostはEditor用Descriptor、Game Renderer、Viewport Render Targetを要求しない。WindowとImGui Backendに必要な
 Platform接続はPresentation Hostが所有し、`Cue.EditorCore`の公開APIへNative Handleを出さない。
+`Cue.ProjectHub.ImGui`と`Cue.Editor.ImGui`は`Cue.Platform`へ直接依存せず、Platform接続とD3D12 compositionは
+ADR-0019で決定した`Cue.ToolHost.WindowsD3D12`が提供する。各最終Executable RootがHost、Application Service、
+Presentation Adapter、Platform Adapter、Filesystem Rootを組み合わせて所有する。本修正はPresentation／Hostの依存辺だけを更新し、
+本ADRのEditorDocument、Command、Transaction、Save、Process契約を変更しない。
+
+`Cue.Editor.Tool`は起動後に再検証したProject DescriptorからSource Assets RootとSaved Rootを`Cue.IO.Windows`で生成し、
+`ScenePersistenceServices`へ注入する。これらのRootは`EditorController`と`ProjectWorkspaceSession`より長く一意所有する。
+Process境界からFilesystem ObjectやNative Handleを受け取らず、Presentation Adapterへも公開しない。
+
+Editor起動時は、既存Project RootをBindingしてDescriptorを再検証した後、Source Assets RootをOpen-existing、Saved Rootを
+Create-or-openとして扱う。Source Assetsの欠損は`NotFound`、通常File衝突は`TypeMismatch`、Reparse Pointは
+`UnsupportedEntry`で起動失敗とする。Savedが欠損している場合だけ、Binding済みProject Rootの`create_directories()`で
+Project相対Rootを作成し、File／Reparse Point衝突は同じ分類で失敗する。Root BindingまたはSession生成が途中で失敗した場合、
+部分Objectは逆順に破棄するが、作成済みSaved Directoryは削除しない。競合Processの利用や作成後の内容を判別せず削除する方が
+Data Loss Riskになるためであり、空Directoryの残留を許容して再試行時に冪等に再利用する。#162ではADR-0014に従い、
+Native Createが`AlreadyExists`相当になった競合経路もEntryを再検査し、Directoryは成功、Fileは`TypeMismatch`、
+Reparse Pointは`UnsupportedEntry`へ分類するようWindows `create_directories()`を適合させてからSaved Rootへ使用する。
 
 ### EditorDocument Ownership
 

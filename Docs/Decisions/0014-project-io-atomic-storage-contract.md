@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-09-01
 - Decision Owners: CueEngine Project
+- Amendment: ADR-0019 adds a Windows Known Folder create-or-open root boundary for the Project Hub workspace
 
 ## Context
 
@@ -58,6 +59,37 @@ Platform非依存Interfaceとして渡す。`Cue.IO`は`Cue.Platform`、`Cue.RHI
 
 公開APIへ`HANDLE`、`HRESULT`、Windows Known Folder ID、`std::filesystem::path`を出さない。Path文字列はUTF-8で所有し、
 Windows実装だけがStrict UTF-8／UTF-16変換を行う。新規Third-party Libraryまたは外部Source Codeを導入しない。
+
+Project Hubの初回起動に必要なUser Workspace Rootは、`Cue.IO.Windows`の次のWindows固有境界から生成する。
+
+```cpp
+enum class WindowsKnownFolder
+{
+    LocalApplicationData,
+};
+
+enum class WindowsRootOpenMode
+{
+    OpenExisting,
+    CreateOrOpen,
+};
+
+[[nodiscard]] Result<std::unique_ptr<FilesystemRoot>> create_windows_known_folder_filesystem_root(
+    WindowsKnownFolder a_folder,
+    const RelativePath& a_relativeRoot,
+    WindowsRootOpenMode a_mode,
+    const AssertContext& a_assertContext) noexcept;
+```
+
+- `LocalApplicationData`は`FOLDERID_LocalAppData`から解決し、Environment VariableやCurrent Directoryへ依存しない
+- Project Hubは検証済み`RelativePath`の`CueEngine/Workspace`と`CreateOrOpen`を指定する
+- `CreateOrOpen`はKnown Folder自体を作成せず、Relative Rootの各Segmentだけを順に作成または検証する
+- 既存Entryが通常Directoryなら再利用し、Fileなら`IoError::TypeMismatch`、Reparse Pointなら
+  `IoError::UnsupportedEntry`を返して先へ進まない
+- Known Folder解決、Directory作成、Open失敗はNative Errorを保持したRecoverable Errorとして返す
+- 作成後は既存のRoot Identity、Directory、Reparse Point検査を通してから`FilesystemRoot`を公開する
+- APIはRoot DirectoryだけをCreate-or-openし、`CueWorkspace.json`の作成とAtomic保存は`Cue.ProjectHub`が行う
+- `OpenExisting`と既存`create_windows_filesystem_root()`の契約は変更しない
 
 ### Root-bound Filesystem
 
@@ -115,6 +147,12 @@ M09の公開契約は次の最小操作に限定する。
 
 Directory作成はRoot配下だけで行い、途中で既存Regular FileまたはUnsupported Entryへ遭遇した場合は失敗する。既存Directoryは
 再利用できるが、Blank Projectの最終Destinationは既存なら空・非空に関係なく拒否する。
+不足DirectoryのNative Createが`AlreadyExists`相当になった場合はEntryを再検査し、Directoryなら競合成功として再利用する。
+Regular Fileなら`TypeMismatch`、Reparse Point等のUnsupported Entryなら`UnsupportedEntry`を返す。
+`AlreadyExists`はCreate-newまたはPublish先衝突の分類であり、Create-or-open Directoryの型衝突へ丸めない。
+再検査が`Missing`へ戻った場合は同じSegmentのNative Createを再試行するが、初回を含めて最大3回に制限する。
+3回目の再検査も`Missing`なら`IoError::IoFailure`と競合診断を返し、無制限なBusy Loopにしない。
+再検査自体がErrorならそのErrorを保持し、別分類へ丸めない。
 
 ### Atomic File Replace
 
@@ -285,6 +323,7 @@ M09の必要範囲に対して新規Dependency、License管理、ABI面積が増
 
 - Project Relative Pathの正常・脱出・予約名・Case Alias・長さ境界Table Test
 - Root自身と各子ComponentのReparse Point拒否Test
+- Directory Create競合後のDirectory再利用、File／Reparse Point分類、Missing再試行上限Test
 - Atomic Replaceの旧Content保持、新Content公開、Temp cleanup Test
 - Publish後Flush失敗の`PublishedButDurabilityUnknown` Test
 - Staging作成の各Failure Pointに対する半完成最終Directory不存在Test
@@ -299,3 +338,4 @@ M09の必要範囲に対して新規Dependency、License管理、ABI面積が増
 - Issue #137: Project Descriptorの読取り／保存を本契約へ接続する
 - Issue #138: Blank ProjectをStaging DirectoryからAtomic Publishする
 - Issue #139: User Workspace RegistryをAtomic File Replaceで保存する
+- Issue #162: Windows `create_directories()`の競合後再検査を実Entry種別へ分類し、Editor Saved RootのCreate-or-openへ使用する

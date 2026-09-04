@@ -32,11 +32,17 @@ CueEngineは、旧CueEngineで得た実装経験を材料にしながら、ゲ�
 
 ## 1.2 License and External Code
 
-- 新しい第三者Library、OSS Package、外部Sample Codeを依存関係またはSourceとして導入しない。
+- 第三者Libraryの新規導入またはVersion更新の前に、対象、用途、License、Version、取得元、Build／配布への影響を示し、Userの明示承認を得る。
+- 承認済み第三者Libraryはvcpkg Manifest Modeで導入し、`ThirdParty`配下にManifest、Install Tree、License、Noticeを集約する。
+- 第三者Source、Header、Binaryを`Engine`配下へ配置せず、Engine所有のFirst-party Sourceと物理的に分離する。
+- 第三者LibraryをRepositoryへ直接Copy、Git Submodule、`FetchContent`、手動Download済みBinaryとして導入しない。
+- Upstream Licenseと配布条件を順守し、`ThirdParty/THIRD_PARTY_NOTICES.md`と`ThirdParty/Licenses`で採用Version、Copyright、Licenseを追跡する。
+- 第三者Codeを直接変更、改名、部分抽出せず、必要な接続はFirst-party Adapterとして第三者Codeの外側に実装する。
 - 外部Project、旧CueEngine、記事、SampleからSource Codeをコピー、移植、部分抽出しない。
 - 外部資料は問題、制約、API仕様、設計比較の確認だけに使用し、実装はCueEngineの現在要件からFirst-party Codeとして作成する。
 - C++標準Library、Compiler、CMake、Windows SDK等のToolchain API利用は許可するが、それらのSource CodeをRepositoryへ取り込まない。
-- 例外を設けず、必要な機能はFirst-party実装またはResearch Issueとして扱う。
+- 新規導入とVersion更新はIssue単位で行い、License、Provenance、Version Pin、3構成Build、配布物をReviewする。
+- Dear ImGuiは、公式Core、Win32 Backend、DirectX 12 Backendに限り、M12でのvcpkg導入をUserが承認済みとする。
 
 ## 2. Authoritative Branch
 
