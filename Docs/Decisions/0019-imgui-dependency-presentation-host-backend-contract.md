@@ -1,9 +1,9 @@
 # ADR-0019: Dear ImGui Dependency, Presentation Host, and Backend Contract
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-04
 - Decision Owners: CueEngine Project
-- Approval Required: User authorization for the limited third-party dependency exception
+- Approval: User authorized Dear ImGui through vcpkg on 2026-09-04
 
 ## Context
 
@@ -12,12 +12,11 @@ Error 表示、手動 Workflow を検証することを要求する。ADR-0018 �
 Dear ImGui の取得方法、License、Version 固定、Platform／Renderer Backend、Tool Host の所有権は決定していない。
 
 現在の Repository には Dear ImGui Source、Package Manager Manifest、Submodule、`FetchContent` 定義がない。
-一方、現在の Project Policy は第三者 Library、OSS Package、外部 Sample Codeを例外なく依存関係または Source として
-導入しない。実動 ImGui UI は Dear ImGui の Code なしに成立しないため、現行 Policy の維持と #162 の Acceptance Gate は
-同時に満たせない。
+Userは第三者CodeをEngine所有Sourceへ混在させず、Licenseを順守して`ThirdParty`配下へ分離し、外部Libraryを
+vcpkgで導入する方針を指定した。新規外部Libraryは導入前に毎回Userの明示承認を必要とし、Dear ImGuiはM12での導入が
+明示承認された。
 
-本 ADR は外部 Code を取り込まずに比較を行い、限定例外を認める場合の境界を決定する。限定例外の採否は User の
-明示承認を必要とし、承認前は Proposed とする。
+本 ADR は承認済みDear ImGuiの取得、License、Version固定、Presentation Host、Backend、所有権境界を決定する。
 
 ## Verified Facts
 
@@ -28,6 +27,9 @@ Dear ImGui の取得方法、License、Version 固定、Platform／Renderer Back
 - Renderer Backend はFont TextureとDraw DataのRenderer接続を担当する
 - 公式 Documentation は Custom Backend より公式 Backend の利用を初期選択として推奨する
 - Dear ImGui 自体は CueEngine 用の正式 CMake Target を提供しないため、CueEngine 側に限定された Adapter Target が必要となる
+- vcpkgはManifest Modeを多くのUserに推奨し、Manifestごとに分離されたInstall Treeを使用する
+- vcpkgの`builtin-baseline`はRegistry Commitを固定し、Dependency Versionの再現性を提供する
+- 確認時点のvcpkg builtin portはDear ImGui `1.92.6`と`win32-binding`／`dx12-binding` Featureを提供する
 
 確認元:
 
@@ -35,10 +37,13 @@ Dear ImGui の取得方法、License、Version 固定、Platform／Renderer Back
 - <https://github.com/ocornut/imgui/blob/master/docs/BACKENDS.md>
 - <https://github.com/ocornut/imgui/wiki/Getting-Started>
 - <https://github.com/ocornut/imgui/releases>
+- <https://learn.microsoft.com/vcpkg/concepts/manifest-mode>
+- <https://learn.microsoft.com/vcpkg/users/examples/versioning.getting-started>
+- <https://github.com/microsoft/vcpkg/tree/master/ports/imgui>
 
 ## Decision Drivers
 
-- User が指定した外部 Code 非取込方針を無断で緩和しない
+- User承認のない外部Libraryを導入しない
 - Clean Checkout から同じ Source Revision を取得できる
 - Configure 時の暗黙 Network Access を避ける
 - External Source を First-party Source と混在させない
@@ -55,13 +60,13 @@ Dear ImGui の取得方法、License、Version 固定、Platform／Renderer Back
 Accessibility、Renderer Backend を M12 内で新規設計する必要がある。Project Hub と基本 Editor 操作を早期に完成させる目的に
 対して Scope が大きすぎるため推奨しない。
 
-### Option B: Dear ImGui だけに限定した明示例外を設け、公式 Repository を Pin した Git Submodule として取得する
+### Option B: 公式RepositoryをPinしたGit Submoduleとして取得する
 
 External Source の正本、Commit Identity、License を分離でき、CueEngine Source へ Code をコピー、改名、部分抽出せずに利用できる。
 Configure は既に取得済みの Pin 済み Sourceだけを使用し、Network AccessやBranch追従を行わない。初回取得には明示的な
 Submodule 初期化が必要となる。
 
-限定例外を User が承認する場合の推奨案とする。
+Versionは固定できるが、Userが指定したvcpkg限定方針に反するため採用しない。
 
 ### Option C: CMake FetchContent でDear ImGuiを取得する
 
@@ -70,38 +75,35 @@ Supply Chain Review が弱くなるため採用しない。
 
 ### Option D: vcpkg Manifest で Dear ImGui を取得する
 
-Version と Baseline を記録できるが、Dear ImGui に加えて Package Manager、Registry、Port Definition を新たな Build 入力にする。
-現時点の Repository は vcpkg を正式 Toolchain として採用しておらず、M12 UI のために全 Project の Package Policy を固定するため
-採用しない。将来複数の承認済み第三者依存が必要になった場合は別 Research Issue で再評価する。
+ManifestとRegistry BaselineでDependency Graphを宣言し、Project専用Install Treeへ分離できる。Package Manager、Registry、
+Port DefinitionもBuild Inputになるため、それらをVersion PinとReview対象へ含める。Userがvcpkgでの外部Library導入を指定したため
+採用する。
 
 ### Option E: Dear ImGui SourceをRepositoryへCopyまたはVendorする
 
-User Policy の外部 Code 非取込と直接衝突し、更新時の差分と Provenance も曖昧になるため採用しない。
+Engine Sourceとの分離は可能だが、vcpkgを唯一の導入経路とするPolicyに反し、更新時の差分とProvenanceも曖昧になるため採用しない。
 
 ### Option F: Machineへ事前InstallされたBinaryを検索する
 
 ABI、Compiler、Configuration、Version、License、Clean Checkout 再現性を保証できないため採用しない。
 
-## Proposed Decision
+## Decision
 
-User が限定例外を明示承認した場合だけ、Option Bを採用して本ADRをAcceptedへ変更する。
+Option Dを採用し、Dear ImGuiをvcpkg Manifest Modeで導入する。
 
-例外は次の範囲だけに限定する。
-
-- Upstream は `https://github.com/ocornut/imgui.git` だけとする
-- Release Tag と Commit SHA の両方を ADR と Dependency Manifestへ記録する
-- 初期採用候補は Research時点の最新Stable Release `v1.92.9` とするが、導入直前にTagとCommitを再確認する
-- Git Submodule は `External/DearImGui` に配置し、External Source と First-party Sourceを分離する
-- Dear ImGui Core、公式 Win32 Backend、公式 DirectX 12 Backend だけを対象とする
-- `examples/`、Demo Application、第三者Extension、Docking Branch、Multi-ViewportはBuildしない
-- External Source は変更、Copy、Patch、Rename、部分抽出しない
-- Upstream `LICENSE.txt` を配布物とRepositoryのThird-party Noticeへ含める
-- Submodule未取得、Revision不一致、License不足はConfigure時に明示的に失敗させる
-- Configure中にNetwork取得、Branch追従、自動Updateを行わない
-- Updateは専用Research／Maintenance IssueでTag、Commit、License、API差分、3構成Buildを再検証する
-
-限定例外を承認しない場合は、#162 と #163 の ImGui 要件を変更し、First-party UI Toolkitを別Milestoneへ分割する。
-M12 内でImGuiを模倣するMock UIを実動UIとして完了扱いにしない。
+- Dependency Control PlaneはRepository Rootの`ThirdParty`配下に置く
+- `ThirdParty/vcpkg.json`へDear ImGui Core、`win32-binding`、`dx12-binding`だけを宣言する
+- `ThirdParty/vcpkg-configuration.json`で公式vcpkg Registryと40文字のBaseline Commitを固定する
+- 初期導入は確認済みbuiltin portのDear ImGui `1.92.6`を使用し、導入時のBaselineでVersionを固定する
+- `ThirdParty/vcpkg_installed`をProject専用Install Rootとし、生成物としてGit管理対象外にする
+- `ThirdParty/THIRD_PARTY_NOTICES.md`と`ThirdParty/Licenses/DearImGui-LICENSE.txt`をGit管理し、配布物にも含める
+- `examples/`、Demo Application、第三者Extension、Docking Feature、Multi-Viewportは対象にしない
+- 第三者Sourceは変更、Copy、Patch、Rename、部分抽出しない
+- `Engine`配下には第三者Source、Header、Binary、License Copyを配置しない
+- Dependency Restoreは専用Script／CI Stepとして明示実行し、通常のCMake Configure中の暗黙Network取得は無効にする
+- vcpkg Rootは`VCPKG_ROOT`で指定し、Machine固有の絶対PathをRepositoryへ記録しない
+- Updateは専用Research／Maintenance IssueでUser承認を得て、Baseline、Version、License、API差分、3構成Buildを再検証する
+- Dear ImGui以外の外部LibraryをManifestへ追加する場合は、その変更前にUserの明示承認を得る
 
 ## Target and Dependency Boundary
 
@@ -117,7 +119,7 @@ Cue.ToolHost.WindowsD3D12 -> Cue.Platform.Windows
           |----------------> D3D12 / DXGI private composition
 
 Cue.ImGui.Backend.Win32D3D12 -> Cue.ImGui.Core
-          |--------------------> official Win32 / DX12 backend source
+          |--------------------> vcpkg imgui::imgui
 ```
 
 `Cue.ProjectHub`、`Cue.EditorCore`、`Cue.Scene`、`Cue.Project`、Runtime Module は Dear ImGuiへ依存しない。
@@ -163,7 +165,7 @@ ImGui Adapterは表示用ViewとPresentation Stateだけを読み、User操作�
 
 ## Error and Diagnostics Contract
 
-- External Dependency未取得はCMake Configure Errorとし、Downloadを自動開始しない
+- External Dependency未復元は専用Dependency Checkで失敗させ、通常のCMake ConfigureからDownloadを自動開始しない
 - Backend初期化失敗は部分Hostを逆順に破棄し、Process Exit CodeとFoundation Errorへ記録する
 - Device RemovalはDRED診断を記録してTool Sessionを終了し、自動Device再生成はM12対象外とする
 - UI AdapterはApplication ServiceのErrorを握りつぶさず、安定Categoryと操作対象を日本語Messageへ変換する
@@ -190,22 +192,22 @@ Pixel完全一致、Theme、Font Raster差分、Docking、Multi-ViewportはM12 G
 ### Positive
 
 - 実動ImGui UIと外部Code非混在を両立できる
-- Upstream RevisionとLicenseをReview可能な形で固定できる
+- Registry Baseline、Port Version、LicenseをReview可能な形で固定できる
 - Tool UIがRuntime RendererとRHI公開APIを拡張せずに成立する
 - Project HubとEditor CoreをHeadlessに維持できる
 - 後続のFiles、Play、Build UIが同じHost境界を再利用できる
 
 ### Trade-offs
 
-- Userが承認する限定的な第三者Dependency例外が必要になる
-- Clone後に明示的なSubmodule初期化が必要になる
+- vcpkg本体、Registry、Port DefinitionがBuild Inputに増える
+- Clean Checkout後に明示的なDependency Restoreが必要になる
 - Tool専用D3D12 ResourceはRuntime RHIと実装責務が一部重複する
 - Upstream Update、License Notice、Supply Chain Reviewの継続運用が必要になる
 - Presentation Adapter、Host、Backendを分離するためTarget数が増える
 
 ### Mitigations
 
-- 例外対象、Upstream、Source範囲、Version、更新手順を固定する
+- 承認対象、Registry、Feature、Version、更新手順を固定する
 - External TargetへWarningとInclude境界を限定し、First-party Warningを抑止しない
 - Tool Hostの重複をM12最小Scopeに限定し、Runtime Rendererへ逆流させない
 - Dependency取得、Hash、License、3構成BuildをCI Gateへ追加する
@@ -224,18 +226,13 @@ UI責務とGPU Resource Lifetimeが混在し、#162の依存GateとADR-0018へ�
 
 Tool起動にRuntime WorldとGame Rendererを要求し、RuntimeからEditorへの依存を作るため採用しない。
 
-## Required Approval
+## Approval Record
 
-本ADRをAcceptedにする前に、次のいずれかをUserが明示する必要がある。
-
-1. Dear ImGuiに限り、上記Pin済みGit Submoduleと公式Win32／DX12 Backendを第三者Dependency例外として承認する
-2. 第三者Code禁止を維持し、#162／#163をFirst-party UI Toolkit Researchへ再計画する
-
-承認前はSubmodule、External Source、Build設定、License Fileを追加しない。
+2026-09-04にUserは、第三者Codeを`Engine`から分離して`ThirdParty`配下でLicenseに従い管理すること、今後の外部Libraryは
+導入前に毎回確認すること、導入手段をvcpkgへ限定すること、Dear ImGuiをM12へ導入することを明示承認した。
 
 ## Follow-up
 
-- 承認後に本ADRと`AGENTS.md`のLicense Policyを同じPRで整合させる
 - #162でDependency Pin、External Target、Tool Host、Project Hub ImGui Adapterを最小実装する
 - #163で同じHostへHierarchy／Inspector Adapterを追加する
 - #164でProject HubとEditor Process Workflowを統合する
