@@ -1396,14 +1396,29 @@ void WindowsD3d12ToolHost::cleanup(cue::Error *a_secondaryDiagnostics) noexcept
         cue::Result<void> destroyed = m_window->destroy();
         if (!destroyed)
         {
+            if (m_window->state() != cue::WindowState::Destroyed)
+            {
+                if (a_secondaryDiagnostics != nullptr)
+                {
+                    a_secondaryDiagnostics->append_secondary_diagnostics(
+                        *m_assertContext, *destroyed.try_error(), "Device Removal window destruction also failed",
+                        "Cleanup");
+                    terminate_window_destruction_failure(*m_assertContext, std::move(*a_secondaryDiagnostics));
+                }
+                terminate_window_destruction_failure(*m_assertContext, std::move(*destroyed.try_error()));
+            }
             if (a_secondaryDiagnostics != nullptr)
             {
-                a_secondaryDiagnostics->append_secondary_diagnostics(*m_assertContext, *destroyed.try_error(),
-                                                                     "Device Removal window destruction also failed",
-                                                                     "Cleanup");
-                terminate_window_destruction_failure(*m_assertContext, std::move(*a_secondaryDiagnostics));
+                a_secondaryDiagnostics->append_secondary_diagnostics(
+                    *m_assertContext, *destroyed.try_error(), "Device Removal window class cleanup also failed",
+                    "Cleanup");
             }
-            terminate_window_destruction_failure(*m_assertContext, std::move(*destroyed.try_error()));
+            else
+            {
+                static_cast<void>(m_assertContext->logger().log(
+                    cue::LogLevel::Warning, "Tool Host window class cleanup failed after native window destruction",
+                    std::move(*destroyed.try_error())));
+            }
         }
     }
     m_window.reset();

@@ -494,7 +494,21 @@ void ProjectHubPresenter::draw_register_dialog() noexcept
         }
         else
         {
-            set_error(*registered.try_error());
+            const Error &error = *registered.try_error();
+            const ErrorCode &rootCode = error.root_code();
+            const bool wasPublishedWithUnknownDurability =
+                rootCode.domain() == "Cue.IO" &&
+                rootCode.value() == static_cast<std::int64_t>(IoError::DurabilityUnknown);
+            if (wasPublishedWithUnknownDurability)
+            {
+                set_warning("Projectを一覧へ登録しましたが、Diskへの永続化を確認できませんでした。"
+                            "一覧を更新し、表示されない場合はProject Folderを再登録してください。");
+                ImGui::CloseCurrentPopup();
+            }
+            else
+            {
+                set_error(error);
+            }
         }
     }
     ImGui::EndDisabled();
