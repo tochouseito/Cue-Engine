@@ -112,10 +112,44 @@ std::unique_ptr<EditorController> EditorController::create(ProjectDescriptor &&a
     std::terminate();
 }
 
+std::unique_ptr<EditorController> EditorController::create(ProjectDescriptor &&a_descriptor,
+                                                           ScenePersistenceServices a_persistenceServices,
+                                                           const AssertContext &a_assertContext) noexcept
+{
+    try
+    {
+        return std::make_unique<EditorController>(ConstructionKey{}, std::move(a_descriptor), a_persistenceServices,
+                                                  a_assertContext);
+    }
+    catch (const std::bad_alloc &)
+    {
+        a_assertContext.fatal_handler().terminate("Cue.EditorCore controller allocation failed");
+    }
+    catch (...)
+    {
+        a_assertContext.fatal_handler().terminate("Cue.EditorCore controller construction failed");
+    }
+
+    std::terminate();
+}
+
 EditorController::EditorController(ConstructionKey, ProjectDescriptor &&a_descriptor,
                                    const AssertContext &a_assertContext)
     : m_stateOrigin(std::make_shared<DocumentStateOrigin>()), m_session(std::move(a_descriptor)),
       m_assertContext(&a_assertContext), m_ownerThread(std::this_thread::get_id())
+{
+}
+
+EditorController::EditorController(ConstructionKey, ProjectDescriptor &&a_descriptor,
+                                   ScenePersistenceServices a_persistenceServices,
+                                   const AssertContext &a_assertContext)
+    : m_stateOrigin(std::make_shared<DocumentStateOrigin>()), m_session(std::move(a_descriptor)),
+      m_assertContext(&a_assertContext), m_ownerThread(std::this_thread::get_id()),
+      m_sourceAssetsRoot(a_persistenceServices.m_sourceAssetsRoot), m_savedRoot(a_persistenceServices.m_savedRoot),
+      m_schemaRegistry(a_persistenceServices.m_schemaRegistry),
+      m_valueSchemaRegistry(a_persistenceServices.m_valueSchemaRegistry),
+      m_sceneMigrations(a_persistenceServices.m_sceneMigrations),
+      m_componentMigrations(a_persistenceServices.m_componentMigrations)
 {
 }
 
@@ -334,7 +368,8 @@ Result<void> EditorController::mark_saved(EditorDocumentId a_documentId, Documen
     document->m_hasSavedDestination = true;
     if (document->m_closeState == DocumentCloseState::SaveRequested)
     {
-        if (!document->is_dirty() && document->m_externalChangeState == ExternalChangeState::None)
+        if (!document->is_dirty() && document->m_externalChangeState == ExternalChangeState::None &&
+            document->m_persistenceState == DocumentPersistenceState::Idle)
         {
             document->m_closeState = DocumentCloseState::Closed;
             erase_closed_document(a_documentId);

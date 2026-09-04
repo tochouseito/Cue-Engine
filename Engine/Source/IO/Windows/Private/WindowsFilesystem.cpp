@@ -25,6 +25,25 @@ namespace
 {
 constexpr std::size_t k_maxWindowsPathLength = 32767;
 constexpr std::size_t k_randomByteCount = 16;
+SRWLOCK g_writeLeaseRegistryLock = SRWLOCK_INIT;
+std::unordered_map<std::wstring, DWORD> g_heldWriteLeaseThreads;
+
+/// @brief Process内で同じNamed Mutexを再帰取得しないよう取得Threadを登録する
+[[nodiscard]] bool register_write_lease(const std::wstring &a_name, DWORD a_threadId)
+{
+    AcquireSRWLockExclusive(&g_writeLeaseRegistryLock);
+    const bool inserted = g_heldWriteLeaseThreads.emplace(a_name, a_threadId).second;
+    ReleaseSRWLockExclusive(&g_writeLeaseRegistryLock);
+    return inserted;
+}
+
+/// @brief Process内Lease登録を取得Threadから解除する
+void unregister_write_lease(const std::wstring &a_name) noexcept
+{
+    AcquireSRWLockExclusive(&g_writeLeaseRegistryLock);
+    g_heldWriteLeaseThreads.erase(a_name);
+    ReleaseSRWLockExclusive(&g_writeLeaseRegistryLock);
+}
 
 /// @brief Win32 Handle を一意所有して全ての終了経路で Close する
 class UniqueHandle final
@@ -91,6 +110,43 @@ class UniqueHandle final
 
   private:
     HANDLE m_handle = INVALID_HANDLE_VALUE;
+};
+
+/// @brief Windows Mutex Handleと取得元Root／Path／Threadを一意所有するWrite Lease State
+class WindowsFileWriteLeaseState final : public cue::FileWriteLeaseState
+{
+  public:
+    WindowsFileWriteLeaseState(const void *a_owner, std::string a_exactPathKey, std::string a_familyPathKey,
+                               std::wstring a_mutexName, DWORD a_ownerThreadId,
+                               const cue::AssertContext &a_assertContext, UniqueHandle a_handle) noexcept
+        : owner(a_owner), exactPathKey(std::move(a_exactPathKey)), familyPathKey(std::move(a_familyPathKey)),
+          mutexName(std::move(a_mutexName)), ownerThreadId(a_ownerThreadId), assertContext(&a_assertContext),
+          handle(std::move(a_handle))
+    {
+    }
+
+    /// @brief 取得ThreadでMutexとProcess内登録を解放する
+    ~WindowsFileWriteLeaseState() override
+    {
+        if (!handle.is_valid())
+        {
+            return;
+        }
+        if (GetCurrentThreadId() != ownerThreadId)
+        {
+            assertContext->fatal_handler().terminate("Windows write lease was destroyed on a foreign thread");
+        }
+        unregister_write_lease(mutexName);
+        ReleaseMutex(handle.get());
+    }
+
+    const void *owner;
+    std::string exactPathKey;
+    std::string familyPathKey;
+    std::wstring mutexName;
+    DWORD ownerThreadId;
+    const cue::AssertContext *assertContext;
+    UniqueHandle handle;
 };
 
 /// @brief FindFirstFile で取得した Search Handle を FindClose で一意解放する
@@ -344,6 +400,13 @@ struct NativePublishOutcome final
     return separator == std::string_view::npos ? std::string_view{} : a_path.substr(0, separator);
 }
 
+/// @brief Destinationの比較KeyをCross-process Lease Keyへ変換する
+[[nodiscard]] std::string write_lease_path_key(const cue::RelativePath &a_path,
+                                               const cue::AssertContext &a_context) noexcept
+{
+    return a_path.comparison_key(a_context);
+}
+
 /// @brief Parent と Child Segment を `/` で結合する
 [[nodiscard]] std::string join_relative(std::string_view a_parent, std::string_view a_child,
                                         const cue::AssertContext &a_context) noexcept
@@ -568,6 +631,19 @@ class WindowsFilesystemRoot final : public cue::FilesystemRoot
     /// @brief 同一 Directory の Temporary File から Atomic Rename する
     [[nodiscard]] cue::Result<void> write_file_atomic(const cue::RelativePath &a_path,
                                                       std::span<const std::byte> a_bytes) noexcept override;
+    /// @brief 利用者Locator外のHidden SiblingへRecovery BackupをAtomic公開する
+    [[nodiscard]] cue::Result<void> write_recovery_backup_atomic(
+        const cue::RelativePath &a_destination, std::span<const std::byte> a_bytes,
+        const cue::AssertContext &a_assertContext) noexcept override;
+    /// @brief Destination Sidecarを共有なしHandleとして取得する
+    [[nodiscard]] cue::Result<cue::FileWriteLease> acquire_file_write_lease(
+        const cue::RelativePath &a_path) noexcept override;
+    /// @brief Leaseと期待Fingerprintを検証してからAtomic Publishする
+    [[nodiscard]] cue::Result<void> write_file_atomic_if_unchanged(
+        cue::FileWriteLease &a_lease, const cue::RelativePath &a_path, cue::FileFingerprint a_expected,
+        std::size_t a_maximumExpectedBytes, std::span<const std::byte> a_bytes) noexcept override;
+    /// @brief Root内Regular Fileを削除する
+    [[nodiscard]] cue::Result<void> remove_file(const cue::RelativePath &a_path) noexcept override;
     /// @brief Destination の Sibling へ Operation 所有 Staging を作成する
     [[nodiscard]] cue::Result<cue::StagingArea> create_staging_area(
         const cue::RelativePath &a_destination) noexcept override;
@@ -600,6 +676,13 @@ class WindowsFilesystemRoot final : public cue::FilesystemRoot
                                                               const cue::RelativePath &a_path) const noexcept;
     /// @brief Root Path が Binding 時と同じ Directory Object を指すか再検証する
     [[nodiscard]] cue::Result<void> verify_root_identity() const noexcept;
+    /// @brief Optional Lease／Fingerprint条件を適用するAtomic Write共通経路
+    [[nodiscard]] cue::Result<void> write_file_atomic_internal(const cue::RelativePath &a_path,
+                                                               std::span<const std::byte> a_bytes,
+                                                               cue::FileWriteLease *a_lease,
+                                                               const cue::FileFingerprint *a_expected,
+                                                               std::size_t a_maximumExpectedBytes,
+                                                               const std::wstring *a_destinationOverride) noexcept;
 
     const cue::AssertContext *m_assertContext;
     std::wstring m_rootPath;
@@ -906,6 +989,209 @@ cue::Result<void> WindowsFilesystemRoot::create_directories(const cue::RelativeP
 cue::Result<void> WindowsFilesystemRoot::write_file_atomic(const cue::RelativePath &a_path,
                                                            std::span<const std::byte> a_bytes) noexcept
 {
+    return write_file_atomic_internal(a_path, a_bytes, nullptr, nullptr, 0U, nullptr);
+}
+
+cue::Result<void> WindowsFilesystemRoot::write_recovery_backup_atomic(
+    const cue::RelativePath &a_destination, std::span<const std::byte> a_bytes,
+    const cue::AssertContext &) noexcept
+{
+    auto destination = absolute_path(a_destination);
+    if (!destination)
+    {
+        return cue::Result<void>::failure(std::move(*destination.try_error()));
+    }
+    try
+    {
+        const std::size_t separator = destination.try_value()->find_last_of(L'\\');
+        if (separator == std::wstring::npos)
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::InvalidPath, "Backup destination has no parent"));
+        }
+        destination.try_value()->insert(separator + 1U, L".CueBackup-");
+    }
+    catch (...)
+    {
+        terminate_allocation(*m_assertContext);
+    }
+    if (destination.try_value()->size() >= k_maxWindowsPathLength)
+    {
+        return cue::Result<void>::failure(
+            cue::make_io_error(*m_assertContext, cue::IoError::CapacityExceeded, "Recovery backup path is too long"));
+    }
+    return write_file_atomic_internal(a_destination, a_bytes, nullptr, nullptr, 0U, &*destination.try_value());
+}
+
+cue::Result<cue::FileWriteLease> WindowsFilesystemRoot::acquire_file_write_lease(
+    const cue::RelativePath &a_path) noexcept
+{
+    cue::Result<cue::EntryType> destinationType = validate_entry(a_path);
+    if (!destinationType)
+    {
+        return cue::Result<cue::FileWriteLease>::failure(std::move(*destinationType.try_error()));
+    }
+    if (*destinationType.try_value() != cue::EntryType::Missing &&
+        *destinationType.try_value() != cue::EntryType::RegularFile)
+    {
+        const cue::IoError code = *destinationType.try_value() == cue::EntryType::UnsupportedEntry
+                                      ? cue::IoError::UnsupportedEntry
+                                      : cue::IoError::TypeMismatch;
+        return cue::Result<cue::FileWriteLease>::failure(
+            cue::make_io_error(*m_assertContext, code, "Write lease destination is unsupported"));
+    }
+
+    try
+    {
+        std::string exactPathKey = a_path.comparison_key(*m_assertContext);
+        std::string familyPathKey = write_lease_path_key(a_path, *m_assertContext);
+        const std::uint64_t familyDigest =
+            cue::file_content_digest(std::as_bytes(std::span(familyPathKey.data(), familyPathKey.size())));
+        std::array<wchar_t, 160> mutexName{};
+        const int mutexNameLength = _snwprintf_s(
+            mutexName.data(), mutexName.size(), _TRUNCATE, L"Global\\CueEngine.WriteLease.%08lx.%08lx%08lx.%016llx",
+            static_cast<unsigned long>(m_rootVolumeSerial), static_cast<unsigned long>(m_rootFileIndexHigh),
+            static_cast<unsigned long>(m_rootFileIndexLow), static_cast<unsigned long long>(familyDigest));
+        if (mutexNameLength < 0)
+        {
+            return cue::Result<cue::FileWriteLease>::failure(cue::make_io_error(
+                *m_assertContext, cue::IoError::CapacityExceeded, "Scene write lease mutex name exceeds limit"));
+        }
+
+        UniqueHandle mutexHandle(CreateMutexW(nullptr, FALSE, mutexName.data()));
+        if (!mutexHandle.is_valid())
+        {
+            return cue::Result<cue::FileWriteLease>::failure(
+                make_windows_error(*m_assertContext, GetLastError(), "Scene write lease mutex creation failed"));
+        }
+        const DWORD waitResult = WaitForSingleObject(mutexHandle.get(), 0U);
+        if (waitResult == WAIT_TIMEOUT)
+        {
+            return cue::Result<cue::FileWriteLease>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::Busy, "Scene write lease is already held"));
+        }
+        if (waitResult != WAIT_OBJECT_0 && waitResult != WAIT_ABANDONED)
+        {
+            const DWORD code = waitResult == WAIT_FAILED ? GetLastError() : ERROR_INVALID_HANDLE;
+            return cue::Result<cue::FileWriteLease>::failure(
+                make_windows_error(*m_assertContext, code, "Scene write lease mutex acquisition failed"));
+        }
+        const DWORD ownerThreadId = GetCurrentThreadId();
+        std::wstring mutexNameText(mutexName.data());
+        if (!register_write_lease(mutexNameText, ownerThreadId))
+        {
+            ReleaseMutex(mutexHandle.get());
+            return cue::Result<cue::FileWriteLease>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::Busy, "Scene write lease is already held"));
+        }
+
+        auto state = std::make_unique<WindowsFileWriteLeaseState>(
+            this, std::move(exactPathKey), std::move(familyPathKey), std::move(mutexNameText), ownerThreadId,
+            *m_assertContext, std::move(mutexHandle));
+
+        if (*destinationType.try_value() == cue::EntryType::RegularFile)
+        {
+            cue::Result<std::wstring> destination = absolute_path(a_path);
+            if (!destination)
+            {
+                return cue::Result<cue::FileWriteLease>::failure(std::move(*destination.try_error()));
+            }
+            UniqueHandle file(CreateFileW(destination.try_value()->c_str(), FILE_READ_ATTRIBUTES,
+                                          FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                          OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+                                          nullptr));
+            if (!file.is_valid())
+            {
+                return cue::Result<cue::FileWriteLease>::failure(
+                    make_windows_error(*m_assertContext, GetLastError(), "Scene link count inspection failed"));
+            }
+            BY_HANDLE_FILE_INFORMATION information{};
+            if (GetFileInformationByHandle(file.get(), &information) == FALSE)
+            {
+                return cue::Result<cue::FileWriteLease>::failure(
+                    make_windows_error(*m_assertContext, GetLastError(), "Scene link count query failed"));
+            }
+            if (information.nNumberOfLinks != 1U)
+            {
+                return cue::Result<cue::FileWriteLease>::failure(cue::make_io_error(
+                    *m_assertContext, cue::IoError::UnsupportedEntry, "Hard-linked scene files cannot be replaced"));
+            }
+        }
+
+        return cue::Result<cue::FileWriteLease>::success(make_file_write_lease(std::move(state)));
+    }
+    catch (...)
+    {
+        terminate_allocation(*m_assertContext);
+    }
+}
+
+cue::Result<void> WindowsFilesystemRoot::write_file_atomic_if_unchanged(cue::FileWriteLease &a_lease,
+                                                                        const cue::RelativePath &a_path,
+                                                                        cue::FileFingerprint a_expected,
+                                                                        std::size_t a_maximumExpectedBytes,
+                                                                        std::span<const std::byte> a_bytes) noexcept
+{
+    return write_file_atomic_internal(a_path, a_bytes, &a_lease, &a_expected, a_maximumExpectedBytes, nullptr);
+}
+
+cue::Result<void> WindowsFilesystemRoot::remove_file(const cue::RelativePath &a_path) noexcept
+{
+    cue::Result<cue::EntryType> type = validate_entry(a_path);
+    if (!type)
+    {
+        return cue::Result<void>::failure(std::move(*type.try_error()));
+    }
+    if (*type.try_value() == cue::EntryType::Missing)
+    {
+        return cue::Result<void>::success();
+    }
+    if (*type.try_value() != cue::EntryType::RegularFile)
+    {
+        const cue::IoError code = *type.try_value() == cue::EntryType::UnsupportedEntry ? cue::IoError::UnsupportedEntry
+                                                                                        : cue::IoError::TypeMismatch;
+        return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, code, "Entry is not a removable file"));
+    }
+    cue::Result<std::wstring> full = absolute_path(a_path);
+    if (!full)
+    {
+        return cue::Result<void>::failure(std::move(*full.try_error()));
+    }
+    if (DeleteFileW(full.try_value()->c_str()) == FALSE)
+    {
+        const DWORD code = GetLastError();
+        if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND)
+        {
+            return cue::Result<void>::success();
+        }
+        return cue::Result<void>::failure(make_windows_error(*m_assertContext, code, "File removal failed"));
+    }
+    return cue::Result<void>::success();
+}
+
+cue::Result<void> WindowsFilesystemRoot::write_file_atomic_internal(const cue::RelativePath &a_path,
+                                                                    std::span<const std::byte> a_bytes,
+                                                                    cue::FileWriteLease *a_lease,
+                                                                    const cue::FileFingerprint *a_expected,
+                                                                    std::size_t a_maximumExpectedBytes,
+                                                                    const std::wstring *a_destinationOverride) noexcept
+{
+    if ((a_lease == nullptr) != (a_expected == nullptr))
+    {
+        return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::PreconditionFailed,
+                                                             "Atomic write condition is invalid"));
+    }
+    if (a_lease != nullptr)
+    {
+        auto *state = dynamic_cast<WindowsFileWriteLeaseState *>(file_write_lease_state(*a_lease));
+        if (state == nullptr || state->owner != this || state->ownerThreadId != GetCurrentThreadId() ||
+            state->exactPathKey != a_path.comparison_key(*m_assertContext) ||
+            state->familyPathKey != write_lease_path_key(a_path, *m_assertContext) || !state->handle.is_valid())
+        {
+            return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::PreconditionFailed,
+                                                                 "Atomic write lease does not own destination"));
+        }
+    }
     const std::string_view parent = parent_text(a_path.text());
     if (!parent.empty())
     {
@@ -935,11 +1221,13 @@ cue::Result<void> WindowsFilesystemRoot::write_file_atomic(const cue::RelativePa
         }
     }
 
-    cue::Result<std::wstring> destination = absolute_path(a_path);
-    if (!destination)
+    cue::Result<std::wstring> resolvedDestination = absolute_path(a_path);
+    if (!resolvedDestination)
     {
-        return cue::Result<void>::failure(std::move(*destination.try_error()));
+        return cue::Result<void>::failure(std::move(*resolvedDestination.try_error()));
     }
+    const std::wstring &destination =
+        a_destinationOverride == nullptr ? *resolvedDestination.try_value() : *a_destinationOverride;
 
     std::wstring temporaryPath;
     UniqueHandle temporary;
@@ -951,18 +1239,26 @@ cue::Result<void> WindowsFilesystemRoot::write_file_atomic(const cue::RelativePa
             return cue::Result<void>::failure(std::move(*random.try_error()));
         }
         const std::string name = "CueTemp-" + *random.try_value() + ".tmp";
-        const std::string relativeText = join_relative(parent, name, *m_assertContext);
-        cue::Result<cue::RelativePath> relative = cue::RelativePath::parse(relativeText, *m_assertContext);
-        if (!relative)
+        const std::size_t separator = destination.find_last_of(L'\\');
+        if (separator == std::wstring::npos)
         {
-            return cue::Result<void>::failure(std::move(*relative.try_error()));
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::InvalidPath, "Atomic destination has no parent"));
         }
-        cue::Result<std::wstring> full = absolute_path(*relative.try_value());
-        if (!full)
+        try
         {
-            return cue::Result<void>::failure(std::move(*full.try_error()));
+            temporaryPath.assign(destination, 0U, separator + 1U);
+            temporaryPath.append(name.begin(), name.end());
         }
-        temporaryPath = std::move(*full.try_value());
+        catch (...)
+        {
+            terminate_allocation(*m_assertContext);
+        }
+        if (temporaryPath.size() >= k_maxWindowsPathLength)
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::CapacityExceeded, "Temporary path is too long"));
+        }
         temporary.reset(CreateFileW(temporaryPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
                                     FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
         if (temporary.is_valid())
@@ -1008,29 +1304,82 @@ cue::Result<void> WindowsFilesystemRoot::write_file_atomic(const cue::RelativePa
     }
     temporary.reset();
 
-    cue::Result<cue::EntryType> destinationType = validate_entry(a_path);
-    if (!destinationType)
+    cue::EntryType destinationTypeValue = cue::EntryType::Missing;
+    if (a_destinationOverride == nullptr)
     {
-        return cue::Result<void>::failure(
-            remove_temporary_after_failure(*m_assertContext, temporaryPath, std::move(*destinationType.try_error())));
+        cue::Result<cue::EntryType> destinationType = validate_entry(a_path);
+        if (!destinationType)
+        {
+            return cue::Result<void>::failure(remove_temporary_after_failure(
+                *m_assertContext, temporaryPath, std::move(*destinationType.try_error())));
+        }
+        destinationTypeValue = *destinationType.try_value();
     }
-    if (*destinationType.try_value() == cue::EntryType::Directory ||
-        *destinationType.try_value() == cue::EntryType::UnsupportedEntry)
+    else
     {
-        const cue::IoError code = *destinationType.try_value() == cue::EntryType::UnsupportedEntry
+        const DWORD attributes = GetFileAttributesW(destination.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES)
+        {
+            const DWORD code = GetLastError();
+            if (code != ERROR_FILE_NOT_FOUND && code != ERROR_PATH_NOT_FOUND)
+            {
+                cue::Error primary = make_windows_error(*m_assertContext, code, "Recovery backup inspection failed");
+                return cue::Result<void>::failure(
+                    remove_temporary_after_failure(*m_assertContext, temporaryPath, std::move(primary)));
+            }
+        }
+        else if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+        {
+            destinationTypeValue = cue::EntryType::UnsupportedEntry;
+        }
+        else if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+        {
+            destinationTypeValue = cue::EntryType::Directory;
+        }
+        else
+        {
+            destinationTypeValue = cue::EntryType::RegularFile;
+        }
+    }
+    if (destinationTypeValue == cue::EntryType::Directory || destinationTypeValue == cue::EntryType::UnsupportedEntry)
+    {
+        const cue::IoError code = destinationTypeValue == cue::EntryType::UnsupportedEntry
                                       ? cue::IoError::UnsupportedEntry
                                       : cue::IoError::TypeMismatch;
         cue::Error primary = cue::make_io_error(*m_assertContext, code, "Atomic destination is not a regular file");
         return cue::Result<void>::failure(
             remove_temporary_after_failure(*m_assertContext, temporaryPath, std::move(primary)));
     }
+    if (a_expected != nullptr)
+    {
+        cue::Result<cue::FileFingerprint> current =
+            cue::fingerprint_file(*this, a_path, a_maximumExpectedBytes, *m_assertContext);
+        if (!current)
+        {
+            cue::Error primary = current.try_error()->root_code().domain() == "Cue.IO" &&
+                                         current.try_error()->root_code().value() ==
+                                             static_cast<std::int64_t>(cue::IoError::CapacityExceeded)
+                                     ? cue::make_io_error(*m_assertContext, cue::IoError::PreconditionFailed,
+                                                          "Atomic destination exceeds the expected content limit")
+                                     : std::move(*current.try_error());
+            return cue::Result<void>::failure(
+                remove_temporary_after_failure(*m_assertContext, temporaryPath, std::move(primary)));
+        }
+        if (*current.try_value() != *a_expected)
+        {
+            cue::Error primary = cue::make_io_error(*m_assertContext, cue::IoError::PreconditionFailed,
+                                                    "Atomic destination changed before publish");
+            return cue::Result<void>::failure(
+                remove_temporary_after_failure(*m_assertContext, temporaryPath, std::move(primary)));
+        }
+    }
 
     DWORD flags = 0;
-    if (*destinationType.try_value() == cue::EntryType::RegularFile)
+    if (destinationTypeValue == cue::EntryType::RegularFile)
     {
         flags |= MOVEFILE_REPLACE_EXISTING;
     }
-    const NativePublishOutcome publish = publish_with_durability(temporaryPath, *destination.try_value(), flags);
+    const NativePublishOutcome publish = publish_with_durability(temporaryPath, destination, flags);
     if (!publish.isPublished)
     {
         cue::Error primary = make_windows_error(*m_assertContext, publish.nativeCode, "Atomic file publish failed");

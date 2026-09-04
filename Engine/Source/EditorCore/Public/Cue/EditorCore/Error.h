@@ -27,7 +27,11 @@ enum class EditorCoreError : std::int64_t
     InvalidCommand = 10,
     InvalidTransaction = 11,
     UndoUnavailable = 12,
-    RedoUnavailable = 13
+    RedoUnavailable = 13,
+    PersistenceUnavailable = 14,
+    ExternalConflict = 15,
+    InvalidRecovery = 16,
+    UnsupportedRecovery = 17
 };
 
 /// @brief Editor Core Error を診断 Summary と共に生成する

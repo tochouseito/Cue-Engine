@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Cue/EditorCore/Persistence.h>
 #include <Cue/IO/RelativePath.h>
 #include <Cue/Scene/SceneDocument.h>
 
@@ -93,7 +94,8 @@ enum class ExternalChangeState : std::uint8_t
 {
     None,
     Modified,
-    Removed
+    Removed,
+    Unknown
 };
 
 /// @brief Close 要求に対する Editor Core の進行状態
@@ -150,6 +152,10 @@ class EditorDocument final
     [[nodiscard]] const scene::ObjectId *try_primary_selection() const noexcept;
     /// @brief Scene 正本に対する外部変更の観測状態を返す
     [[nodiscard]] ExternalChangeState external_change_state() const noexcept;
+    /// @brief Save公開結果が確定済みか返す
+    [[nodiscard]] DocumentPersistenceState persistence_state() const noexcept;
+    /// @brief 起動または明示検査でRecovery候補が見つかったか返す
+    [[nodiscard]] bool has_recovery_candidate() const noexcept;
     /// @brief Close Workflow の現在状態を返す
     [[nodiscard]] DocumentCloseState close_state() const noexcept;
     /// @brief Close 前に Save、Discard、Cancel の明示判断が必要か返す
@@ -193,6 +199,26 @@ class EditorDocument final
         std::size_t estimatedBytes;
     };
 
+    enum class PendingSaveReason : std::uint8_t
+    {
+        DurabilityUnknown,
+        BackupDurabilityUnknown,
+        VerificationFailed
+    };
+
+    struct PendingSaveRecord final
+    {
+        DocumentStateId sourceStateId;
+        RelativePath destination;
+        SceneFileFingerprint expectedFingerprint;
+        scene::SceneDocumentCheckpoint candidateCheckpoint;
+        std::uint64_t candidateByteSize;
+        std::uint64_t candidateDigest;
+        std::optional<std::vector<std::byte>> recoveryBackupBytes;
+        PendingSaveReason reason;
+        bool switchDestination;
+    };
+
     /// @brief Open 済み Scene と初期 Session 状態を束ねる
     EditorDocument(EditorDocumentId a_id, std::shared_ptr<const DocumentStateOrigin> a_stateOrigin,
                    scene::SceneDocument &&a_document, RelativePath &&a_locator, bool a_hasSavedDestination) noexcept;
@@ -207,6 +233,10 @@ class EditorDocument final
     std::vector<scene::ObjectId> m_selection;
     std::optional<scene::ObjectId> m_primarySelection;
     ExternalChangeState m_externalChangeState = ExternalChangeState::None;
+    DocumentPersistenceState m_persistenceState = DocumentPersistenceState::Idle;
+    bool m_hasRecoveryCandidate = false;
+    std::optional<SceneFileFingerprint> m_baseFingerprint;
+    std::optional<PendingSaveRecord> m_pendingSave;
     DocumentCloseState m_closeState = DocumentCloseState::Open;
     std::vector<HistoryEntry> m_history;
     std::size_t m_historyCursor = 0U;

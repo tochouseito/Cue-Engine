@@ -139,16 +139,40 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
         return {reinterpret_cast<const char *>(found->second.data()), found->second.size()};
     }
 
+    /// @brief Test用Recovery Backup本文を内部名前空間へ設定する
+    void set_recovery_backup(std::string_view a_destination, std::string_view a_text)
+    {
+        set(recovery_backup_key(a_destination), a_text);
+    }
+
+    /// @brief Test用Recovery Backup本文を内部名前空間から返す
+    [[nodiscard]] std::string_view recovery_backup_text(std::string_view a_destination) const noexcept
+    {
+        return text(recovery_backup_key(a_destination));
+    }
+
     /// @brief Main Sceneへの次回Atomic Writeを失敗させる
     void fail_main_write(bool a_fail) noexcept
     {
         m_failMainWrite = a_fail;
     }
 
+    /// @brief Recovery BackupへのAtomic Writeを失敗させる
+    void fail_backup_write(bool a_fail) noexcept
+    {
+        m_failBackupWrite = a_fail;
+    }
+
     /// @brief Main Sceneへの次回Writeを公開済みDurability不明として報告する
     void make_main_write_durability_unknown(bool a_unknown) noexcept
     {
         m_isMainDurabilityUnknown = a_unknown;
+    }
+
+    /// @brief Recovery Backupへの次回Writeを公開済みDurability不明として報告する
+    void make_backup_write_durability_unknown(bool a_unknown) noexcept
+    {
+        m_isBackupDurabilityUnknown = a_unknown;
     }
 
     /// @brief Main Scene本文の公開後だけ再読込を失敗させる
@@ -216,6 +240,46 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
         return cue::Result<void>::success();
     }
 
+    /// @brief 利用者Locator外のMemory KeyへRecovery Backupを公開する
+    [[nodiscard]] cue::Result<void> write_recovery_backup_atomic(
+        const cue::RelativePath &a_destination, std::span<const std::byte> a_bytes,
+        const cue::AssertContext &) noexcept override
+    {
+        if (m_failBackupWrite)
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Injected backup publish failure"));
+        }
+        m_files[recovery_backup_key(a_destination.text())] =
+            std::vector<std::byte>(a_bytes.begin(), a_bytes.end());
+        if (m_isBackupDurabilityUnknown)
+        {
+            return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::DurabilityUnknown,
+                                                                 "Injected backup durability uncertainty"));
+        }
+        return cue::Result<void>::success();
+    }
+
+    [[nodiscard]] cue::Result<cue::FileWriteLease> acquire_file_write_lease(const cue::RelativePath &) noexcept override
+    {
+        return cue::Result<cue::FileWriteLease>::failure(
+            cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Write lease is not used by scene tests"));
+    }
+
+    [[nodiscard]] cue::Result<void> write_file_atomic_if_unchanged(cue::FileWriteLease &, const cue::RelativePath &,
+                                                                   cue::FileFingerprint, std::size_t,
+                                                                   std::span<const std::byte>) noexcept override
+    {
+        return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::IoFailure,
+                                                             "Conditional write is not used by scene tests"));
+    }
+
+    [[nodiscard]] cue::Result<void> remove_file(const cue::RelativePath &) noexcept override
+    {
+        return cue::Result<void>::failure(
+            cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Remove is not used by scene tests"));
+    }
+
     /// @brief Scene Serializer対象外のStaging作成を拒否する
     [[nodiscard]] cue::Result<cue::StagingArea> create_staging_area(const cue::RelativePath &) noexcept override
     {
@@ -239,10 +303,21 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
     }
 
   private:
+    /// @brief 利用者RelativePathでは表現できないTest用Recovery Backup Keyを生成する
+    [[nodiscard]] static std::string recovery_backup_key(std::string_view a_destination)
+    {
+        std::string key(1U, '\x1f');
+        key.append("CueBackup:");
+        key.append(a_destination);
+        return key;
+    }
+
     std::map<std::string, std::vector<std::byte>> m_files;
     const cue::AssertContext *m_assertContext;
     bool m_failMainWrite = false;
+    bool m_failBackupWrite = false;
     bool m_isMainDurabilityUnknown = false;
+    bool m_isBackupDurabilityUnknown = false;
     bool m_failReadAfterMainWrite = false;
     bool m_hasWrittenMain = false;
 };
@@ -752,28 +827,31 @@ void test_serialization() noexcept
                           &migrate_component_to_maximum, assertContext)
                 .has_value());
     require(maximumComponentMigration
-                .migrate(make_type_id(assertContext), "[]",
-                         k_beforeMaximumVersion,
-                         std::numeric_limits<std::uint32_t>::max(),
-                         assertContext)
+                .migrate(make_type_id(assertContext), "[]", k_beforeMaximumVersion,
+                         std::numeric_limits<std::uint32_t>::max(), assertContext)
                 .has_value());
 
     MemoryFilesystemRoot filesystem(assertContext);
     filesystem.set("Scenes/Main.cuescene", "original");
+    filesystem.set_recovery_backup("Scenes/Main.cuescene", "prior-backup");
     auto path = take_value(cue::RelativePath::parse("Scenes/Main.cuescene", assertContext));
     filesystem.fail_main_write(true);
     auto failed = cue::scene::save_scene_document(filesystem, path, parsed.try_value()->document(), *registry,
                                                   valueRegistry, migrations, componentMigrations, assertContext);
     require(failed.status() == cue::scene::SceneSaveStatus::NotPublished);
     require(filesystem.text("Scenes/Main.cuescene") == "original");
-    require(filesystem.text("Scenes/Main.cuescene.backup") == "original");
+    require(filesystem.recovery_backup_text("Scenes/Main.cuescene") == "prior-backup");
     filesystem.fail_main_write(false);
     filesystem.make_main_write_durability_unknown(true);
     auto uncertain = cue::scene::save_scene_document(filesystem, path, parsed.try_value()->document(), *registry,
                                                      valueRegistry, migrations, componentMigrations, assertContext);
     require(uncertain.status() == cue::scene::SceneSaveStatus::PublishedButDurabilityUnknown);
+    auto uncertainBackupBytes = uncertain.take_recovery_backup_bytes();
+    require(uncertainBackupBytes.has_value());
+    require(std::string_view(reinterpret_cast<const char *>(uncertainBackupBytes->data()),
+                             uncertainBackupBytes->size()) == "original");
     require(filesystem.text("Scenes/Main.cuescene") != "original");
-    require(filesystem.text("Scenes/Main.cuescene.backup") == "original");
+    require(filesystem.recovery_backup_text("Scenes/Main.cuescene") == "prior-backup");
     filesystem.make_main_write_durability_unknown(false);
     auto saved = cue::scene::save_scene_document(filesystem, path, parsed.try_value()->document(), *registry,
                                                  valueRegistry, migrations, componentMigrations, assertContext);
@@ -781,6 +859,41 @@ void test_serialization() noexcept
     auto loaded = cue::scene::load_scene_document(filesystem, path, *registry, valueRegistry, migrations,
                                                   componentMigrations, assertContext);
     require(loaded.has_value());
+
+    MemoryFilesystemRoot namespaceFilesystem(assertContext);
+    namespaceFilesystem.set("Scenes/Main.cuescene", "namespace-original");
+    namespaceFilesystem.set("Scenes/Main.cuescene.backup", "user-scene");
+    auto namespaceSaved =
+        cue::scene::save_scene_document(namespaceFilesystem, path, parsed.try_value()->document(), *registry,
+                                        valueRegistry, migrations, componentMigrations, assertContext);
+    require(namespaceSaved.status() == cue::scene::SceneSaveStatus::Committed);
+    require(namespaceFilesystem.text("Scenes/Main.cuescene.backup") == "user-scene");
+    require(namespaceFilesystem.recovery_backup_text("Scenes/Main.cuescene") == "namespace-original");
+
+    MemoryFilesystemRoot backupFailureFilesystem(assertContext);
+    backupFailureFilesystem.set("Scenes/Main.cuescene", "backup-failure-original");
+    backupFailureFilesystem.set_recovery_backup("Scenes/Main.cuescene", "preserved-backup");
+    backupFailureFilesystem.fail_backup_write(true);
+    auto backupFailed =
+        cue::scene::save_scene_document(backupFailureFilesystem, path, parsed.try_value()->document(), *registry,
+                                        valueRegistry, migrations, componentMigrations, assertContext);
+    require(backupFailed.status() == cue::scene::SceneSaveStatus::PublishedButVerificationFailed);
+    require(backupFailureFilesystem.text("Scenes/Main.cuescene") != "backup-failure-original");
+    require(backupFailureFilesystem.recovery_backup_text("Scenes/Main.cuescene") == "preserved-backup");
+
+    MemoryFilesystemRoot backupUncertainFilesystem(assertContext);
+    backupUncertainFilesystem.set("Scenes/Main.cuescene", "backup-uncertain-original");
+    backupUncertainFilesystem.make_backup_write_durability_unknown(true);
+    auto backupUncertain =
+        cue::scene::save_scene_document(backupUncertainFilesystem, path, parsed.try_value()->document(), *registry,
+                                        valueRegistry, migrations, componentMigrations, assertContext);
+    require(backupUncertain.status() == cue::scene::SceneSaveStatus::PublishedButBackupDurabilityUnknown);
+    auto retainedBackupBytes = backupUncertain.take_recovery_backup_bytes();
+    require(retainedBackupBytes.has_value());
+    require(std::string_view(reinterpret_cast<const char *>(retainedBackupBytes->data()), retainedBackupBytes->size()) ==
+            "backup-uncertain-original");
+    require(backupUncertainFilesystem.text("Scenes/Main.cuescene") != "backup-uncertain-original");
+    require(backupUncertainFilesystem.recovery_backup_text("Scenes/Main.cuescene") == "backup-uncertain-original");
 
     MemoryFilesystemRoot verificationFilesystem(assertContext);
     verificationFilesystem.set("Scenes/Main.cuescene", "verification-original");
@@ -793,7 +906,7 @@ void test_serialization() noexcept
     require(verificationFailed.try_error()->code().value() ==
             static_cast<std::int64_t>(cue::scene::SceneError::PublishedVerificationFailed));
     require(verificationFilesystem.text("Scenes/Main.cuescene") != "verification-original");
-    require(verificationFilesystem.text("Scenes/Main.cuescene.backup") == "verification-original");
+    require(verificationFilesystem.recovery_backup_text("Scenes/Main.cuescene") == "verification-original");
 }
 
 /// @brief 破損Scene、入力上限、未知Data保持、既存Document不変契約をまとめて検証する

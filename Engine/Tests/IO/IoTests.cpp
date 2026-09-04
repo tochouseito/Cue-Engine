@@ -17,6 +17,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -125,6 +126,23 @@ class TestDirectory final
     return std::wstring(a_text.begin(), a_text.end());
 }
 
+/// @brief 利用者LocatorからWindows AdapterのHidden Recovery Backup Native Pathを生成する
+[[nodiscard]] std::wstring native_recovery_backup_path(const TestDirectory &a_directory,
+                                                        std::string_view a_destination)
+{
+    std::wstring relative = widen_ascii(a_destination);
+    for (wchar_t &character : relative)
+    {
+        if (character == L'/')
+        {
+            character = L'\\';
+        }
+    }
+    const std::size_t separator = relative.find_last_of(L'\\');
+    relative.insert(separator == std::wstring::npos ? 0U : separator + 1U, L".CueBackup-");
+    return L"\\\\?\\" + a_directory.child_path(relative);
+}
+
 enum class FailurePoint : std::uint8_t
 {
     None,
@@ -226,6 +244,30 @@ class FailingFilesystemRoot final : public cue::FilesystemRoot
             return cue::Result<void>::failure(make_durability_failure());
         }
         return cue::Result<void>::success();
+    }
+
+    /// @brief Recovery Backup公開FailureをTest DoubleのIO失敗へ変換する
+    [[nodiscard]] cue::Result<void> write_recovery_backup_atomic(
+        const cue::RelativePath &, std::span<const std::byte>, const cue::AssertContext &) noexcept override
+    {
+        return cue::Result<void>::failure(make_failure());
+    }
+
+    [[nodiscard]] cue::Result<cue::FileWriteLease> acquire_file_write_lease(const cue::RelativePath &) noexcept override
+    {
+        return cue::Result<cue::FileWriteLease>::failure(make_failure());
+    }
+
+    [[nodiscard]] cue::Result<void> write_file_atomic_if_unchanged(cue::FileWriteLease &, const cue::RelativePath &,
+                                                                   cue::FileFingerprint, std::size_t,
+                                                                   std::span<const std::byte>) noexcept override
+    {
+        return cue::Result<void>::failure(make_failure());
+    }
+
+    [[nodiscard]] cue::Result<void> remove_file(const cue::RelativePath &) noexcept override
+    {
+        return cue::Result<void>::failure(make_failure());
     }
 
     /// @brief Staging 作成 Failure Point または偽造不能 Token を返す
@@ -415,6 +457,41 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
         return false;
     }
 
+    const std::string longParentSegment(53U, 'p');
+    const std::string longParentText = longParentSegment + "/" + longParentSegment + "/" + longParentSegment + "/" +
+                                       longParentSegment;
+    const std::string longFileText = longParentText + "/x";
+    auto longParent = cue::RelativePath::parse(longParentText, a_assertContext);
+    auto longFile = cue::RelativePath::parse(longFileText, a_assertContext);
+    if (!longParent || !longFile || !a_filesystem.create_directories(*longParent.try_value()) ||
+        !a_filesystem.write_file_atomic(*longFile.try_value(), first))
+    {
+        return false;
+    }
+    auto longFileRead = a_filesystem.read_file(*longFile.try_value(), 16U);
+    if (!longFileRead || *longFileRead.try_value() != std::vector<std::byte>(first.begin(), first.end()))
+    {
+        return false;
+    }
+
+    const std::string maximumPathSegment(60U, 'q');
+    const std::string maximumPathParent = maximumPathSegment + "/" + maximumPathSegment + "/" +
+                                          maximumPathSegment + "/" + maximumPathSegment;
+    const std::string maximumPathText = maximumPathParent + "/12345678901";
+    auto maximumPathParentLocator = cue::RelativePath::parse(maximumPathParent, a_assertContext);
+    auto maximumPath = cue::RelativePath::parse(maximumPathText, a_assertContext);
+    if (!maximumPathParentLocator || !maximumPath ||
+        !a_filesystem.create_directories(*maximumPathParentLocator.try_value()) ||
+        !a_filesystem.write_recovery_backup_atomic(*maximumPath.try_value(), second, a_assertContext))
+    {
+        return false;
+    }
+    const std::wstring maximumPathBackupNative = native_recovery_backup_path(a_directory, maximumPathText);
+    if (GetFileAttributesW(maximumPathBackupNative.c_str()) == INVALID_FILE_ATTRIBUTES)
+    {
+        return false;
+    }
+
     const std::wstring nativePath = a_directory.child_path(L"Data\\Nested\\State.bin");
     HANDLE locked = CreateFileW(nativePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                 FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -426,8 +503,140 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     CloseHandle(locked);
 
     auto preserved = a_filesystem.read_file(*file.try_value(), 16);
-    return has_io_error(failedReplace, cue::IoError::PermissionDenied) && preserved &&
-           *preserved.try_value() == std::vector<std::byte>(second.begin(), second.end());
+    if (!has_io_error(failedReplace, cue::IoError::PermissionDenied) || !preserved ||
+        *preserved.try_value() != std::vector<std::byte>(second.begin(), second.end()))
+    {
+        return false;
+    }
+
+    auto expected = cue::fingerprint_file(a_filesystem, *file.try_value(), 16U, a_assertContext);
+    auto competingRoot = cue::create_windows_filesystem_root(a_directory.utf8_path(), a_assertContext);
+    auto backup = cue::RelativePath::parse("Data/Nested/State.bin.backup", a_assertContext);
+    auto formerSidecar = cue::RelativePath::parse("Data/Nested/State.bin.cuelock", a_assertContext);
+    const std::string maximumSegmentText(64U, 'x');
+    auto maximumSegment = cue::RelativePath::parse(maximumSegmentText, a_assertContext);
+    if (!expected || !competingRoot || !backup || !formerSidecar || !maximumSegment ||
+        !a_filesystem.write_file_atomic(*formerSidecar.try_value(), second) ||
+        !a_filesystem.write_file_atomic(*backup.try_value(), second))
+    {
+        return false;
+    }
+    {
+        auto lease = a_filesystem.acquire_file_write_lease(*file.try_value());
+        if (!lease)
+        {
+            return false;
+        }
+        auto busy = (*competingRoot.try_value())->acquire_file_write_lease(*file.try_value());
+        auto backupLease = (*competingRoot.try_value())->acquire_file_write_lease(*backup.try_value());
+        if (!has_io_error(busy, cue::IoError::Busy) || !backupLease ||
+            !a_filesystem.write_file_atomic_if_unchanged(*lease.try_value(), *file.try_value(), *expected.try_value(),
+                                                         16U, first))
+        {
+            return false;
+        }
+    }
+    auto preservedFormerSidecar = a_filesystem.read_file(*formerSidecar.try_value(), 16U);
+    auto maximumSegmentLease = a_filesystem.acquire_file_write_lease(*maximumSegment.try_value());
+    if (!preservedFormerSidecar ||
+        *preservedFormerSidecar.try_value() != std::vector<std::byte>(second.begin(), second.end()) ||
+        !maximumSegmentLease ||
+        !a_filesystem.write_recovery_backup_atomic(*maximumSegment.try_value(), first, a_assertContext))
+    {
+        return false;
+    }
+    const std::wstring maximumBackupNative = native_recovery_backup_path(a_directory, maximumSegmentText);
+    if (GetFileAttributesW(maximumBackupNative.c_str()) == INVALID_FILE_ATTRIBUTES)
+    {
+        return false;
+    }
+    if (!a_filesystem.write_recovery_backup_atomic(*file.try_value(), first, a_assertContext))
+    {
+        return false;
+    }
+    auto preservedUserBackup = a_filesystem.read_file(*backup.try_value(), 16U);
+    if (!preservedUserBackup ||
+        *preservedUserBackup.try_value() != std::vector<std::byte>(second.begin(), second.end()))
+    {
+        return false;
+    }
+    {
+        auto lease = a_filesystem.acquire_file_write_lease(*file.try_value());
+        if (!lease)
+        {
+            return false;
+        }
+        auto stale = a_filesystem.write_file_atomic_if_unchanged(*lease.try_value(), *file.try_value(),
+                                                                 *expected.try_value(), 16U, second);
+        if (!has_io_error(stale, cue::IoError::PreconditionFailed))
+        {
+            return false;
+        }
+    }
+    auto afterStale = a_filesystem.read_file(*file.try_value(), 16U);
+    if (!afterStale || *afterStale.try_value() != std::vector<std::byte>(first.begin(), first.end()))
+    {
+        return false;
+    }
+    {
+        auto crossThreadExpected = cue::fingerprint_file(a_filesystem, *file.try_value(), 16U, a_assertContext);
+        auto threadBoundLease = a_filesystem.acquire_file_write_lease(*file.try_value());
+        if (!crossThreadExpected || !threadBoundLease)
+        {
+            return false;
+        }
+        bool foreignThreadRejected = false;
+        std::thread leaseThread(
+            [&a_filesystem, &file, &crossThreadExpected, &threadBoundLease, &first, &foreignThreadRejected]()
+            {
+                auto foreignWrite = a_filesystem.write_file_atomic_if_unchanged(
+                    *threadBoundLease.try_value(), *file.try_value(), *crossThreadExpected.try_value(), 16U, first);
+                foreignThreadRejected = has_io_error(foreignWrite, cue::IoError::PreconditionFailed);
+            });
+        leaseThread.join();
+        auto ownerWrite = a_filesystem.write_file_atomic_if_unchanged(*threadBoundLease.try_value(), *file.try_value(),
+                                                                      *crossThreadExpected.try_value(), 16U, first);
+        if (!foreignThreadRejected || !ownerWrite)
+        {
+            return false;
+        }
+    }
+    {
+        auto leaseAfterThreadCheck = a_filesystem.acquire_file_write_lease(*file.try_value());
+        if (!leaseAfterThreadCheck)
+        {
+            return false;
+        }
+    }
+    const std::wstring hardLinkPath = a_directory.child_path(L"Data\\Nested\\StateAlias.bin");
+    if (CreateHardLinkW(hardLinkPath.c_str(), nativePath.c_str(), nullptr) == FALSE)
+    {
+        return false;
+    }
+    {
+        auto hardLinkedFingerprint = cue::fingerprint_file(a_filesystem, *file.try_value(), 16U, a_assertContext);
+        auto backupLease = a_filesystem.acquire_file_write_lease(*backup.try_value());
+        if (!hardLinkedFingerprint || !backupLease)
+        {
+            return false;
+        }
+        auto mismatchedLeaseWrite = a_filesystem.write_file_atomic_if_unchanged(
+            *backupLease.try_value(), *file.try_value(), *hardLinkedFingerprint.try_value(), 16U, second);
+        if (!has_io_error(mismatchedLeaseWrite, cue::IoError::PreconditionFailed))
+        {
+            return false;
+        }
+    }
+    auto hardLinkLease = a_filesystem.acquire_file_write_lease(*file.try_value());
+    const bool hardLinkRejected = has_io_error(hardLinkLease, cue::IoError::UnsupportedEntry);
+    const bool hardLinkRemoved = DeleteFileW(hardLinkPath.c_str()) != FALSE;
+    if (!hardLinkRejected || !hardLinkRemoved || !a_filesystem.remove_file(*file.try_value()) ||
+        !a_filesystem.remove_file(*formerSidecar.try_value()))
+    {
+        return false;
+    }
+    auto removed = a_filesystem.query_entry(*file.try_value());
+    return removed && *removed.try_value() == cue::EntryType::Missing && a_filesystem.remove_file(*file.try_value());
 }
 
 /// @brief Staging Directory の Publish、既存 Destination 拒否、Rollback を検証する

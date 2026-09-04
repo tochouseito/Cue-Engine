@@ -21,7 +21,9 @@ enum class IoError : std::int64_t
     PermissionDenied = 7,
     CapacityExceeded = 8,
     IoFailure = 9,
-    DurabilityUnknown = 10
+    DurabilityUnknown = 10,
+    Busy = 11,
+    PreconditionFailed = 12
 };
 
 /// @brief Portable IO Error を Native 診断なしで生成する

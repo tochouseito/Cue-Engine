@@ -679,8 +679,9 @@ bool SceneLoadResult::migration_required() const noexcept
     return m_sourceFormatVersion != k_currentSceneFormatVersion;
 }
 
-SceneSaveOutcome::SceneSaveOutcome(SceneSaveStatus a_status, std::optional<Error> a_error) noexcept
-    : m_status(a_status), m_error(std::move(a_error))
+SceneSaveOutcome::SceneSaveOutcome(SceneSaveStatus a_status, std::optional<Error> a_error,
+                                   std::optional<std::vector<std::byte>> a_recoveryBackupBytes) noexcept
+    : m_status(a_status), m_error(std::move(a_error)), m_recoveryBackupBytes(std::move(a_recoveryBackupBytes))
 {
 }
 
@@ -696,22 +697,38 @@ const Error *SceneSaveOutcome::try_error() const noexcept
 
 SceneSaveOutcome SceneSaveOutcome::committed() noexcept
 {
-    return SceneSaveOutcome(SceneSaveStatus::Committed, std::nullopt);
+    return SceneSaveOutcome(SceneSaveStatus::Committed, std::nullopt, std::nullopt);
 }
 
 SceneSaveOutcome SceneSaveOutcome::not_published(Error a_error) noexcept
 {
-    return SceneSaveOutcome(SceneSaveStatus::NotPublished, std::optional<Error>(std::move(a_error)));
+    return SceneSaveOutcome(SceneSaveStatus::NotPublished, std::optional<Error>(std::move(a_error)), std::nullopt);
 }
 
-SceneSaveOutcome SceneSaveOutcome::durability_unknown(Error a_error) noexcept
+SceneSaveOutcome SceneSaveOutcome::durability_unknown(
+    Error a_error, std::optional<std::vector<std::byte>> a_recoveryBackupBytes) noexcept
 {
-    return SceneSaveOutcome(SceneSaveStatus::PublishedButDurabilityUnknown, std::optional<Error>(std::move(a_error)));
+    return SceneSaveOutcome(SceneSaveStatus::PublishedButDurabilityUnknown, std::optional<Error>(std::move(a_error)),
+                            std::move(a_recoveryBackupBytes));
+}
+
+SceneSaveOutcome SceneSaveOutcome::backup_durability_unknown(Error a_error,
+                                                              std::vector<std::byte> a_backupBytes) noexcept
+{
+    return SceneSaveOutcome(SceneSaveStatus::PublishedButBackupDurabilityUnknown,
+                            std::optional<Error>(std::move(a_error)),
+                            std::optional<std::vector<std::byte>>(std::move(a_backupBytes)));
 }
 
 SceneSaveOutcome SceneSaveOutcome::verification_failed(Error a_error) noexcept
 {
-    return SceneSaveOutcome(SceneSaveStatus::PublishedButVerificationFailed, std::optional<Error>(std::move(a_error)));
+    return SceneSaveOutcome(SceneSaveStatus::PublishedButVerificationFailed, std::optional<Error>(std::move(a_error)),
+                            std::nullopt);
+}
+
+std::optional<std::vector<std::byte>> SceneSaveOutcome::take_recovery_backup_bytes() noexcept
+{
+    return std::move(m_recoveryBackupBytes);
 }
 
 Result<std::string> serialize_scene_document(const SceneDocument &a_document,
@@ -1341,12 +1358,12 @@ Result<SceneLoadResult> load_scene_document(FilesystemRoot &a_filesystem, const 
                                 a_assertContext);
 }
 
-SceneSaveOutcome save_scene_document(FilesystemRoot &a_filesystem, const RelativePath &a_path,
-                                     const SceneDocument &a_document, const schema::SchemaRegistry &a_schemaRegistry,
-                                     const ComponentValueSchemaRegistry &a_valueSchemaRegistry,
-                                     const SceneMigrationRegistry &a_migrationRegistry,
-                                     const ComponentMigrationRegistry &a_componentMigrations,
-                                     const AssertContext &a_assertContext) noexcept
+SceneSaveOutcome save_scene_document_internal(
+    FilesystemRoot &a_filesystem, FileWriteLease *a_lease, const FileFingerprint *a_expected,
+    std::optional<std::span<const std::byte>> a_recoveryBackupOverride, const RelativePath &a_path,
+    const SceneDocument &a_document, const schema::SchemaRegistry &a_schemaRegistry,
+    const ComponentValueSchemaRegistry &a_valueSchemaRegistry, const SceneMigrationRegistry &a_migrationRegistry,
+    const ComponentMigrationRegistry &a_componentMigrations, const AssertContext &a_assertContext) noexcept
 {
     try
     {
@@ -1368,6 +1385,25 @@ SceneSaveOutcome save_scene_document(FilesystemRoot &a_filesystem, const Relativ
                                                                 "Scene candidate differs after parse-back"));
         }
 
+        if (a_expected != nullptr)
+        {
+            auto beforeBackup = fingerprint_file(a_filesystem, a_path, k_maximumSceneBytes, a_assertContext);
+            if (!beforeBackup)
+            {
+                return SceneSaveOutcome::not_published(storage_error(
+                    a_assertContext, SceneError::StorageNotPublished, "Failed to inspect scene before backup",
+                    std::move(*beforeBackup.try_error())));
+            }
+            if (*beforeBackup.try_value() != *a_expected)
+            {
+                return SceneSaveOutcome::not_published(
+                    storage_error(a_assertContext, SceneError::StorageNotPublished, "Scene changed before backup",
+                                  make_io_error(a_assertContext, IoError::PreconditionFailed,
+                                                "Scene fingerprint changed before backup")));
+            }
+        }
+
+        std::optional<std::vector<std::byte>> backupBytes;
         auto entry = a_filesystem.query_entry(a_path);
         if (!entry)
         {
@@ -1384,19 +1420,26 @@ SceneSaveOutcome save_scene_document(FilesystemRoot &a_filesystem, const Relativ
                                                                      "Failed to read scene before backup",
                                                                      std::move(*original.try_error())));
             }
-            std::string backupText(a_path.text());
-            backupText.append(".backup");
-            auto backupPath = RelativePath::parse(backupText, a_assertContext);
-            if (!backupPath)
+            if (a_expected != nullptr)
             {
-                return SceneSaveOutcome::not_published(std::move(*backupPath.try_error()));
+                const FileFingerprint originalFingerprint{true,
+                                                          static_cast<std::uint64_t>(original.try_value()->size()),
+                                                          file_content_digest(*original.try_value())};
+                if (originalFingerprint != *a_expected)
+                {
+                    return SceneSaveOutcome::not_published(storage_error(
+                        a_assertContext, SceneError::StorageNotPublished, "Scene changed while reading backup source",
+                        make_io_error(a_assertContext, IoError::PreconditionFailed,
+                                      "Scene content changed before backup")));
+                }
             }
-            auto backupWritten = a_filesystem.write_file_atomic(*backupPath.try_value(), *original.try_value());
-            if (!backupWritten)
+            if (a_recoveryBackupOverride.has_value())
             {
-                return SceneSaveOutcome::not_published(storage_error(a_assertContext, SceneError::StorageNotPublished,
-                                                                     "Failed to write scene recovery backup",
-                                                                     std::move(*backupWritten.try_error())));
+                backupBytes.emplace(a_recoveryBackupOverride->begin(), a_recoveryBackupOverride->end());
+            }
+            else
+            {
+                backupBytes.emplace(std::move(*original.try_value()));
             }
         }
         else if (*entry.try_value() != EntryType::Missing)
@@ -1406,7 +1449,10 @@ SceneSaveOutcome save_scene_document(FilesystemRoot &a_filesystem, const Relativ
         }
 
         const auto characters = std::span(serialized.try_value()->data(), serialized.try_value()->size());
-        auto written = a_filesystem.write_file_atomic(a_path, std::as_bytes(characters));
+        auto written = a_expected == nullptr
+                           ? a_filesystem.write_file_atomic(a_path, std::as_bytes(characters))
+                           : a_filesystem.write_file_atomic_if_unchanged(
+                                 *a_lease, a_path, *a_expected, k_maximumSceneBytes, std::as_bytes(characters));
         if (!written)
         {
             const bool durabilityUnknown =
@@ -1418,8 +1464,28 @@ SceneSaveOutcome save_scene_document(FilesystemRoot &a_filesystem, const Relativ
                                        durabilityUnknown ? "Scene is visible but storage durability is unknown"
                                                          : "Scene atomic publish failed before replacement",
                                        std::move(*written.try_error()));
-            return durabilityUnknown ? SceneSaveOutcome::durability_unknown(std::move(error))
+            return durabilityUnknown ? SceneSaveOutcome::durability_unknown(std::move(error), std::move(backupBytes))
                                      : SceneSaveOutcome::not_published(std::move(error));
+        }
+
+        if (backupBytes.has_value())
+        {
+            auto backupWritten = a_filesystem.write_recovery_backup_atomic(a_path, *backupBytes, a_assertContext);
+            if (!backupWritten)
+            {
+                const bool durabilityUnknown = backupWritten.try_error()->root_code().domain() == "Cue.IO" &&
+                                               backupWritten.try_error()->root_code().value() ==
+                                                   static_cast<std::int64_t>(IoError::DurabilityUnknown);
+                auto error = storage_error(
+                    a_assertContext,
+                    durabilityUnknown ? SceneError::StorageDurabilityUnknown : SceneError::PublishedVerificationFailed,
+                    durabilityUnknown ? "Scene is visible but recovery backup durability is unknown"
+                                      : "Scene is visible but recovery backup publication failed",
+                    std::move(*backupWritten.try_error()));
+                return durabilityUnknown
+                           ? SceneSaveOutcome::backup_durability_unknown(std::move(error), std::move(*backupBytes))
+                           : SceneSaveOutcome::verification_failed(std::move(error));
+            }
         }
 
         auto verified = load_scene_document(a_filesystem, a_path, a_schemaRegistry, a_valueSchemaRegistry,
@@ -1449,5 +1515,40 @@ SceneSaveOutcome save_scene_document(FilesystemRoot &a_filesystem, const Relativ
     {
         terminate_serialization_exception(a_assertContext);
     }
+}
+
+SceneSaveOutcome save_scene_document(FilesystemRoot &a_filesystem, const RelativePath &a_path,
+                                     const SceneDocument &a_document, const schema::SchemaRegistry &a_schemaRegistry,
+                                     const ComponentValueSchemaRegistry &a_valueSchemaRegistry,
+                                     const SceneMigrationRegistry &a_migrationRegistry,
+                                     const ComponentMigrationRegistry &a_componentMigrations,
+                                     const AssertContext &a_assertContext) noexcept
+{
+    return save_scene_document_internal(a_filesystem, nullptr, nullptr, std::nullopt, a_path, a_document,
+                                        a_schemaRegistry, a_valueSchemaRegistry, a_migrationRegistry,
+                                        a_componentMigrations, a_assertContext);
+}
+
+SceneSaveOutcome save_scene_document_if_unchanged(
+    FilesystemRoot &a_filesystem, FileWriteLease &a_lease, const RelativePath &a_path, FileFingerprint a_expected,
+    const SceneDocument &a_document, const schema::SchemaRegistry &a_schemaRegistry,
+    const ComponentValueSchemaRegistry &a_valueSchemaRegistry, const SceneMigrationRegistry &a_migrationRegistry,
+    const ComponentMigrationRegistry &a_componentMigrations, const AssertContext &a_assertContext) noexcept
+{
+    return save_scene_document_internal(a_filesystem, &a_lease, &a_expected, std::nullopt, a_path, a_document,
+                                        a_schemaRegistry, a_valueSchemaRegistry, a_migrationRegistry,
+                                        a_componentMigrations, a_assertContext);
+}
+
+SceneSaveOutcome save_scene_document_if_unchanged_with_backup(
+    FilesystemRoot &a_filesystem, FileWriteLease &a_lease, const RelativePath &a_path, FileFingerprint a_expected,
+    std::span<const std::byte> a_recoveryBackupBytes, const SceneDocument &a_document,
+    const schema::SchemaRegistry &a_schemaRegistry, const ComponentValueSchemaRegistry &a_valueSchemaRegistry,
+    const SceneMigrationRegistry &a_migrationRegistry, const ComponentMigrationRegistry &a_componentMigrations,
+    const AssertContext &a_assertContext) noexcept
+{
+    return save_scene_document_internal(a_filesystem, &a_lease, &a_expected, a_recoveryBackupBytes, a_path,
+                                        a_document, a_schemaRegistry, a_valueSchemaRegistry, a_migrationRegistry,
+                                        a_componentMigrations, a_assertContext);
 }
 } // namespace cue::scene

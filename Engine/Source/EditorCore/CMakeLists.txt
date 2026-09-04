@@ -6,6 +6,7 @@ target_sources(
         Private/EditorController.cpp
         Private/EditorDocument.cpp
         Private/Error.cpp
+        Private/Persistence.cpp
         Private/SceneCommand.cpp
     PUBLIC
         FILE_SET HEADERS
@@ -14,6 +15,7 @@ target_sources(
             Public/Cue/EditorCore/EditorController.h
             Public/Cue/EditorCore/EditorDocument.h
             Public/Cue/EditorCore/Error.h
+            Public/Cue/EditorCore/Persistence.h
             Public/Cue/EditorCore/SceneCommand.h
 )
 

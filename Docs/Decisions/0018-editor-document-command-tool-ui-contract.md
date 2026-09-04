@@ -209,20 +209,40 @@ Delete後に親や隣接Objectを自動選択するかはPresentation Policyと�
 Scene Save／Save As／Recovery Publishを直列化し、Sceneごとの進行中Saveと`SceneWriteLease`を所有する。
 `EditorDocument`はCoordinatorを所有せず、Session終了より長く参照しない。
 
-`SceneWriteLease`は本文Path、`.backup` Path、同じ親DirectoryのLock Sidecarを一つの排他範囲とする。Leaseは本文Entry確認前に取得し、
-旧Byte列読込、Backup公開、本文公開、公開結果の検証、結果状態の記録が完了するまで保持する。Windows Adapterは同じ物理Directoryと
-File名へ解決されるLock Sidecarを、Write／Delete共有を許可しないNative Handleとして開き、Process終了時にもOSが解放する。
-別Rootから同じ実Fileへ到達するCueEngine Writerも同じSidecarで競合し、Lease取得失敗を待機または診断可能なBusyとして返す。
-Sidecar削除失敗は本文Saveの成否を変更せずSecondary診断とする。
+`SceneWriteLease`は本文Pathを排他範囲とする。Leaseは本文Entry確認前に取得し、
+旧Byte列読込、Backup公開、本文公開、公開結果の検証、結果状態の記録が完了するまで保持する。Windows AdapterはRootのVolume／File
+IdentityとDestination Comparison KeyのDigestからProcess環境に依存しないGlobal Named Mutex名を構築する。
+別Rootから同じ物理RootとFileへ到達するCueEngine Writerは、`TEMP`／`TMP`やCurrent Directoryが異なっても同じMutexで競合する。
+取得失敗は非待機のBusyとして返し、Process終了時はOSがMutexをAbandonedとして次のWriterへ回収可能にする。
+
+M12の同期実装では、Owner Thread限定の`EditorController` Save WorkflowがSession内Coordinatorを担い、`Cue.IO`のMove-only
+`FileWriteLease`をSave結果の状態記録まで保持する。排他用Keyは本文Comparison Keyから構築する。
+Lease Stateは取得元の正確なPath Keyと取得Thread IDも保持し、Conditional Publish先と実行Threadの一致を要求する。
+`FileWriteLease`のMove、Conditional Write、破棄は取得Threadに限定し、違反したWriteは拒否、違反した破棄はFatalとする。
+Named Mutex名は固定長Digestを使うため、有効な最大長Locatorへ追加Suffixを付けず、利用者FileをLock Entryとして開くこともない。
+`write_file_atomic_if_unchanged`はLease所有PathとExpected FingerprintをTemporary FileのPublish直前に再検査し、`Missing`期待では
+Replace Flagを使用しない。既存File期待では再検査後に限りReplaceし、上記の非協調Writerに対する残存競合窓を許容する。
 
 M12では既存Scene本文が複数Hard Link名を持つ場合を`UnsupportedEntry`としてSave／Save Asの置換対象から拒否する。
-Windows AdapterはLease取得後、Backup作成前にNative File InformationのLink Countを検査する。別名ごとに異なるSidecarを取得して
+Windows AdapterはLease取得後、Backup作成前にNative File InformationのLink Countを検査する。別名ごとに異なるLockを取得して
 同じFile Identityを同時置換することを許可しない。Hard Linkを安全に編集する必要が生じた場合は、Volume／File IdentityをKeyにする
 Cross-process Leaseを別Research Issueで決定する。
 
 協調しない外部ProcessはLease Protocolに参加しないため、CoordinatorはLease取得直後かつBackup作成直前にFile Fingerprintを再取得し、
 操作が保持するDestination Expected Fingerprintと一致しなければ本文を公開せずExternal Conflictへ遷移する。Save Asで期待値が
 `Missing`の場合は、Destinationが存在しない場合だけ成功するCreate-new Publishを使用し、公開直前に作成されたEntryを置換しない。
+Backup元Byte列もExpected FingerprintのSize／Digestと照合し、一致した旧Byte列だけをSibling Backupへ公開する。
+本文のConditional Publish直前には別のFingerprint再検査を維持し、Backup前検査後の変更を本文へ上書きしない。
+旧Byte列は本文Publishが成功するまでMemoryに保持し、本文が未公開またはDurability不明なら既存Backupを変更しない。
+本文Publish成功後だけSibling BackupをAtomic更新する。Backup更新失敗時は本文を公開済みとしてVerification Failedを返し、
+既存Backupを維持する。Backup更新が公開済みだがDurability不明の場合は、本文側のDurability不明と区別した
+`PublishedButBackupDurabilityUnknown`を返し、保存前の旧Byte列を結果へ保持する。
+Sibling BackupとAtomic Write用Temporary FileはFilesystem Adapterが本文LocatorからNative内部Pathとして導出し、
+Portable `RelativePath`のPath長・Segment長上限を再適用しない。Userが指定できるScene Locatorの有効範囲を内部Suffixや
+Temporary名の長さによって狭めず、導出先にもRoot境界、Reparse Point拒否、同一Directory公開の検査を適用する。
+WindowsのSibling Backupは本文と同じDirectoryに、利用者`RelativePath`では表現できない`.`開始のHidden Segmentとして導出する。
+`.backup`を含む有効な利用者Locatorは通常Fileとして独立させ、別Sceneの正本をRecovery Backupとして置換しない。
+この契約は`FilesystemRoot`の各Adapterが必ず実装し、Portable上限を再適用する共通既定実装は持たない。
 
 既存Destinationの置換について、WindowsのPath単位Fingerprint再検査と`MoveFileExW`による公開の間を、Lease Protocolへ参加しない
 Processに対してAtomicなCompare-and-Publishにはできない。Publish後の再読込はCandidateが公開されたことの検証であり、その間に上書きした
@@ -244,6 +264,7 @@ Candidate Checkpointを`PendingSaveRecord`としてEditorDocumentが所有する
 | `Committed` | `savedStateId`をSave開始時Stateへ更新し、Destination Locatorと新しいFingerprintを記録する。現在Stateが進んでいればDirtyを維持する |
 | `NotPublished` | Document、History、Dirty、現在Locator、元Fileを維持し、失敗を通知する |
 | `PublishedButDurabilityUnknown` | Recordを保持したSave Uncertainへ遷移し、明示的な再確認を要求する |
+| `PublishedButBackupDurabilityUnknown` | 保存前Byte列を含むRecordを保持したSave Uncertainへ遷移し、Backupだけの再試行を要求する |
 | `PublishedButVerificationFailed` | Recordを保持したSave Uncertainへ遷移し、再確認後にExternal Conflictか保存済み状態を確定する |
 
 保存中に編集が進んだ場合も、保存開始時Stateだけを`savedStateId`として記録するため、現在Stateとの差によりDirtyを維持する。
@@ -253,13 +274,21 @@ Save Uncertainの再確認は、Coordinatorが`PendingSaveRecord`のDestination�
 `PublishedButDurabilityUnknown`は、ADR-0014で定義したWindows Publish境界だけでは公開済みFileと親Directoryに対する独立した
 Durability Barrierを再試行できないため、Byte列の再読込一致では解除しない。再保存前に、Leaseを保持したまま現在のDestinationを
 上限付きで再読込し、完全Parse、Migration、ValidationしたScene IdentityとDigestがRecordのCandidateに一致することを確認する。
+最初の本文PublishがDurability不明になった時点で、Lease内で取得済みの保存前Byte列もRecordへ保持し、後続Retryで上書きしない。
 一致した場合だけ、その時点のDestination FingerprintをRetry用Expected Fingerprintとして新しく記録し、同じCandidateを再保存する。
+再保存時のSibling Backupには現在のCandidate本文ではなく、Recordに保持した最初の保存前Byte列を使用する。
 元の操作開始時FingerprintまたはSave Asの`Missing`をRetryへ流用しない。一致しない、再読込できない、または別Scene Identityの場合は
 External Conflictへ遷移し、Destinationを上書きしない。
 
 Retry用Expected Fingerprintを用いた`Cue.Scene`のAtomic Saveから新しい`Committed`を得た場合だけDurabilityを確定する。
 この場合はRecordの開始時Stateを`savedStateId`へ設定し、Destination Locatorと現在Fingerprintを記録してUncertainを解除する。
 再保存が失敗または再び`PublishedButDurabilityUnknown`になった場合はRecordとUncertainを維持する。
+
+`PublishedButBackupDurabilityUnknown`は、本文を上限付きで再読込してCandidate DigestとScene Identityが一致することを確認後、
+同じLease範囲でRecordに保持した保存前Byte列をSibling BackupへだけAtomic再書込みする。本文は再保存しない。
+Backup再書込みが失敗または再びDurability不明になった場合はRecordと保存前Byte列を維持し、成功した場合だけ
+本文Fingerprintを再取得してCandidate Byte SizeとDigestが維持されていることを確認する。一致した場合だけRecordの開始時Stateを
+`savedStateId`へ設定してUncertainを解除し、一致しない場合はRecordを保持したままExternal Conflictへ遷移する。
 
 `PublishedButVerificationFailed`はDurability成功済みであるため、本文を上限付きで再読込し、完全Parse、Migration、Validationした
 Byte列のDigestをCandidate Digestと比較してよい。DigestとScene Identityが一致した場合は、Recordの開始時Stateを
@@ -269,6 +298,11 @@ Byte列のDigestをCandidate Digestと比較してよい。DigestとScene Identi
 External Conflictへ遷移し、RecordとCandidate Checkpointを保持したままReload、Save As、Retry Save／Verification、Cancelの
 明示Intentを要求する。
 明示的なDiscardまたはSession CloseまでRecordを破棄しない。
+通常SaveとDurability Retryは、`Committed`後に取得した最終Fingerprintの存在、Byte Size、Content DigestをCandidateと照合する。
+非協調Writerにより一致しない場合はSaved Stateを更新せずExternal Conflictとし、Memory上の編集をDirtyのまま維持する。
+Save Uncertain中の通常SaveとReloadはRecordを暗黙破棄またはClean化し得るため拒否する。`retry_uncertain_save`または
+`discard_uncertain_save`の明示Intentを先に要求し、DiscardはDocument、History、Dirtyを変更しない。Recovery適用も同じRecordを
+孤立させ得るため、RetryまたはDiscardでSave Uncertainを解決するまで拒否する。
 
 File Fingerprintは最終更新時刻だけに依存せず、File SizeとContent Digestを含む。外部変更を検出した場合は暗黙に上書きせず、
 Reload、Save As、Cancelの明示Intentを要求する。
@@ -288,6 +322,47 @@ State ID、Scene Data Digestを含む。既知の古いVersionは`N -> N + 1`の
 
 Recovery書込み成功は`savedStateId`を更新しない。起動時に有効なRecoveryを検出した場合は、正本を暗黙置換せず、Recover、Discard、
 Inspectの明示Intentを要求する。Recover後のDocumentはDirtyな新Stateとして開き、通常Saveが成功するまで正本としない。
+Autosave対象はDirtyなDocumentに加え、`currentStateId == savedStateId`でも保存先をまだ持たない新規Documentを含む。
+`ignore_recovery`は現在Sessionの表示だけを解除し、`discard_recovery`はSaved RootのRecovery File削除成功時だけ候補を解除する。
+削除失敗時はRecovery Fileと候補状態を維持する。
+
+未保存Sceneを再起動後にも発見できるよう、`Editor/Recovery/Registry.cueindex`へProject IDとRecoveryを作成したScene IDを
+Version付きのAppend-only Registryとして保持する。AutosaveはEnvelopeより先にScene IDをRegistryへAtomic登録し、Envelope公開後に
+列挙不能なFileを残さない。Registry登録後にEnvelope公開が失敗した場合や明示Discard後もRegistry Entryは残してよいが、列挙時は
+対応するRegular Fileが存在し、Envelope、Project ID、Scene ID、Scene本文を完全検証できるEntryだけを候補として返す。
+`list_recovery_candidates`で起動時候補を列挙し、`open_document_from_recovery`は正本Fileの存在を前提にせずEnvelopeから直接
+Dirty Documentを開く。Recover後も正本は暗黙作成・置換しない。
+Registry本文自体の破損は列挙全体の失敗とするが、個別Entryの読込、Envelope、Identity、Scene検証失敗はそのEntryだけを隔離し、
+有効候補とEntry単位診断を同じ列挙結果で返す。Recovery直接Open時に正本Fingerprintを取得できない場合もEnvelopeからのOpenは
+継続し、`ExternalChangeState::Unknown`として通常Saveを拒否してSave As、Reload、Cancelの明示判断を要求する。
+
+Registry v1はMagic `CueRecoveryRegistry`、Registry Version、Project ID、Scene ID列を改行区切りで保持する。EntryはScene ID順に
+決定的に並べ、重複、未知Version、Project不一致、上限超過を`InvalidRecovery`または`UnsupportedRecovery`として拒否する。
+
+#### Recovery Envelope v1
+
+M12のRecovery本文はSaved Root基準の`Editor/Recovery/<SceneAssetId>.cuerecovery`へ保存する。
+Envelope v1は次のUTF-8 Headerを改行区切りで保持し、空行の後へ現行Scene JSONを指定Byte数だけ連結する。
+
+1. Magic `CueRecovery`
+2. Recovery Format Version
+3. Project ID
+4. Scene ID
+5. Source Assets Root基準の正本Locator
+6. Base Fileの存在Flag
+7. Base File Byte Size
+8. Base File Content Digest
+9. Recovery作成時のDocument State値
+10. Scene JSON Content Digest
+11. Scene JSON Byte Size
+
+DigestはFirst-partyのFNV-1a 64-bitを用い、File Sizeと組み合わせて偶発的な外部変更と破損を検出する。
+これは暗号学的な真正性を保証せず、信頼境界を越える改ざん検出には使用しない。Header、本文Size、Digest、Project ID、Scene ID、
+Locator、Scene Parse／Migration／Validationの全検査に成功した候補だけをRecover可能とする。未知Version、欠落Field、上限超過、
+Digest不一致は元Fileを変更せず`UnsupportedRecovery`または`InvalidRecovery`として返す。
+
+RecoveryのBase Fingerprintが現在の正本Fingerprintと異なる場合、Recover自体は明示IntentとしてMemoryへ適用するが、Documentを
+External Conflict状態にする。これによりRecover後の通常Saveは正本を暗黙上書きせず、Save As、Reload、Cancelの明示判断を要求する。
 
 ### Close State Machine
 
@@ -312,6 +387,8 @@ AwaitingDecision --Cancel--> Open
 Save完了後は、同期／非同期の実装方式にかかわらず、Closeを確定する直前に`currentStateId == savedStateId`かつ
 Save Uncertainが存在しないことを再確認する。保存開始後に編集が進んだ場合やUncertainが残る場合はDocumentを閉じず、
 新しい状態に対するSave、Discard、Cancelを選択する`AwaitingDecision`へ戻す。
+Lease取得、Fingerprint取得、Serializationを含む保存前の失敗も`SaveRequested`へ留めず、同じ`AwaitingDecision`へ戻す。
+Save UncertainのRetryも、失敗または再び不確定な結果になった場合はPending Recordを維持したまま`AwaitingDecision`へ戻す。
 
 DiscardはMemory上のEditorDocumentを閉じるだけで、正本FileやRecovery Fileを削除しない。Recovery削除は別の明示Intentとする。
 
