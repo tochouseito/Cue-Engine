@@ -150,6 +150,9 @@ Directory作成はRoot配下だけで行い、途中で既存Regular Fileまた�
 不足DirectoryのNative Createが`AlreadyExists`相当になった場合はEntryを再検査し、Directoryなら競合成功として再利用する。
 Regular Fileなら`TypeMismatch`、Reparse Point等のUnsupported Entryなら`UnsupportedEntry`を返す。
 `AlreadyExists`はCreate-newまたはPublish先衝突の分類であり、Create-or-open Directoryの型衝突へ丸めない。
+再検査が`Missing`へ戻った場合は同じSegmentのNative Createを再試行するが、初回を含めて最大3回に制限する。
+3回目の再検査も`Missing`なら`IoError::IoFailure`と競合診断を返し、無制限なBusy Loopにしない。
+再検査自体がErrorならそのErrorを保持し、別分類へ丸めない。
 
 ### Atomic File Replace
 
@@ -320,6 +323,7 @@ M09の必要範囲に対して新規Dependency、License管理、ABI面積が増
 
 - Project Relative Pathの正常・脱出・予約名・Case Alias・長さ境界Table Test
 - Root自身と各子ComponentのReparse Point拒否Test
+- Directory Create競合後のDirectory再利用、File／Reparse Point分類、Missing再試行上限Test
 - Atomic Replaceの旧Content保持、新Content公開、Temp cleanup Test
 - Publish後Flush失敗の`PublishedButDurabilityUnknown` Test
 - Staging作成の各Failure Pointに対する半完成最終Directory不存在Test
