@@ -271,9 +271,10 @@ Executeより後ろへ並ぶこの予約値だけから更新する。Signal失�
 Fence枯渇を検出した時点で`Cue.ToolHost/ToolHostError::FenceValueExhausted`をPrimary Errorとして保存し、未描画Frameを
 正常成功へ変換しない。未提出またはDrain成功ではこのErrorを返してProcessを非0で終了する。Wait Error後に既存値の完了を
 証明できた場合もFence枯渇をPrimaryに維持し、Wait ErrorをSecondary Contextとする。Drain中にDevice Removalを確認した場合は
-`ToolHostError::DeviceRemoved`をPrimaryへ昇格し、Removal ReasonをNative Error、Fence枯渇とWait ErrorをCause Contextとして
-待機なし制御解放へ進む。完了もRemovalも証明できない場合は`ToolHostError::GpuCompletionUnavailable`をPrimary、Fence枯渇と
-Wait／Removal確認ErrorをCause ContextとしてResource解放前にFatal Dispatchする。
+Wait Errorを`FenceValueExhausted`へSecondary Contextとして集約してから、その集約ErrorをImmediate Causeとして
+`ToolHostError::DeviceRemoved`へ再分類し、Removal ReasonをNative Errorとして待機なし制御解放へ進む。
+完了もRemovalも証明できない場合はWait／Removal確認Errorを`FenceValueExhausted`へ発生順のSecondary Contextとして集約し、
+その集約ErrorをImmediate Causeに`ToolHostError::GpuCompletionUnavailable`へ再分類してResource解放前にFatal Dispatchする。
 
 一つのUI FrameはOwner Threadだけで処理する。Windows Message、ImGui Frame、Semantic Intent適用、Application Service Mutation、
 ViewModel再取得、Draw Data提出を同じThreadで順序付ける。Background ThreadからImGui APIまたはProjectHubServiceを直接呼ばない。
@@ -299,8 +300,9 @@ ImGui Adapterは表示用ViewとPresentation Stateだけを読み、User操作�
 - Device Removal確認後はFenceをSignalまたはWaitせず、Removal Reasonを記録してDREDを一度だけBest-effortで採取する。
   DRED採取失敗は制御解放を妨げず、Message Sink detach、DirectX 12 Renderer Backend、Win32 Platform Backend、ImGui Context、
   Command Resource、Back Buffer、RTV／SRV Heap、Swap Chain／Binding、Fence／Event、Queue、Device、Windowの順に待機なしで解放し、
-  `ToolHostError::DeviceRemoved`をPrimary、Removal ReasonをNative Error、Device Removal検出前の先行ErrorとDRED／Cleanup Errorを
-  発生順のCause Contextとして記録してTool Sessionを終了する。Device Removalでは先行Error維持より本規則を優先する
+  `ToolHostError::DeviceRemoved`をPrimary、Removal ReasonをNative Errorとする。Device Removal検出前の先行Errorは
+  再分類時のImmediate Causeとして保持し、独立して後から発生するDRED／Cleanup ErrorはCause Chainへ加えず、
+  `append_secondary_diagnostics()`で発生順のSecondary Contextとして保持する。Device Removalでは先行Error維持より本規則を優先する
 - Fence Signal／Wait／待機Primitiveが失敗した場合は、Fence完了とDevice Removalの再検査結果を先に集める。
   Device Removalを確認できればFence完了も同時に観測していてもRemoval経路を最優先し、Removal未確認でFence完了だけを
   証明できた場合に限り安全なResource解放を最後まで行って先行Errorを返す。どちらも確認できなければGPUが参照し得る
@@ -326,9 +328,10 @@ Renderer Backend Shutdownが呼ばれないこと、Fence値を再利用しな�
 完了もRemovalも証明不能な経路がResource解放前にFatal Dispatchすることを検証する。
 Fence枯渇は`nextFenceValue`と`lastSignaledFence`を注入し、未提出0値の即時Cleanup、1以上のSignalなしDrain、Timeout、
 Device Removal、非Wrap／非Sentinel Signal、Primary ErrorとProcess非0終了を個別に検証する。
-Signal／Wait／Present／Resizeの各Device Removal経路は、Fence完了との同時成立、先行Error、DRED失敗、複数Cleanup Errorを注入し、
-`ToolHostError::DeviceRemoved`が常にPrimary、Removal ReasonがNative Error、先行・DRED・Cleanup Errorが発生順のCause Contextに
-なることを検証する。
+Signal／Wait／Present／Resize、`GetCompletedValue()`の`UINT64_MAX`、`GetDeviceRemovedReason()`直接確認の各Device Removal経路は、
+Fence完了との同時成立、先行Error、DRED失敗、複数Cleanup Errorを注入する。`ToolHostError::DeviceRemoved`が常にPrimary、
+Removal ReasonがNative Error、先行ErrorがImmediate Cause、DRED／Cleanup Errorが発生順のSecondary Contextになり、
+後発独立ErrorがCause Chainへ入らないことを検証する。
 Manual TestはProject作成、既存Project登録、Pin、一覧除外、Keyboard操作、Cancel、Editor Launch要求、正常Closeを確認する。
 
 Pixel完全一致、Theme、Font Raster差分、Docking、Multi-ViewportはM12 Gateに含めない。
