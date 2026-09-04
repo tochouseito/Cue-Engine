@@ -351,6 +351,7 @@ void ProjectHubPresenter::draw(bool a_canLaunchEditor) noexcept
         ImGui::SameLine();
         if (ImGui::Button("既存Projectを登録 (Ctrl+O)") || registerShortcut)
         {
+            m_confirmMovedProject = false;
             m_openRegisterDialog = true;
         }
         ImGui::SameLine();
