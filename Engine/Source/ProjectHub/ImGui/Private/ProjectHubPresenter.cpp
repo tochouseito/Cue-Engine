@@ -148,6 +148,37 @@ namespace
     return "互換性不明";
 }
 
+/// @brief Project互換性の安定理由を原因と回復手順を含む日本語表示へ変換する
+[[nodiscard]] const char *compatibility_reason_text(cue::ProjectCompatibilityReasonCode a_reason) noexcept
+{
+    switch (a_reason)
+    {
+    case cue::ProjectCompatibilityReasonCode::UnsupportedProjectFormat:
+        return "Project Formatが非対応です。対応するCueEngineで開くか、正式なMigrationを使用してください。";
+    case cue::ProjectCompatibilityReasonCode::EngineVersionTooOld:
+        return "現在のCueEngineがProjectの要求Versionより古いため、CueEngineを更新してください。";
+    case cue::ProjectCompatibilityReasonCode::EngineVersionTooNew:
+        return "現在のCueEngineがProjectの対応範囲より新しいため、対応する旧Versionを使用してください。";
+    case cue::ProjectCompatibilityReasonCode::CapabilityNotObserved:
+        return "必要なHardware機能を観測できません。DeviceとDriverの状態を確認してください。";
+    case cue::ProjectCompatibilityReasonCode::CapabilityNotQueried:
+        return "必要なHardware機能を未確認です。診断を再実行してから一覧を更新してください。";
+    case cue::ProjectCompatibilityReasonCode::CapabilityQueryFailed:
+        return "Hardware機能の取得に失敗しました。DriverとLogを確認してから再試行してください。";
+    case cue::ProjectCompatibilityReasonCode::HardwareUnsupported:
+        return "現在のHardwareは必要機能に対応していません。対応Hardwareを使用してください。";
+    case cue::ProjectCompatibilityReasonCode::EngineNotImplemented:
+        return "必要機能を現在のCueEngineが実装していません。対応Versionへ更新してください。";
+    case cue::ProjectCompatibilityReasonCode::CapabilityVersionUnknown:
+        return "必要機能のVersionを確認できません。OSとDriverを更新して再確認してください。";
+    case cue::ProjectCompatibilityReasonCode::CapabilityVersionTooLow:
+        return "必要機能のVersionが不足しています。対応するDriverまたはHardwareを使用してください。";
+    case cue::ProjectCompatibilityReasonCode::RuntimeDisabled:
+        return "必要機能がRuntime設定で無効です。ProjectとRuntime設定を確認してください。";
+    }
+    return "互換性を判断できません。Project情報とEngine診断を確認してください。";
+}
+
 /// @brief 固定Bufferへ初期文字列をNUL終端で設定する
 template <std::size_t Size> void set_buffer(std::array<char, Size> &a_buffer, std::string_view a_text) noexcept
 {
@@ -446,6 +477,10 @@ void ProjectHubPresenter::draw_project_list(bool a_canLaunchEditor) noexcept
                     if (recoveryText != nullptr)
                     {
                         ImGui::TextWrapped("確認: %s", recoveryText);
+                    }
+                    for (const ProjectCompatibilityReason &reason : project.compatibilityReasons)
+                    {
+                        ImGui::TextWrapped("互換性: %s", compatibility_reason_text(reason.code));
                     }
                     ImGui::Unindent();
                 }
@@ -810,6 +845,9 @@ void ProjectHubPresenter::set_error(const Error &a_error) noexcept
             break;
         case ProjectError::ProjectLocatorConflict:
             message = "同じProject Folderが別のProjectとして登録されています。";
+            break;
+        case ProjectError::DuplicateProjectId:
+            message = "同じProject IDが別のFolderで登録済みです。移動した同一Projectなら再関連付けを有効にして登録してください。";
             break;
         case ProjectError::ProjectNotRegistered:
             message = "Projectは一覧に登録されていません。一覧を更新してください。";
