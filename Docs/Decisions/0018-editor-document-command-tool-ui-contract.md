@@ -97,6 +97,10 @@ Cue.Editor.ImGui --------> Cue.EditorCore
 Cue.ToolHost.WindowsD3D12 -> Cue.Platform.Windows
           `----------------> Cue.ImGui.Backend.Win32D3D12
 
+Cue.ProjectHub.Tool -----> Cue.ToolHost.WindowsD3D12 / Cue.ProjectHub.ImGui / Cue.ProjectHub
+
+Cue.Editor.Tool ---------> Cue.ToolHost.WindowsD3D12 / Cue.Editor.ImGui / Cue.EditorCore
+
 Cue.RuntimeHost ---------> Cue.GameCore / Cue.Scene
 ```
 
@@ -106,7 +110,8 @@ Cue.RuntimeHost ---------> Cue.GameCore / Cue.Scene
 M12のImGui HostはEditor用Descriptor、Game Renderer、Viewport Render Targetを要求しない。WindowとImGui Backendに必要な
 Platform接続はPresentation Hostが所有し、`Cue.EditorCore`の公開APIへNative Handleを出さない。
 `Cue.ProjectHub.ImGui`と`Cue.Editor.ImGui`は`Cue.Platform`へ直接依存せず、Platform接続とD3D12 compositionは
-ADR-0019で決定した`Cue.ToolHost.WindowsD3D12`が所有する。本修正はPresentation／Hostの依存辺だけを更新し、
+ADR-0019で決定した`Cue.ToolHost.WindowsD3D12`が提供する。各最終Executable RootがHost、Application Service、
+Presentation Adapterを組み合わせて所有する。本修正はPresentation／Hostの依存辺だけを更新し、
 本ADRのEditorDocument、Command、Transaction、Save、Process契約を変更しない。
 
 ### EditorDocument Ownership

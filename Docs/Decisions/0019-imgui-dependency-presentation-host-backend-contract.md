@@ -131,6 +131,14 @@ Cue.ToolHost.WindowsD3D12 -> Cue.Platform.Windows
           |----------------> Cue.ImGui.Backend.Win32D3D12
           |----------------> D3D12 / DXGI private composition
 
+Cue.ProjectHub.Tool ------> Cue.ToolHost.WindowsD3D12
+          |----------------> Cue.ProjectHub.ImGui
+          `----------------> Cue.ProjectHub
+
+Cue.Editor.Tool ----------> Cue.ToolHost.WindowsD3D12
+          |----------------> Cue.Editor.ImGui
+          `----------------> Cue.EditorCore
+
 Cue.ImGui.Backend.Win32D3D12 -> Cue.ImGui.Core
 
 Cue.ImGui.Core ------------> vcpkg imgui::imgui
@@ -139,9 +147,13 @@ Cue.ImGui.Core ------------> vcpkg imgui::imgui
 `Cue.ProjectHub`、`Cue.EditorCore`、`Cue.Scene`、`Cue.Project`、Runtime Module は Dear ImGuiへ依存しない。
 `Cue.ProjectHub.ImGui` と `Cue.Editor.ImGui` は `Cue.RHI`、D3D12 Header、Native Device、Descriptor Heapを参照しない。
 
-`Cue.ToolHost.WindowsD3D12` は M12 Tool UI 専用の Composition Root とする。Window、Message Pump、ImGui Context、
+`Cue.ToolHost.WindowsD3D12` は M12 Tool UI 共通のHost Runtime Targetとする。Window、Message Pump、ImGui Context、
 Frame開始／終了、Tool用D3D12 Device、Queue、Swap Chain、Descriptor Heap、公式Backendの初期化／終了順を所有する。
 Tool Host の Native ObjectをPresentation AdapterまたはApplication Serviceの公開APIへ出さない。
+
+`Cue.ProjectHub.Tool`と`Cue.Editor.Tool`を最終Executable Composition Rootとする。各Rootは
+`Cue.ToolHost.WindowsD3D12`、対応するApplication Service、Presentation Adapter、Presentation Stateを一意所有し、
+HostのFrame Callback内でAdapterを駆動する。共通Host TargetはProject HubまたはEditor固有型へ依存しない。
 
 M12 では Runtime Renderer、Game Swap Chain、Viewport Render Target、Cue.RHI 公開APIを Tool UI のために変更しない。
 Tool用D3D12 ResourceとGame Renderer Resourceの共有は対象外とする。
@@ -168,25 +180,27 @@ Platform非依存の`Cue.Platform` API、`WindowEvent`、Runtime ModuleへWin32�
 - `NativeWindowView`のSubclass禁止は維持し、Tool Hostによる`SetWindowLongPtrW`置換を許可しない
 
 attach／detachは診断可能な`Result<void>`を返し、回復可能な失敗は`Cue.Platform.Windows` Error Categoryで表す。
-Owner Thread外からの呼出しとSink Callback実行中の再入attach／detachは既存Window APIと同じProgramming Contract違反とし、
-Debug／DevelopmentではAssertして終了し、Releaseでも状態を変更しない。Windows Windowではない対象は
-`InvalidWindowKind`、Close要求済みまたは破棄済みWindowへのattachは`MessageSinkUnavailable`を返す。
+Owner Thread外からの呼出し、Sink Callback実行中の再入attach／detach、許可されないLifecycle Stateからの呼出しは、
+ADR-0005とADR-0006に従うProgramming Contract違反とする。Debug／DevelopmentではAssertして終了し、Releaseでは
+呼出し自体を契約外とする。attachは`Created`／`Visible`、detachは`Created`／`Visible`／`CloseRequested`だけで許可する。
+Windows Windowではない対象は`InvalidWindowKind`を返す。
 
 関連付けの状態遷移は次の契約とする。
 
 | 操作 | 現在状態 | 結果 |
 | --- | --- | --- |
-| attach(A) | 未関連付け、Windowが利用可能 | Aを関連付けて成功する |
+| attach(A) | 未関連付け、許可State | Aを関連付けて成功する |
 | attach(A) | Aを関連付け済み | 冪等に成功し、状態を変更しない |
 | attach(B) | Aを関連付け済み | `MessageSinkAlreadyAttached`を返し、Aを維持する |
 | detach(A) | Aを関連付け済み | 関連付けを解除して成功する |
 | detach(A) | 未関連付け | 冪等に成功し、状態を変更しない |
 | detach(B) | Aを関連付け済み | `MessageSinkMismatch`を返し、Aを維持する |
 
-失敗したattach／detachはCallbackを呼ばず、既存関連付けとWindow Lifecycle状態を変更しない。Window破棄は、以後Callbackが
-発生しない状態へ遷移してから関連付けを自動解除する。このためWindow破棄後の同じSinkのdetachは未関連付けとして冪等に成功するが、
-Tool Hostの正常終了経路はBackend ShutdownとContext破棄より前に明示detachする。安定Error Code値は#162の実装時に
-既存Platform Error規約へ追加し、上記Categoryと状態不変条件をTestで固定する。
+回復可能な失敗ではCallbackを呼ばず、既存関連付けとWindow Lifecycle状態を変更しない。Window破棄は、以後Callbackが
+発生しない状態へ遷移してから関連付けを自動解除する。ただし`Destroyed`でのdetachは`destroy()`以外のNative操作であるため
+冪等成功にせず、ADR-0006どおりProgramming Contract違反とする。Tool Hostの正常終了経路はWindow破棄前、かつBackend Shutdownと
+Context破棄より前に明示detachする。安定Error Code値は#162の実装時に既存Platform Error規約へ追加し、上記Categoryと
+状態不変条件をTestで固定する。
 
 この境界はTool UIのNative Input配送に限定し、一般Runtime Input System、IME抽象、Drag and DropはM12対象外とする。
 
@@ -200,8 +214,8 @@ Tool Hostの正常終了経路はBackend ShutdownとContext破棄より前に明
 4. Dear ImGui Context
 5. Win32 Platform Backend
 6. DirectX 12 Renderer Backend
-7. Project HubまたはEditor Application Service
-8. Presentation Adapter State
+7. 最終Executable Rootが所有するProject HubまたはEditor Application Service
+8. 同Rootが所有するPresentation Adapter State
 
 終了順は逆順とする。GPU Idle確認とBackend Shutdownが完了するまでDescriptor ResourceとDeviceを破棄しない。
 ImGui Contextは一つのTool Hostが一意所有し、Global SingletonまたはRuntime Serviceへ登録しない。
