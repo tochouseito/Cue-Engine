@@ -92,6 +92,44 @@ namespace
     return "状態不明";
 }
 
+/// @brief Broken Entryの安定分類を行内の日本語診断へ変換する
+[[nodiscard]] const char *entry_problem_text(cue::project_hub::ProjectEntryProblem a_problem) noexcept
+{
+    switch (a_problem)
+    {
+    case cue::project_hub::ProjectEntryProblem::None:
+        return nullptr;
+    case cue::project_hub::ProjectEntryProblem::LocatorAccessFailed:
+        return "Folderへアクセスできません";
+    case cue::project_hub::ProjectEntryProblem::DescriptorInvalid:
+        return "CueProject.jsonを読み取れません";
+    case cue::project_hub::ProjectEntryProblem::IdentityMismatch:
+        return "Project IDが一覧と一致しません";
+    case cue::project_hub::ProjectEntryProblem::CompatibilityInvalid:
+        return "互換性情報を評価できません";
+    }
+    return "Projectの診断状態が不明です";
+}
+
+/// @brief Broken Entryの安定分類をUserが実行できる回復手順へ変換する
+[[nodiscard]] const char *entry_problem_recovery_text(cue::project_hub::ProjectEntryProblem a_problem) noexcept
+{
+    switch (a_problem)
+    {
+    case cue::project_hub::ProjectEntryProblem::None:
+        return nullptr;
+    case cue::project_hub::ProjectEntryProblem::LocatorAccessFailed:
+        return "Folderの存在、アクセス権、File／Directory種別、Reparse Pointを確認してください。";
+    case cue::project_hub::ProjectEntryProblem::DescriptorInvalid:
+        return "Project Folder内のCueProject.jsonが存在し、正しいJSONと必須項目を保持しているか確認してください。";
+    case cue::project_hub::ProjectEntryProblem::IdentityMismatch:
+        return "別Projectでないか確認してください。移動した同一Projectなら一覧から除外し、再関連付けを有効にして登録してください。";
+    case cue::project_hub::ProjectEntryProblem::CompatibilityInvalid:
+        return "CueProject.jsonのFormat VersionとEngine互換性情報を確認し、対応するCueEngineで開いてください。";
+    }
+    return "Project FolderとCueProject.jsonを確認してください。";
+}
+
 /// @brief Compatibility Statusを日本語表示へ変換する
 [[nodiscard]] const char *compatibility_text(cue::ProjectCompatibilityStatus a_status) noexcept
 {
@@ -388,7 +426,8 @@ void ProjectHubPresenter::draw_project_list(bool a_canLaunchEditor) noexcept
                                   renderedDisplayName.data() + renderedDisplayName.size());
                 drawList->PopClipRect();
                 ImGui::SameLine(260.0F);
-                ImGui::TextDisabled("%s / %s", entry_state_text(project.state),
+                const char *problemText = entry_problem_text(project.problem);
+                ImGui::TextDisabled("%s / %s", problemText != nullptr ? problemText : entry_state_text(project.state),
                                     compatibility_text(project.compatibilityStatus));
                 if (project.isPinned)
                 {
@@ -401,6 +440,11 @@ void ProjectHubPresenter::draw_project_list(bool a_canLaunchEditor) noexcept
                     const std::string renderedLocator = make_renderable_text(project.locator);
                     ImGui::TextDisabled("Locator（Unicode Escape表示）");
                     ImGui::TextWrapped("%s", renderedLocator.c_str());
+                    const char *recoveryText = entry_problem_recovery_text(project.problem);
+                    if (recoveryText != nullptr)
+                    {
+                        ImGui::TextWrapped("確認: %s", recoveryText);
+                    }
                     ImGui::Unindent();
                 }
                 ImGui::PopID();
