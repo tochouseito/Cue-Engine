@@ -265,6 +265,19 @@ Result<void> RecentProjectRegistry::mark_project_missing(const ProjectId &a_proj
     return Result<void>::success();
 }
 
+Result<void> RecentProjectRegistry::mark_project_available(const ProjectId &a_projectId,
+                                                           const AssertContext &a_assertContext) noexcept
+{
+    const std::size_t existing = find_project(a_projectId);
+    if (existing == k_missingIndex)
+    {
+        return Result<void>::failure(make_project_error(a_assertContext, ProjectError::ProjectNotRegistered,
+                                                        "ProjectId is not registered"));
+    }
+    m_entries[existing].m_locatorState = ProjectLocatorState::Available;
+    return Result<void>::success();
+}
+
 Result<void> RecentProjectRegistry::set_project_pinned(const ProjectId &a_projectId, bool a_isPinned,
                                                        const AssertContext &a_assertContext) noexcept
 {
@@ -286,6 +299,42 @@ Result<void> RecentProjectRegistry::set_project_pinned(const ProjectId &a_projec
     m_entries[existing].m_isPinned = a_isPinned;
     m_entries[existing].m_pinOrder = a_isPinned ? m_nextPinOrder++ : 0U;
     sort_entries();
+    return Result<void>::success();
+}
+
+Result<void> RecentProjectRegistry::move_pinned_project(const ProjectId &a_projectId, std::size_t a_targetIndex,
+                                                        const AssertContext &a_assertContext) noexcept
+{
+    const std::size_t existing = find_project(a_projectId);
+    const std::size_t pinnedCount = static_cast<std::size_t>(std::count_if(
+        m_entries.begin(), m_entries.end(), [](const RecentProject &a_entry) { return a_entry.is_pinned(); }));
+    if (existing == k_missingIndex)
+    {
+        return Result<void>::failure(make_project_error(a_assertContext, ProjectError::ProjectNotRegistered,
+                                                        "ProjectId is not registered"));
+    }
+    if (!m_entries[existing].m_isPinned || a_targetIndex >= pinnedCount)
+    {
+        return Result<void>::failure(make_project_error(a_assertContext, ProjectError::InvalidPinOrder,
+                                                        "Pinned project move target is invalid"));
+    }
+    if (existing < a_targetIndex)
+    {
+        std::rotate(m_entries.begin() + static_cast<std::ptrdiff_t>(existing),
+                    m_entries.begin() + static_cast<std::ptrdiff_t>(existing + 1U),
+                    m_entries.begin() + static_cast<std::ptrdiff_t>(a_targetIndex + 1U));
+    }
+    else if (existing > a_targetIndex)
+    {
+        std::rotate(m_entries.begin() + static_cast<std::ptrdiff_t>(a_targetIndex),
+                    m_entries.begin() + static_cast<std::ptrdiff_t>(existing),
+                    m_entries.begin() + static_cast<std::ptrdiff_t>(existing + 1U));
+    }
+    for (std::size_t index = 0U; index < pinnedCount; ++index)
+    {
+        m_entries[index].m_pinOrder = static_cast<std::uint64_t>(index + 1U);
+    }
+    m_nextPinOrder = static_cast<std::uint64_t>(pinnedCount + 1U);
     return Result<void>::success();
 }
 

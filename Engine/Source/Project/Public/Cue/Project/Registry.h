@@ -108,9 +108,15 @@ class RecentProjectRegistry final
     /// @brief 欠損 Locator を Entry 削除へ変換せず Missing として保持する
     [[nodiscard]] Result<void> mark_project_missing(const ProjectId &a_projectId,
                                                     const AssertContext &a_assertContext) noexcept;
+    /// @brief 再確認できた Locator を最終 Open 時刻を変えず Available へ戻す
+    [[nodiscard]] Result<void> mark_project_available(const ProjectId &a_projectId,
+                                                      const AssertContext &a_assertContext) noexcept;
     /// @brief ProjectId の Pin 状態を変更し、初回 Pin 順を安定して割り当てる
     [[nodiscard]] Result<void> set_project_pinned(const ProjectId &a_projectId, bool a_isPinned,
                                                   const AssertContext &a_assertContext) noexcept;
+    /// @brief Pin Entry を現在の Pin 一覧内の 0-based 位置へ移動する
+    [[nodiscard]] Result<void> move_pinned_project(const ProjectId &a_projectId, std::size_t a_targetIndex,
+                                                   const AssertContext &a_assertContext) noexcept;
     /// @brief Recent 一覧から Entry だけを除外し、Project Folder へ IO を行わない
     [[nodiscard]] Result<void> remove_project(const ProjectId &a_projectId,
                                               const AssertContext &a_assertContext) noexcept;
