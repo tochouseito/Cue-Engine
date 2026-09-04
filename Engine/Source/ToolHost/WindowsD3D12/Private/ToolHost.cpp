@@ -257,6 +257,14 @@ void log_dred_allocations(const D3D12_DRED_ALLOCATION_NODE1 *a_head, std::string
                       "Tool Host GPU完了を証明できないためResource解放前に終了します", std::move(unavailable));
 }
 
+/// @brief Native WindowよりOwnerが先に解放されることを防ぐためProcessをFatal終端する
+[[noreturn]] void terminate_window_destruction_failure(const cue::AssertContext &a_context,
+                                                       cue::Error &&a_failure) noexcept
+{
+    cue::report_fatal(a_context.logger(), a_context.fatal_handler(),
+                      "Tool Host Native Windowを破棄できないためOwner解放前に終了します", std::move(a_failure));
+}
+
 /// @brief Win32 HANDLEを一意所有してScope終了時に閉じる
 class UniqueHandle final
 {
@@ -1371,13 +1379,9 @@ void WindowsD3d12ToolHost::cleanup(cue::Error *a_secondaryDiagnostics) noexcept
                 a_secondaryDiagnostics->append_secondary_diagnostics(*m_assertContext, *destroyed.try_error(),
                                                                      "Device Removal window destruction also failed",
                                                                      "Cleanup");
+                terminate_window_destruction_failure(*m_assertContext, std::move(*a_secondaryDiagnostics));
             }
-            else
-            {
-                static_cast<void>(m_assertContext->logger().log(
-                    cue::LogLevel::Warning, "Tool Host window destruction failed during cleanup",
-                    std::move(*destroyed.try_error())));
-            }
+            terminate_window_destruction_failure(*m_assertContext, std::move(*destroyed.try_error()));
         }
     }
     m_window.reset();

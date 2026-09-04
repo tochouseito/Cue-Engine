@@ -121,11 +121,11 @@ class TestDirectory final
     bool m_isCreated = false;
 };
 
-/// @brief Known Folder Factory Test専用の一意なLocalApplicationData子Directoryを限定Cleanupする
+/// @brief Known Folder Factory Test専用の一意なLocalApplicationData直下Directoryを限定Cleanupする
 class KnownFolderTestDirectory final
 {
   public:
-    /// @brief 実User Workspaceと分離した一意なRelative PathとNative Cleanup Pathを生成する
+    /// @brief 実User Workspaceと製品Directoryから分離した一意なRelative Pathと長Path Cleanup Pathを生成する
     KnownFolderTestDirectory()
     {
         PWSTR localApplicationData = nullptr;
@@ -140,9 +140,16 @@ class KnownFolderTestDirectory final
         const std::string leaf =
             "CueIoTests-" + std::to_string(GetCurrentProcessId()) + "-" + std::to_string(GetTickCount64());
         const std::wstring nativeLeaf(leaf.begin(), leaf.end());
-        m_relativePath = "CueEngine/Tests/" + leaf;
-        m_testRoot = std::wstring(localApplicationData) + L"\\CueEngine\\Tests\\" + nativeLeaf;
-        m_testContainer = std::wstring(localApplicationData) + L"\\CueEngine\\Tests";
+        m_relativePath = leaf;
+        std::wstring nativePath = std::wstring(localApplicationData) + L"\\" + nativeLeaf;
+        if (nativePath.starts_with(L"\\\\"))
+        {
+            m_cleanupPath = L"\\\\?\\UNC\\" + nativePath.substr(2);
+        }
+        else
+        {
+            m_cleanupPath = L"\\\\?\\" + nativePath;
+        }
         CoTaskMemFree(localApplicationData);
     }
 
@@ -155,20 +162,19 @@ class KnownFolderTestDirectory final
     /// @brief Known Folder Test Directoryの一意Cleanup責務を保つためMove代入を禁止する
     KnownFolderTestDirectory &operator=(KnownFolderTestDirectory &&) = delete;
 
-    /// @brief Test専用の空Directoryを削除し、空になったTest Containerだけを除去する
+    /// @brief 異常終了経路でもTest専用DirectoryだけをBest-effortで削除する
     ~KnownFolderTestDirectory()
     {
-        if (!m_testRoot.empty())
+        if (!m_isRemoved && !m_cleanupPath.empty())
         {
-            static_cast<void>(RemoveDirectoryW(m_testRoot.c_str()));
-            static_cast<void>(RemoveDirectoryW(m_testContainer.c_str()));
+            static_cast<void>(RemoveDirectoryW(m_cleanupPath.c_str()));
         }
     }
 
     /// @brief Known Folder解決とTest Path生成に成功したか返す
     [[nodiscard]] bool is_ready() const noexcept
     {
-        return !m_relativePath.empty() && !m_testRoot.empty();
+        return !m_relativePath.empty() && !m_cleanupPath.empty();
     }
 
     /// @brief Known Folder Factoryへ渡すTest専用Relative Pathを返す
@@ -177,10 +183,31 @@ class KnownFolderTestDirectory final
         return m_relativePath;
     }
 
+    /// @brief Root Handle解放後にTest専用Directoryを長Path APIで削除できたか返す
+    [[nodiscard]] bool remove() noexcept
+    {
+        if (m_isRemoved || m_cleanupPath.empty())
+        {
+            return m_isRemoved;
+        }
+        if (RemoveDirectoryW(m_cleanupPath.c_str()) != FALSE)
+        {
+            m_isRemoved = true;
+            return true;
+        }
+        const DWORD nativeCode = GetLastError();
+        if (nativeCode == ERROR_FILE_NOT_FOUND || nativeCode == ERROR_PATH_NOT_FOUND)
+        {
+            m_isRemoved = true;
+            return true;
+        }
+        return false;
+    }
+
   private:
     std::string m_relativePath;
-    std::wstring m_testRoot;
-    std::wstring m_testContainer;
+    std::wstring m_cleanupPath;
+    bool m_isRemoved = false;
 };
 
 /// @brief Portable Path の ASCII 表現を Windows Test 用 UTF-16 へ変換する
@@ -1003,7 +1030,12 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     auto reopened = cue::create_windows_known_folder_filesystem_root(
         cue::WindowsKnownFolder::LocalApplicationData, *relative.try_value(),
         cue::WindowsRootOpenMode::OpenExisting, a_assertContext);
-    return reopened.has_value() && *reopened.try_value() != nullptr;
+    if (!reopened || *reopened.try_value() == nullptr)
+    {
+        return false;
+    }
+    reopened.try_value()->reset();
+    return directory.remove();
 }
 } // namespace
 

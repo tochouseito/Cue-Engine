@@ -10,6 +10,7 @@ target_link_libraries(
     CueProjectHubTool
     PRIVATE
         Cue.Foundation.Windows
+        Cue.ImGui.Core
         Cue.IO.Windows
         Cue.ProjectHub.ImGui
         Cue.ProjectHub.Windows

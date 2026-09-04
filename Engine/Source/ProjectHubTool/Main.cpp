@@ -18,11 +18,90 @@
 #include <vector>
 
 #include <Windows.h>
+#include <imgui.h>
 
 namespace
 {
 constexpr int k_initializationFailure = 1;
 constexpr int k_toolHostFailure = 2;
+
+/// @brief Project Hub初期化ErrorをTool Host上でUserへ通知する
+class InitializationFailureClient final : public cue::tool_host::ToolHostClient
+{
+  public:
+    /// @brief UIで表示する初期化ErrorをClientが一意所有する
+    explicit InitializationFailureClient(cue::Error &&a_error) noexcept : m_error(std::move(a_error))
+    {
+    }
+
+    /// @brief Move-only Errorの一意所有を保つためCopy構築を禁止する
+    InitializationFailureClient(const InitializationFailureClient &) = delete;
+    /// @brief Move-only Errorの一意所有を保つためCopy代入を禁止する
+    InitializationFailureClient &operator=(const InitializationFailureClient &) = delete;
+    /// @brief 所有Errorを規定の順序で破棄する
+    ~InitializationFailureClient() override = default;
+
+    /// @brief Recoverableな初期化失敗と回復操作をProject Hub Windowへ描画する
+    void draw_frame() noexcept override
+    {
+        ImGui::SetNextWindowSize(ImVec2(760.0F, 320.0F), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Project Hub Initialization Error"))
+        {
+            ImGui::TextUnformatted("Project Hubを初期化できませんでした。");
+            ImGui::Spacing();
+            const std::string_view summary = m_error.summary();
+            ImGui::TextUnformatted(summary.data(), summary.data() + summary.size());
+            const std::string_view domain = m_error.code().domain();
+            ImGui::Text("Domain: %.*s", static_cast<int>(domain.size()), domain.data());
+            ImGui::Text("Code: %lld", static_cast<long long>(m_error.code().value()));
+            ImGui::Spacing();
+            ImGui::TextWrapped("WorkspaceのPath、アクセス権、同名のFileまたはReparse Pointを確認してから再起動してください。");
+            ImGui::Spacing();
+            if (ImGui::Button("終了") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+            {
+                m_shouldClose = true;
+            }
+        }
+        ImGui::End();
+    }
+
+    /// @brief Userが終了操作を選択したか返す
+    [[nodiscard]] bool should_close() const noexcept override
+    {
+        return m_shouldClose;
+    }
+
+    /// @brief UI Session終了後に診断Logへ渡す初期化Errorを返す
+    [[nodiscard]] cue::Error take_error() noexcept
+    {
+        return std::move(m_error);
+    }
+
+  private:
+    cue::Error m_error;
+    bool m_shouldClose = false;
+};
+
+/// @brief Project Hub本体を構築できないErrorを最小Tool Hostで表示して終了Codeへ変換する
+[[nodiscard]] int show_initialization_failure(cue::Error &&a_error, cue::Logger &a_logger,
+                                              const cue::AssertContext &a_assertContext) noexcept
+{
+    InitializationFailureClient client(std::move(a_error));
+    const cue::tool_host::ToolHostDescriptor descriptor{"CueEngine Project Hub", {960U, 480U}, 0U};
+    cue::Result<void> hosted = cue::tool_host::run_windows_d3d12_tool_host(descriptor, client, a_assertContext);
+    cue::Error initialization = client.take_error();
+    if (!hosted)
+    {
+        hosted.try_error()->append_secondary_diagnostics(a_assertContext, initialization,
+                                                         "Project Hub initialization also failed", "Initialization");
+        static_cast<void>(
+            a_logger.log(cue::LogLevel::Error, "Project Hub initialization UI failed", std::move(*hosted.try_error())));
+        return k_toolHostFailure;
+    }
+    static_cast<void>(
+        a_logger.log(cue::LogLevel::Error, "Project Hub initialization failed", std::move(initialization)));
+    return k_initializationFailure;
+}
 
 /// @brief Project Hub PresenterをTool Host CallbackとEditor Process Adapterへ接続する
 class ProjectHubToolClient final : public cue::tool_host::ToolHostClient
@@ -165,18 +244,14 @@ class ProjectHubToolClient final : public cue::tool_host::ToolHostClient
     cue::Result<cue::RelativePath> workspacePath = cue::RelativePath::parse("CueEngine/Workspace", a_assertContext);
     if (!workspacePath)
     {
-        static_cast<void>(a_logger.log(cue::LogLevel::Error, "Workspace path initialization failed",
-                                       std::move(*workspacePath.try_error())));
-        return k_initializationFailure;
+        return show_initialization_failure(std::move(*workspacePath.try_error()), a_logger, a_assertContext);
     }
     cue::Result<std::unique_ptr<cue::FilesystemRoot>> workspace = cue::create_windows_known_folder_filesystem_root(
         cue::WindowsKnownFolder::LocalApplicationData, *workspacePath.try_value(),
         cue::WindowsRootOpenMode::CreateOrOpen, a_assertContext);
     if (!workspace)
     {
-        static_cast<void>(a_logger.log(cue::LogLevel::Error, "Workspace root initialization failed",
-                                       std::move(*workspace.try_error())));
-        return k_initializationFailure;
+        return show_initialization_failure(std::move(*workspace.try_error()), a_logger, a_assertContext);
     }
     cue::Result<std::unique_ptr<cue::project_hub::ProjectHubPlatform>> platform =
         cue::project_hub::create_windows_project_hub_platform(a_assertContext);
