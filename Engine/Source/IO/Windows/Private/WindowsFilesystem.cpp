@@ -637,6 +637,10 @@ class WindowsFilesystemRoot final : public cue::FilesystemRoot
     /// @brief 同一 Directory の Temporary File から Atomic Rename する
     [[nodiscard]] cue::Result<void> write_file_atomic(const cue::RelativePath &a_path,
                                                       std::span<const std::byte> a_bytes) noexcept override;
+    /// @brief Portable Locator上限外のSuffixを許してSibling Recovery BackupをAtomic公開する
+    [[nodiscard]] cue::Result<void> write_recovery_backup_atomic(
+        const cue::RelativePath &a_destination, std::span<const std::byte> a_bytes,
+        const cue::AssertContext &a_assertContext) noexcept override;
     /// @brief Destination Sidecarを共有なしHandleとして取得する
     [[nodiscard]] cue::Result<cue::FileWriteLease> acquire_file_write_lease(
         const cue::RelativePath &a_path) noexcept override;
@@ -683,7 +687,8 @@ class WindowsFilesystemRoot final : public cue::FilesystemRoot
                                                                std::span<const std::byte> a_bytes,
                                                                cue::FileWriteLease *a_lease,
                                                                const cue::FileFingerprint *a_expected,
-                                                               std::size_t a_maximumExpectedBytes) noexcept;
+                                                               std::size_t a_maximumExpectedBytes,
+                                                               const std::wstring *a_destinationOverride) noexcept;
 
     const cue::AssertContext *m_assertContext;
     std::wstring m_rootPath;
@@ -990,7 +995,32 @@ cue::Result<void> WindowsFilesystemRoot::create_directories(const cue::RelativeP
 cue::Result<void> WindowsFilesystemRoot::write_file_atomic(const cue::RelativePath &a_path,
                                                            std::span<const std::byte> a_bytes) noexcept
 {
-    return write_file_atomic_internal(a_path, a_bytes, nullptr, nullptr, 0U);
+    return write_file_atomic_internal(a_path, a_bytes, nullptr, nullptr, 0U, nullptr);
+}
+
+cue::Result<void> WindowsFilesystemRoot::write_recovery_backup_atomic(
+    const cue::RelativePath &a_destination, std::span<const std::byte> a_bytes,
+    const cue::AssertContext &) noexcept
+{
+    auto destination = absolute_path(a_destination);
+    if (!destination)
+    {
+        return cue::Result<void>::failure(std::move(*destination.try_error()));
+    }
+    try
+    {
+        destination.try_value()->append(L".backup");
+    }
+    catch (...)
+    {
+        terminate_allocation(*m_assertContext);
+    }
+    if (destination.try_value()->size() >= k_maxWindowsPathLength)
+    {
+        return cue::Result<void>::failure(
+            cue::make_io_error(*m_assertContext, cue::IoError::CapacityExceeded, "Recovery backup path is too long"));
+    }
+    return write_file_atomic_internal(a_destination, a_bytes, nullptr, nullptr, 0U, &*destination.try_value());
 }
 
 cue::Result<cue::FileWriteLease> WindowsFilesystemRoot::acquire_file_write_lease(
@@ -1102,7 +1132,7 @@ cue::Result<void> WindowsFilesystemRoot::write_file_atomic_if_unchanged(cue::Fil
                                                                         std::size_t a_maximumExpectedBytes,
                                                                         std::span<const std::byte> a_bytes) noexcept
 {
-    return write_file_atomic_internal(a_path, a_bytes, &a_lease, &a_expected, a_maximumExpectedBytes);
+    return write_file_atomic_internal(a_path, a_bytes, &a_lease, &a_expected, a_maximumExpectedBytes, nullptr);
 }
 
 cue::Result<void> WindowsFilesystemRoot::remove_file(const cue::RelativePath &a_path) noexcept
@@ -1143,7 +1173,8 @@ cue::Result<void> WindowsFilesystemRoot::write_file_atomic_internal(const cue::R
                                                                     std::span<const std::byte> a_bytes,
                                                                     cue::FileWriteLease *a_lease,
                                                                     const cue::FileFingerprint *a_expected,
-                                                                    std::size_t a_maximumExpectedBytes) noexcept
+                                                                    std::size_t a_maximumExpectedBytes,
+                                                                    const std::wstring *a_destinationOverride) noexcept
 {
     if ((a_lease == nullptr) != (a_expected == nullptr))
     {
@@ -1190,11 +1221,13 @@ cue::Result<void> WindowsFilesystemRoot::write_file_atomic_internal(const cue::R
         }
     }
 
-    cue::Result<std::wstring> destination = absolute_path(a_path);
-    if (!destination)
+    cue::Result<std::wstring> resolvedDestination = absolute_path(a_path);
+    if (!resolvedDestination)
     {
-        return cue::Result<void>::failure(std::move(*destination.try_error()));
+        return cue::Result<void>::failure(std::move(*resolvedDestination.try_error()));
     }
+    const std::wstring &destination =
+        a_destinationOverride == nullptr ? *resolvedDestination.try_value() : *a_destinationOverride;
 
     std::wstring temporaryPath;
     UniqueHandle temporary;
@@ -1206,18 +1239,26 @@ cue::Result<void> WindowsFilesystemRoot::write_file_atomic_internal(const cue::R
             return cue::Result<void>::failure(std::move(*random.try_error()));
         }
         const std::string name = "CueTemp-" + *random.try_value() + ".tmp";
-        const std::string relativeText = join_relative(parent, name, *m_assertContext);
-        cue::Result<cue::RelativePath> relative = cue::RelativePath::parse(relativeText, *m_assertContext);
-        if (!relative)
+        const std::size_t separator = destination.find_last_of(L'\\');
+        if (separator == std::wstring::npos)
         {
-            return cue::Result<void>::failure(std::move(*relative.try_error()));
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::InvalidPath, "Atomic destination has no parent"));
         }
-        cue::Result<std::wstring> full = absolute_path(*relative.try_value());
-        if (!full)
+        try
         {
-            return cue::Result<void>::failure(std::move(*full.try_error()));
+            temporaryPath.assign(destination, 0U, separator + 1U);
+            temporaryPath.append(name.begin(), name.end());
         }
-        temporaryPath = std::move(*full.try_value());
+        catch (...)
+        {
+            terminate_allocation(*m_assertContext);
+        }
+        if (temporaryPath.size() >= k_maxWindowsPathLength)
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::CapacityExceeded, "Temporary path is too long"));
+        }
         temporary.reset(CreateFileW(temporaryPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
                                     FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
         if (temporary.is_valid())
@@ -1263,16 +1304,46 @@ cue::Result<void> WindowsFilesystemRoot::write_file_atomic_internal(const cue::R
     }
     temporary.reset();
 
-    cue::Result<cue::EntryType> destinationType = validate_entry(a_path);
-    if (!destinationType)
+    cue::EntryType destinationTypeValue = cue::EntryType::Missing;
+    if (a_destinationOverride == nullptr)
     {
-        return cue::Result<void>::failure(
-            remove_temporary_after_failure(*m_assertContext, temporaryPath, std::move(*destinationType.try_error())));
+        cue::Result<cue::EntryType> destinationType = validate_entry(a_path);
+        if (!destinationType)
+        {
+            return cue::Result<void>::failure(remove_temporary_after_failure(
+                *m_assertContext, temporaryPath, std::move(*destinationType.try_error())));
+        }
+        destinationTypeValue = *destinationType.try_value();
     }
-    if (*destinationType.try_value() == cue::EntryType::Directory ||
-        *destinationType.try_value() == cue::EntryType::UnsupportedEntry)
+    else
     {
-        const cue::IoError code = *destinationType.try_value() == cue::EntryType::UnsupportedEntry
+        const DWORD attributes = GetFileAttributesW(destination.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES)
+        {
+            const DWORD code = GetLastError();
+            if (code != ERROR_FILE_NOT_FOUND && code != ERROR_PATH_NOT_FOUND)
+            {
+                cue::Error primary = make_windows_error(*m_assertContext, code, "Recovery backup inspection failed");
+                return cue::Result<void>::failure(
+                    remove_temporary_after_failure(*m_assertContext, temporaryPath, std::move(primary)));
+            }
+        }
+        else if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+        {
+            destinationTypeValue = cue::EntryType::UnsupportedEntry;
+        }
+        else if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+        {
+            destinationTypeValue = cue::EntryType::Directory;
+        }
+        else
+        {
+            destinationTypeValue = cue::EntryType::RegularFile;
+        }
+    }
+    if (destinationTypeValue == cue::EntryType::Directory || destinationTypeValue == cue::EntryType::UnsupportedEntry)
+    {
+        const cue::IoError code = destinationTypeValue == cue::EntryType::UnsupportedEntry
                                       ? cue::IoError::UnsupportedEntry
                                       : cue::IoError::TypeMismatch;
         cue::Error primary = cue::make_io_error(*m_assertContext, code, "Atomic destination is not a regular file");
@@ -1304,11 +1375,11 @@ cue::Result<void> WindowsFilesystemRoot::write_file_atomic_internal(const cue::R
     }
 
     DWORD flags = 0;
-    if (*destinationType.try_value() == cue::EntryType::RegularFile)
+    if (destinationTypeValue == cue::EntryType::RegularFile)
     {
         flags |= MOVEFILE_REPLACE_EXISTING;
     }
-    const NativePublishOutcome publish = publish_with_durability(temporaryPath, *destination.try_value(), flags);
+    const NativePublishOutcome publish = publish_with_durability(temporaryPath, destination, flags);
     if (!publish.isPublished)
     {
         cue::Error primary = make_windows_error(*m_assertContext, publish.nativeCode, "Atomic file publish failed");

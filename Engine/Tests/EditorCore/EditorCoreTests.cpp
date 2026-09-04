@@ -132,6 +132,13 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
         m_armPostVerificationMutationText = std::string(a_text);
     }
 
+    /// @brief Recovery Backup公開成功直後に本文への外部変更を注入する
+    void mutate_main_after_backup_write(std::string_view a_destination, std::string_view a_text)
+    {
+        m_backupWriteMutationPath = std::string(a_destination);
+        m_backupWriteMutationText = std::string(a_text);
+    }
+
     /// @brief Memory上のEntry種別を返す
     [[nodiscard]] cue::Result<cue::EntryType> query_entry(const cue::RelativePath &a_path) noexcept override
     {
@@ -218,6 +225,21 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
                                                                  "Injected durability uncertainty"));
         }
         return cue::Result<void>::success();
+    }
+
+    /// @brief Recovery Backup公開後の本文競合をTest注入できるようにする
+    [[nodiscard]] cue::Result<void> write_recovery_backup_atomic(
+        const cue::RelativePath &a_destination, std::span<const std::byte> a_bytes,
+        const cue::AssertContext &a_assertContext) noexcept override
+    {
+        auto written = cue::FilesystemRoot::write_recovery_backup_atomic(a_destination, a_bytes, a_assertContext);
+        if (written && a_destination.text() == m_backupWriteMutationPath)
+        {
+            set(m_backupWriteMutationPath, m_backupWriteMutationText);
+            m_backupWriteMutationPath.clear();
+            m_backupWriteMutationText.clear();
+        }
+        return written;
     }
 
     /// @brief Memory Test内でDestination所有情報を保持するLeaseを発行する
@@ -323,6 +345,8 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
     std::string m_armPostVerificationMutationText;
     std::string m_postVerificationMutationPath;
     std::string m_postVerificationMutationText;
+    std::string m_backupWriteMutationPath;
+    std::string m_backupWriteMutationText;
     const cue::AssertContext *m_assertContext;
 };
 
@@ -1268,7 +1292,17 @@ void test_scene_persistence_workflow() noexcept
     secondDocument = controller->session().find_document(secondDocumentId);
     require(secondDocument != nullptr && secondDocument->is_dirty());
     require(secondDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::SaveUncertain);
+    const std::string backupRetryCandidate(sourceAssets.text("Scenes/Second-Renamed.cuescene"));
     sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene.backup", false);
+    sourceAssets.mutate_main_after_backup_write("Scenes/Second-Renamed.cuescene", secondOriginalJson);
+    const auto conflictingBackupRetry = controller->retry_uncertain_save(secondDocumentId);
+    require(!conflictingBackupRetry.has_value());
+    require(conflictingBackupRetry.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::ExternalConflict));
+    secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr && secondDocument->is_dirty());
+    require(secondDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::SaveUncertain);
+    sourceAssets.set("Scenes/Second-Renamed.cuescene", backupRetryCandidate);
     sourceAssets.fail_write("Scenes/Second-Renamed.cuescene", true);
     require(take_value(controller->retry_uncertain_save(secondDocumentId)) == cue::scene::SceneSaveStatus::Committed);
     sourceAssets.fail_write("Scenes/Second-Renamed.cuescene", false);

@@ -711,21 +711,14 @@ Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocu
     scene::SceneSaveStatus status = scene::SceneSaveStatus::Committed;
     if (record.reason == EditorDocument::PendingSaveReason::BackupDurabilityUnknown)
     {
-        std::string backupText(record.destination.text());
-        backupText.append(".backup");
-        auto backupPath = RelativePath::parse(backupText, *m_assertContext);
-        if (!backupPath)
-        {
-            return Result<scene::SceneSaveStatus>::failure(std::move(*backupPath.try_error()));
-        }
         if (!record.recoveryBackupBytes.has_value())
         {
             return Result<scene::SceneSaveStatus>::failure(make_editor_document_error(
                 *m_assertContext, EditorCoreError::InvalidDocumentState,
                 "Backup retry requires the original destination bytes", a_documentId.value()));
         }
-        auto backupWritten =
-            m_sourceAssetsRoot->write_file_atomic(*backupPath.try_value(), *record.recoveryBackupBytes);
+        auto backupWritten = m_sourceAssetsRoot->write_recovery_backup_atomic(
+            record.destination, *record.recoveryBackupBytes, *m_assertContext);
         if (!backupWritten)
         {
             const bool durabilityUnknown =
@@ -734,6 +727,25 @@ Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocu
             status = durabilityUnknown ? scene::SceneSaveStatus::PublishedButBackupDurabilityUnknown
                                        : scene::SceneSaveStatus::PublishedButVerificationFailed;
             return Result<scene::SceneSaveStatus>::success(std::move(status));
+        }
+        currentFingerprint = fingerprint_scene_file(*m_sourceAssetsRoot, record.destination, *m_assertContext);
+        if (!currentFingerprint)
+        {
+            return Result<scene::SceneSaveStatus>::failure(std::move(*currentFingerprint.try_error()));
+        }
+        if (!currentFingerprint.try_value()->exists ||
+            currentFingerprint.try_value()->byteSize != record.candidateByteSize ||
+            currentFingerprint.try_value()->contentDigest != record.candidateDigest)
+        {
+            if (!record.switchDestination)
+            {
+                document->m_externalChangeState = currentFingerprint.try_value()->exists
+                                                      ? ExternalChangeState::Modified
+                                                      : ExternalChangeState::Removed;
+            }
+            return Result<scene::SceneSaveStatus>::failure(make_editor_document_error(
+                *m_assertContext, EditorCoreError::ExternalConflict,
+                "Backup retry destination differs from the recorded candidate", a_documentId.value()));
         }
     }
     else if (record.reason == EditorDocument::PendingSaveReason::DurabilityUnknown)

@@ -1,5 +1,6 @@
 #include <Cue/IO/Filesystem.h>
 
+#include <Cue/Foundation/Assert.h>
 #include <Cue/IO/Error.h>
 
 #include <exception>
@@ -56,6 +57,28 @@ FileWriteLease FilesystemRoot::make_file_write_lease(std::unique_ptr<FileWriteLe
 FileWriteLeaseState *FilesystemRoot::file_write_lease_state(FileWriteLease &a_lease) noexcept
 {
     return a_lease.m_state.get();
+}
+
+Result<void> FilesystemRoot::write_recovery_backup_atomic(const RelativePath &a_destination,
+                                                           std::span<const std::byte> a_bytes,
+                                                           const AssertContext &a_assertContext) noexcept
+{
+    try
+    {
+        std::string backupText(a_destination.text());
+        backupText.append(".backup");
+        auto backupPath = RelativePath::parse(backupText, a_assertContext);
+        if (!backupPath)
+        {
+            return Result<void>::failure(std::move(*backupPath.try_error()));
+        }
+        return write_file_atomic(*backupPath.try_value(), a_bytes);
+    }
+    catch (...)
+    {
+        a_assertContext.fatal_handler().terminate("Recovery backup path allocation failed");
+    }
+    std::terminate();
 }
 
 std::uint64_t FilesystemRoot::staging_token(const StagingArea &a_staging) noexcept

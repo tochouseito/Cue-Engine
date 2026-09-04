@@ -120,6 +120,10 @@ class FilesystemRoot
     /// @brief 同一 Directory の Temporary File を用いて File Content を Atomic に公開する
     [[nodiscard]] virtual Result<void> write_file_atomic(const RelativePath &a_path,
                                                          std::span<const std::byte> a_bytes) noexcept = 0;
+    /// @brief Portable Locator上限を再適用せずDestinationのSibling Recovery BackupをAtomic公開する
+    [[nodiscard]] virtual Result<void> write_recovery_backup_atomic(const RelativePath &a_destination,
+                                                                     std::span<const std::byte> a_bytes,
+                                                                     const AssertContext &a_assertContext) noexcept;
     /// @brief DestinationとSibling Backupを対象とするCross-process Write Leaseを取得する
     [[nodiscard]] virtual Result<FileWriteLease> acquire_file_write_lease(const RelativePath &a_path) noexcept = 0;
     /// @brief Lease保持中に期待Fingerprintを再検査し、一致時だけAtomic Publishする

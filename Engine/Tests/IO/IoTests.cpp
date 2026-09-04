@@ -433,6 +433,50 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
         return false;
     }
 
+    const std::string longParentSegment(53U, 'p');
+    const std::string longParentText = longParentSegment + "/" + longParentSegment + "/" + longParentSegment + "/" +
+                                       longParentSegment;
+    const std::string longFileText = longParentText + "/x";
+    auto longParent = cue::RelativePath::parse(longParentText, a_assertContext);
+    auto longFile = cue::RelativePath::parse(longFileText, a_assertContext);
+    if (!longParent || !longFile || !a_filesystem.create_directories(*longParent.try_value()) ||
+        !a_filesystem.write_file_atomic(*longFile.try_value(), first))
+    {
+        return false;
+    }
+    auto longFileRead = a_filesystem.read_file(*longFile.try_value(), 16U);
+    if (!longFileRead || *longFileRead.try_value() != std::vector<std::byte>(first.begin(), first.end()))
+    {
+        return false;
+    }
+
+    const std::string maximumPathSegment(60U, 'q');
+    const std::string maximumPathParent = maximumPathSegment + "/" + maximumPathSegment + "/" +
+                                          maximumPathSegment + "/" + maximumPathSegment;
+    const std::string maximumPathText = maximumPathParent + "/12345678901";
+    auto maximumPathParentLocator = cue::RelativePath::parse(maximumPathParent, a_assertContext);
+    auto maximumPath = cue::RelativePath::parse(maximumPathText, a_assertContext);
+    if (!maximumPathParentLocator || !maximumPath ||
+        !a_filesystem.create_directories(*maximumPathParentLocator.try_value()) ||
+        !a_filesystem.write_recovery_backup_atomic(*maximumPath.try_value(), second, a_assertContext))
+    {
+        return false;
+    }
+    std::wstring maximumPathNativeText = widen_ascii(maximumPathText);
+    for (wchar_t &character : maximumPathNativeText)
+    {
+        if (character == L'/')
+        {
+            character = L'\\';
+        }
+    }
+    const std::wstring maximumPathBackupNative =
+        L"\\\\?\\" + a_directory.child_path(maximumPathNativeText) + L".backup";
+    if (GetFileAttributesW(maximumPathBackupNative.c_str()) == INVALID_FILE_ATTRIBUTES)
+    {
+        return false;
+    }
+
     const std::wstring nativePath = a_directory.child_path(L"Data\\Nested\\State.bin");
     HANDLE locked = CreateFileW(nativePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                 FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -480,7 +524,14 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     auto maximumSegmentLease = a_filesystem.acquire_file_write_lease(*maximumSegment.try_value());
     if (!preservedFormerSidecar ||
         *preservedFormerSidecar.try_value() != std::vector<std::byte>(second.begin(), second.end()) ||
-        !maximumSegmentLease)
+        !maximumSegmentLease ||
+        !a_filesystem.write_recovery_backup_atomic(*maximumSegment.try_value(), first, a_assertContext))
+    {
+        return false;
+    }
+    const std::wstring maximumBackupNative =
+        a_directory.child_path(widen_ascii(maximumSegmentText) + L".backup");
+    if (GetFileAttributesW(maximumBackupNative.c_str()) == INVALID_FILE_ATTRIBUTES)
     {
         return false;
     }

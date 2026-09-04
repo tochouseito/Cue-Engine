@@ -1404,7 +1404,6 @@ SceneSaveOutcome save_scene_document_internal(
         }
 
         std::optional<std::vector<std::byte>> backupBytes;
-        std::optional<RelativePath> recoveryBackupPath;
         auto entry = a_filesystem.query_entry(a_path);
         if (!entry)
         {
@@ -1434,13 +1433,6 @@ SceneSaveOutcome save_scene_document_internal(
                                       "Scene content changed before backup")));
                 }
             }
-            std::string backupText(a_path.text());
-            backupText.append(".backup");
-            auto parsedBackupPath = RelativePath::parse(backupText, a_assertContext);
-            if (!parsedBackupPath)
-            {
-                return SceneSaveOutcome::not_published(std::move(*parsedBackupPath.try_error()));
-            }
             if (a_recoveryBackupOverride.has_value())
             {
                 backupBytes.emplace(a_recoveryBackupOverride->begin(), a_recoveryBackupOverride->end());
@@ -1449,7 +1441,6 @@ SceneSaveOutcome save_scene_document_internal(
             {
                 backupBytes.emplace(std::move(*original.try_value()));
             }
-            recoveryBackupPath.emplace(std::move(*parsedBackupPath.try_value()));
         }
         else if (*entry.try_value() != EntryType::Missing)
         {
@@ -1479,7 +1470,7 @@ SceneSaveOutcome save_scene_document_internal(
 
         if (backupBytes.has_value())
         {
-            auto backupWritten = a_filesystem.write_file_atomic(*recoveryBackupPath, *backupBytes);
+            auto backupWritten = a_filesystem.write_recovery_backup_atomic(a_path, *backupBytes, a_assertContext);
             if (!backupWritten)
             {
                 const bool durabilityUnknown = backupWritten.try_error()->root_code().domain() == "Cue.IO" &&
