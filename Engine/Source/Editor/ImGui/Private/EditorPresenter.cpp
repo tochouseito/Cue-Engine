@@ -92,6 +92,9 @@ namespace
         case static_cast<unsigned char>('\t'):
             label.append("\\t");
             break;
+        case static_cast<unsigned char>('\\'):
+            label.append("\\\\");
+            break;
         default:
             if (byte < 0x20U || byte == 0x7FU)
             {
@@ -418,7 +421,8 @@ void EditorPresenter::draw() noexcept
 {
     try
     {
-        std::optional<EditorIntent> pendingIntent;
+        std::optional<EditorIntent> pendingIntent = std::move(m_deferredIntent);
+        m_deferredIntent.reset();
         const editor_core::EditorDocument *document = m_controller->session().find_document(m_documentId);
 
         ImGui::SetNextWindowPos(ImVec2(0.0F, 0.0F));
@@ -453,7 +457,12 @@ void EditorPresenter::draw() noexcept
         // Scene ViewのPointerやSpanを使用し終えたFrame末尾だけでController Mutationを行う
         if (pendingIntent.has_value())
         {
-            static_cast<void>(submit(std::move(*pendingIntent)));
+            Result<void> result = submit(std::move(*pendingIntent));
+            if (!result)
+            {
+                // Name確定に失敗した場合は、入力Bufferを修正できるように遷移Intentを破棄する
+                m_deferredIntent.reset();
+            }
         }
     }
     catch (const std::bad_alloc &)
@@ -623,8 +632,13 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
         commitName = input_object_name(m_name, *m_assertContext);
         commitName = commitName || ImGui::IsItemDeactivatedAfterEdit();
     }
-    if (commitName && !a_pendingIntent.has_value())
+    if (commitName)
     {
+        if (a_pendingIntent.has_value())
+        {
+            // Hierarchy操作よりName確定を優先し、成功後の次FrameまでScene遷移を遅延する
+            m_deferredIntent.emplace(std::move(*a_pendingIntent));
+        }
         a_pendingIntent.emplace(RenameObjectIntent{object->id(), m_name});
     }
 

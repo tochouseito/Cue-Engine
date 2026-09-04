@@ -87,6 +87,7 @@ class EditorPresenter final
     const AssertContext *m_assertContext;
     std::vector<editor_core::EditorComponentTemplate> m_componentTemplates;
     editor_core::EditorDocumentId m_documentId;
+    std::optional<editor_core::EditorIntent> m_deferredIntent;
     std::optional<scene::ObjectId> m_inspectorObjectId;
     std::uint64_t m_inspectorStateValue = 0U;
     std::string m_name;
