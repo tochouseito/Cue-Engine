@@ -276,6 +276,27 @@ Wait Errorを`FenceValueExhausted`へSecondary Contextとして集約してか�
 完了もRemovalも証明できない場合はWait／Removal確認Errorを`FenceValueExhausted`へ発生順のSecondary Contextとして集約し、
 その集約ErrorをImmediate Causeに`ToolHostError::GpuCompletionUnavailable`へ再分類してResource解放前にFatal Dispatchする。
 
+M12 Tool Hostは2個のSwap Chain Bufferと2個のFrame Resource Slotを固定で所有し、Dear ImGui DX12 Backendの
+`NumFramesInFlight`も2とする。Frame SlotはSwap Chain Indexではなく単調なFrame Sequenceの`mod 2`で選び、同じ順序で
+BackendのFrame用Vertex／Index Bufferを使用する。Back Bufferは毎Frame `GetCurrentBackBufferIndex()`で別に選択する。
+各SlotはCommand Allocatorと、そのSlotを最後に使用したSubmitの`reuseFenceValue`を所有する。
+
+Frame開始時はImGui DX12 BackendのNew Frame、Allocator Reset、Command List Reset、Frame用Buffer更新より前に選択Slotを検査する。
+`reuseFenceValue`が0なら未使用として進み、1以上ならCompleted Valueの`UINT64_MAX` Sentinelを大小比較より先に判定する。
+Sentinel以外で対象値へ未到達ならProduction既定5,000 msの有限Fence Waitを行い、復帰後もSentinelと対象値を再検査する。
+完了時だけSlot Resourceを再利用し、Device Removalは待機なし制御解放、完了もRemovalも証明できない失敗は
+`ToolHostError::GpuCompletionUnavailable`のFatal経路へ移ってAllocatorまたはImGui Frame Bufferを変更しない。
+UI DrawはCommand List Execute、Present、Queue Signalの順に行い、Presentの非Removal失敗でも実行済みWorkを覆うSignalを試みる。
+Signal成功時だけ予約値をSlotの`reuseFenceValue`と`lastSignaledFence`へ保存する。
+
+Windowの`Minimized`またはClient Sizeが0の間はUI Frame提出と`ResizeBuffers`を行わない。有効な`Resized`／`Restored` Eventでは
+新しいFrame受付を一時停止し、`lastSignaledFence`が0なら未提出、1以上なら上記Sentinel優先の5,000 ms有限Waitで全提出Workを
+Drainする。GPU完了後に全Back Buffer参照を解放し、`ResizeBuffers`、全Back Buffer再取得、RTV再生成の順で処理してから
+Frame受付を再開する。成功後は全Slotの完了済み`reuseFenceValue`を0へ戻す。
+Wait Timeout／Wait失敗は完了とRemovalを再検査し、Removalなら待機なし制御解放、どちらも証明できなければResourceを解放せず
+Fatal終端する。`ResizeBuffers`またはBack Buffer／RTV再生成の非Removal失敗は新しいFrameを受け付けず、GPU完了済みResourceを
+Best-effortで解放して`ToolHostError::SwapChainResizeFailed`を返し、Tool Sessionを非0で終了する。
+
 一つのUI FrameはOwner Threadだけで処理する。Windows Message、ImGui Frame、Semantic Intent適用、Application Service Mutation、
 ViewModel再取得、Draw Data提出を同じThreadで順序付ける。Background ThreadからImGui APIまたはProjectHubServiceを直接呼ばない。
 
@@ -335,6 +356,10 @@ Fence完了との同時成立、先行Error、DRED失敗、複数Cleanup Error�
 Removal ReasonがNative Errorになることを検証する。検出前Error 0件ではCauseなし、1件ではそのError、複数では最初のErrorを
 Primaryとして後続を発生順のSecondary Diagnosticsへ集約した一つのAggregateがImmediate Causeとなることを個別に検証する。
 DRED／Cleanup ErrorはDeviceRemoved Errorの発生順Secondary Contextになり、独立ErrorがCause Chainへ直接入らないことも検証する。
+複数FrameのFault Injectionは同じSlotへ戻る前の未完了Fence、Sentinel、有限Wait成功／Timeout／Wait失敗／Removalを注入し、
+完了前にAllocator Reset、ImGui Frame Buffer更新、Command List Resetを行わないことと、成功Signal値だけをSlotへ保存することを検証する。
+Resize Integration Testは提出済みFrameをDrainした後にだけBack Bufferを解放し、`ResizeBuffers`とRTV再生成を行ってFrame提出を
+再開できることを確認する。最小化／0 Size抑止、Timeout、Device Removal、`ResizeBuffers`／再生成失敗も個別に検証する。
 Manual TestはProject作成、既存Project登録、Pin、一覧除外、Keyboard操作、Cancel、Editor Launch要求、正常Closeを確認する。
 
 Pixel完全一致、Theme、Font Raster差分、Docking、Multi-ViewportはM12 Gateに含めない。
