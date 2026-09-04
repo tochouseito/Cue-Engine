@@ -223,7 +223,7 @@ class SceneSaveOutcome final
                                                           const AssertContext &a_assertContext) noexcept;
 
 /// @brief CandidateをParse-backしBackup作成後に本文をAtomic置換する
-/// @pre 呼び出し側が処理完了まで本文Pathと`.backup` Pathへの排他的な書込み所有権を保証する
+/// @pre 呼び出し側が処理完了まで本文Pathへの排他的な書込み所有権を保証する
 [[nodiscard]] SceneSaveOutcome save_scene_document(FilesystemRoot &a_filesystem, const RelativePath &a_path,
                                                    const SceneDocument &a_document,
                                                    const schema::SchemaRegistry &a_schemaRegistry,

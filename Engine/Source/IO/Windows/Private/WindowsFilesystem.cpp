@@ -400,17 +400,11 @@ struct NativePublishOutcome final
     return separator == std::string_view::npos ? std::string_view{} : a_path.substr(0, separator);
 }
 
-/// @brief Scene本文と連鎖するSibling Backupを同じLease Keyへ正規化する
+/// @brief Destinationの比較KeyをCross-process Lease Keyへ変換する
 [[nodiscard]] std::string write_lease_path_key(const cue::RelativePath &a_path,
                                                const cue::AssertContext &a_context) noexcept
 {
-    std::string key = a_path.comparison_key(a_context);
-    constexpr std::string_view backupSuffix = ".backup";
-    while (key.size() > backupSuffix.size() && key.ends_with(backupSuffix))
-    {
-        key.resize(key.size() - backupSuffix.size());
-    }
-    return key;
+    return a_path.comparison_key(a_context);
 }
 
 /// @brief Parent と Child Segment を `/` で結合する
@@ -637,7 +631,7 @@ class WindowsFilesystemRoot final : public cue::FilesystemRoot
     /// @brief 同一 Directory の Temporary File から Atomic Rename する
     [[nodiscard]] cue::Result<void> write_file_atomic(const cue::RelativePath &a_path,
                                                       std::span<const std::byte> a_bytes) noexcept override;
-    /// @brief Portable Locator上限外のSuffixを許してSibling Recovery BackupをAtomic公開する
+    /// @brief 利用者Locator外のHidden SiblingへRecovery BackupをAtomic公開する
     [[nodiscard]] cue::Result<void> write_recovery_backup_atomic(
         const cue::RelativePath &a_destination, std::span<const std::byte> a_bytes,
         const cue::AssertContext &a_assertContext) noexcept override;
@@ -1009,7 +1003,13 @@ cue::Result<void> WindowsFilesystemRoot::write_recovery_backup_atomic(
     }
     try
     {
-        destination.try_value()->append(L".backup");
+        const std::size_t separator = destination.try_value()->find_last_of(L'\\');
+        if (separator == std::wstring::npos)
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::InvalidPath, "Backup destination has no parent"));
+        }
+        destination.try_value()->insert(separator + 1U, L".CueBackup-");
     }
     catch (...)
     {

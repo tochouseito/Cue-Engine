@@ -117,6 +117,14 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
         return cue::Result<void>::success();
     }
 
+    /// @brief Project Test対象外のRecovery Backup公開を明示的に拒否する
+    [[nodiscard]] cue::Result<void> write_recovery_backup_atomic(
+        const cue::RelativePath &, std::span<const std::byte>, const cue::AssertContext &) noexcept override
+    {
+        return cue::Result<void>::failure(cue::make_io_error(
+            *m_assertContext, cue::IoError::InvalidPath, "Recovery backup is not used by project tests"));
+    }
+
     [[nodiscard]] cue::Result<cue::FileWriteLease> acquire_file_write_lease(const cue::RelativePath &) noexcept override
     {
         return cue::Result<cue::FileWriteLease>::failure(

@@ -44,7 +44,7 @@ class FileWriteLeaseState
     FileWriteLeaseState() noexcept = default;
 };
 
-/// @brief 一つのDestinationとSibling Backupを直列化する取得Thread限定Move-only Lease
+/// @brief 一つのDestinationを直列化する取得Thread限定Move-only Lease
 ///
 /// Move、Conditional Write、破棄は取得Thread上だけで行う
 class FileWriteLease final
@@ -123,8 +123,8 @@ class FilesystemRoot
     /// @brief Portable Locator上限を再適用せずDestinationのSibling Recovery BackupをAtomic公開する
     [[nodiscard]] virtual Result<void> write_recovery_backup_atomic(const RelativePath &a_destination,
                                                                      std::span<const std::byte> a_bytes,
-                                                                     const AssertContext &a_assertContext) noexcept;
-    /// @brief DestinationとSibling Backupを対象とするCross-process Write Leaseを取得する
+                                                                     const AssertContext &a_assertContext) noexcept = 0;
+    /// @brief Destinationを対象とするCross-process Write Leaseを取得する
     [[nodiscard]] virtual Result<FileWriteLease> acquire_file_write_lease(const RelativePath &a_path) noexcept = 0;
     /// @brief Lease保持中に期待Fingerprintを再検査し、一致時だけAtomic Publishする
     [[nodiscard]] virtual Result<void> write_file_atomic_if_unchanged(FileWriteLease &a_lease,

@@ -209,15 +209,14 @@ Delete後に親や隣接Objectを自動選択するかはPresentation Policyと�
 Scene Save／Save As／Recovery Publishを直列化し、Sceneごとの進行中Saveと`SceneWriteLease`を所有する。
 `EditorDocument`はCoordinatorを所有せず、Session終了より長く参照しない。
 
-`SceneWriteLease`は本文Pathと末尾に連鎖する`.backup` Pathを一つの排他範囲とする。Leaseは本文Entry確認前に取得し、
+`SceneWriteLease`は本文Pathを排他範囲とする。Leaseは本文Entry確認前に取得し、
 旧Byte列読込、Backup公開、本文公開、公開結果の検証、結果状態の記録が完了するまで保持する。Windows AdapterはRootのVolume／File
-IdentityとFamily KeyのDigestからProcess環境に依存しないGlobal Named Mutex名を構築する。
-別Rootから同じ物理RootとFile Familyへ到達するCueEngine Writerは、`TEMP`／`TMP`やCurrent Directoryが異なっても同じMutexで競合する。
+IdentityとDestination Comparison KeyのDigestからProcess環境に依存しないGlobal Named Mutex名を構築する。
+別Rootから同じ物理RootとFileへ到達するCueEngine Writerは、`TEMP`／`TMP`やCurrent Directoryが異なっても同じMutexで競合する。
 取得失敗は非待機のBusyとして返し、Process終了時はOSがMutexをAbandonedとして次のWriterへ回収可能にする。
 
 M12の同期実装では、Owner Thread限定の`EditorController` Save WorkflowがSession内Coordinatorを担い、`Cue.IO`のMove-only
-`FileWriteLease`をSave結果の状態記録まで保持する。排他用Family Keyは末尾に連鎖する`.backup`を除いた本文Comparison Keyから
-構築し、本文、Sibling Backup、BackupをScene Locatorとして扱うWriterを同じCross-process排他範囲へ束ねる。
+`FileWriteLease`をSave結果の状態記録まで保持する。排他用Keyは本文Comparison Keyから構築する。
 Lease Stateは取得元の正確なPath Keyと取得Thread IDも保持し、Conditional Publish先と実行Threadの一致を要求する。
 `FileWriteLease`のMove、Conditional Write、破棄は取得Threadに限定し、違反したWriteは拒否、違反した破棄はFatalとする。
 Named Mutex名は固定長Digestを使うため、有効な最大長Locatorへ追加Suffixを付けず、利用者FileをLock Entryとして開くこともない。
@@ -241,6 +240,9 @@ Backup元Byte列もExpected FingerprintのSize／Digestと照合し、一致し�
 Sibling BackupとAtomic Write用Temporary FileはFilesystem Adapterが本文LocatorからNative内部Pathとして導出し、
 Portable `RelativePath`のPath長・Segment長上限を再適用しない。Userが指定できるScene Locatorの有効範囲を内部Suffixや
 Temporary名の長さによって狭めず、導出先にもRoot境界、Reparse Point拒否、同一Directory公開の検査を適用する。
+WindowsのSibling Backupは本文と同じDirectoryに、利用者`RelativePath`では表現できない`.`開始のHidden Segmentとして導出する。
+`.backup`を含む有効な利用者Locatorは通常Fileとして独立させ、別Sceneの正本をRecovery Backupとして置換しない。
+この契約は`FilesystemRoot`の各Adapterが必ず実装し、Portable上限を再適用する共通既定実装は持たない。
 
 既存Destinationの置換について、WindowsのPath単位Fingerprint再検査と`MoveFileExW`による公開の間を、Lease Protocolへ参加しない
 Processに対してAtomicなCompare-and-Publishにはできない。Publish後の再読込はCandidateが公開されたことの検証であり、その間に上書きした

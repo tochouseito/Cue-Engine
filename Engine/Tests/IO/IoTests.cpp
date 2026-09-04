@@ -126,6 +126,23 @@ class TestDirectory final
     return std::wstring(a_text.begin(), a_text.end());
 }
 
+/// @brief 利用者LocatorからWindows AdapterのHidden Recovery Backup Native Pathを生成する
+[[nodiscard]] std::wstring native_recovery_backup_path(const TestDirectory &a_directory,
+                                                        std::string_view a_destination)
+{
+    std::wstring relative = widen_ascii(a_destination);
+    for (wchar_t &character : relative)
+    {
+        if (character == L'/')
+        {
+            character = L'\\';
+        }
+    }
+    const std::size_t separator = relative.find_last_of(L'\\');
+    relative.insert(separator == std::wstring::npos ? 0U : separator + 1U, L".CueBackup-");
+    return L"\\\\?\\" + a_directory.child_path(relative);
+}
+
 enum class FailurePoint : std::uint8_t
 {
     None,
@@ -227,6 +244,13 @@ class FailingFilesystemRoot final : public cue::FilesystemRoot
             return cue::Result<void>::failure(make_durability_failure());
         }
         return cue::Result<void>::success();
+    }
+
+    /// @brief Recovery Backup公開FailureをTest DoubleのIO失敗へ変換する
+    [[nodiscard]] cue::Result<void> write_recovery_backup_atomic(
+        const cue::RelativePath &, std::span<const std::byte>, const cue::AssertContext &) noexcept override
+    {
+        return cue::Result<void>::failure(make_failure());
     }
 
     [[nodiscard]] cue::Result<cue::FileWriteLease> acquire_file_write_lease(const cue::RelativePath &) noexcept override
@@ -462,16 +486,7 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     {
         return false;
     }
-    std::wstring maximumPathNativeText = widen_ascii(maximumPathText);
-    for (wchar_t &character : maximumPathNativeText)
-    {
-        if (character == L'/')
-        {
-            character = L'\\';
-        }
-    }
-    const std::wstring maximumPathBackupNative =
-        L"\\\\?\\" + a_directory.child_path(maximumPathNativeText) + L".backup";
+    const std::wstring maximumPathBackupNative = native_recovery_backup_path(a_directory, maximumPathText);
     if (GetFileAttributesW(maximumPathBackupNative.c_str()) == INVALID_FILE_ATTRIBUTES)
     {
         return false;
@@ -501,7 +516,8 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     const std::string maximumSegmentText(64U, 'x');
     auto maximumSegment = cue::RelativePath::parse(maximumSegmentText, a_assertContext);
     if (!expected || !competingRoot || !backup || !formerSidecar || !maximumSegment ||
-        !a_filesystem.write_file_atomic(*formerSidecar.try_value(), second))
+        !a_filesystem.write_file_atomic(*formerSidecar.try_value(), second) ||
+        !a_filesystem.write_file_atomic(*backup.try_value(), second))
     {
         return false;
     }
@@ -512,8 +528,8 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
             return false;
         }
         auto busy = (*competingRoot.try_value())->acquire_file_write_lease(*file.try_value());
-        auto backupBusy = (*competingRoot.try_value())->acquire_file_write_lease(*backup.try_value());
-        if (!has_io_error(busy, cue::IoError::Busy) || !has_io_error(backupBusy, cue::IoError::Busy) ||
+        auto backupLease = (*competingRoot.try_value())->acquire_file_write_lease(*backup.try_value());
+        if (!has_io_error(busy, cue::IoError::Busy) || !backupLease ||
             !a_filesystem.write_file_atomic_if_unchanged(*lease.try_value(), *file.try_value(), *expected.try_value(),
                                                          16U, first))
         {
@@ -529,9 +545,18 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     {
         return false;
     }
-    const std::wstring maximumBackupNative =
-        a_directory.child_path(widen_ascii(maximumSegmentText) + L".backup");
+    const std::wstring maximumBackupNative = native_recovery_backup_path(a_directory, maximumSegmentText);
     if (GetFileAttributesW(maximumBackupNative.c_str()) == INVALID_FILE_ATTRIBUTES)
+    {
+        return false;
+    }
+    if (!a_filesystem.write_recovery_backup_atomic(*file.try_value(), first, a_assertContext))
+    {
+        return false;
+    }
+    auto preservedUserBackup = a_filesystem.read_file(*backup.try_value(), 16U);
+    if (!preservedUserBackup ||
+        *preservedUserBackup.try_value() != std::vector<std::byte>(second.begin(), second.end()))
     {
         return false;
     }
