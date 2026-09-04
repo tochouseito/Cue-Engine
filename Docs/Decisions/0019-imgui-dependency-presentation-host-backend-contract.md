@@ -268,6 +268,13 @@ Executeより後ろへ並ぶこの予約値だけから更新する。Signal失�
 完了時だけRenderer Backend Shutdown以降の終了順へ進む。待機中の`UINT64_MAX`はDevice Removal経路、完了もRemovalも
 証明できない失敗はResourceを解放しないFatal経路とし、Fence値のWrapまたはSentinelのSignalを行わない。
 
+Fence枯渇を検出した時点で`Cue.ToolHost/ToolHostError::FenceValueExhausted`をPrimary Errorとして保存し、未描画Frameを
+正常成功へ変換しない。未提出またはDrain成功ではこのErrorを返してProcessを非0で終了する。Wait Error後に既存値の完了を
+証明できた場合もFence枯渇をPrimaryに維持し、Wait ErrorをSecondary Contextとする。Drain中にDevice Removalを確認した場合は
+`ToolHostError::DeviceRemoved`をPrimaryへ昇格し、Removal ReasonをNative Error、Fence枯渇とWait ErrorをCause Contextとして
+待機なし制御解放へ進む。完了もRemovalも証明できない場合は`ToolHostError::GpuCompletionUnavailable`をPrimary、Fence枯渇と
+Wait／Removal確認ErrorをCause ContextとしてResource解放前にFatal Dispatchする。
+
 一つのUI FrameはOwner Threadだけで処理する。Windows Message、ImGui Frame、Semantic Intent適用、Application Service Mutation、
 ViewModel再取得、Draw Data提出を同じThreadで順序付ける。Background ThreadからImGui APIまたはProjectHubServiceを直接呼ばない。
 
@@ -315,6 +322,8 @@ Backend Integration TestはWindowとTool D3D12 Resourceを生成し、自動Clos
 Fault Injection TestはTerminal Signal／Wait成功、Timeout、Device Removal、Signal失敗後の予約値完了を分離し、GPU完了前に
 Renderer Backend Shutdownが呼ばれないこと、Fence値を再利用しないこと、Device Removalだけが待機なし解放へ進むこと、
 完了もRemovalも証明不能な経路がResource解放前にFatal Dispatchすることを検証する。
+Fence枯渇は`nextFenceValue`と`lastSignaledFence`を注入し、未提出0値の即時Cleanup、1以上のSignalなしDrain、Timeout、
+Device Removal、非Wrap／非Sentinel Signal、Primary ErrorとProcess非0終了を個別に検証する。
 Manual TestはProject作成、既存Project登録、Pin、一覧除外、Keyboard操作、Cancel、Editor Launch要求、正常Closeを確認する。
 
 Pixel完全一致、Theme、Font Raster差分、Docking、Multi-ViewportはM12 Gateに含めない。
