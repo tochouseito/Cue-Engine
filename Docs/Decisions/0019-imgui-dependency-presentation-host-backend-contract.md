@@ -260,8 +260,10 @@ Tool HostはQueue-globalな`nextFenceValue`を1から開始し、`UINT64_MAX`を
 UI DrawをExecuteする各SubmitとTerminal Signalは、全ての既発行値より大きい新規未使用値をSignal前に予約し、
 Signal成功／失敗にかかわらず巻き戻しまたは再利用を行わない。Frame Resourceの再利用値と最後のSubmit値は、対応する
 Executeより後ろへ並ぶこの予約値だけから更新する。Signal失敗後にGPU完了を証明できるのは、その失敗したSignal用に予約した
-未使用値へFence Completed Valueが到達した場合だけとし、過去の完了済み値を判定へ使用しない。次の予約値が`UINT64_MAX`へ
-達する場合は新しいExecuteを開始せず、既存Workを上記終了規則でDrainしてTool Sessionを終端する。
+未使用値へFence Completed Valueが到達した場合だけとし、過去の完了済み値を判定へ使用しない。Completed Valueは大小比較より先に
+`UINT64_MAX`か判定し、このSentinelなら予約値への到達として扱わず必ずDevice Removal経路へ移る。Sentinel以外の場合だけ
+予約値と比較する。次の予約値が`UINT64_MAX`へ達する場合は新しいExecuteを開始せず、既存Workを上記終了規則でDrainして
+Tool Sessionを終端する。
 
 一つのUI FrameはOwner Threadだけで処理する。Windows Message、ImGui Frame、Semantic Intent適用、Application Service Mutation、
 ViewModel再取得、Draw Data提出を同じThreadで順序付ける。Background ThreadからImGui APIまたはProjectHubServiceを直接呼ばない。
