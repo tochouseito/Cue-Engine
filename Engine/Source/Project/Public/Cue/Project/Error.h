@@ -26,7 +26,8 @@ enum class ProjectError : std::int64_t
     ProjectNotRegistered = 12,
     InvalidProjectLocator = 13,
     ProjectLocatorConflict = 14,
-    InvalidCompatibilityInput = 15
+    InvalidCompatibilityInput = 15,
+    InvalidPinOrder = 16
 };
 
 /// @brief Project Error を診断 Summary と共に生成する

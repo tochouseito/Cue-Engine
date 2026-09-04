@@ -222,7 +222,11 @@ class WorkspaceFilesystem final : public cue::FilesystemRoot
     if (!registry.set_project_pinned(first.try_value()->project_id(), true, a_assertContext) ||
         !registry.set_project_pinned(second.try_value()->project_id(), true, a_assertContext) ||
         registry.entries()[0].project_id() != first.try_value()->project_id() ||
+        !registry.move_pinned_project(second.try_value()->project_id(), 0U, a_assertContext) ||
+        registry.entries()[0].project_id() != second.try_value()->project_id() ||
+        !registry.move_pinned_project(first.try_value()->project_id(), 0U, a_assertContext) ||
         !registry.mark_project_missing(second.try_value()->project_id(), a_assertContext) ||
+        !registry.mark_project_available(second.try_value()->project_id(), a_assertContext) ||
         !registry.register_project(*second.try_value(), "C:/Projects/Second", 250U, a_assertContext) ||
         !registry.mark_project_missing(second.try_value()->project_id(), a_assertContext))
     {

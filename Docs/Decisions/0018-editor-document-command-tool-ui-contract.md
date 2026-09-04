@@ -410,6 +410,15 @@ Editorは起動後に同じ`Cue.Project` ParserでDescriptorを再読込し、Pr
 
 M12では複数Editor Processによる同一Project編集、Live IPC、Project Lock Protocolを決定しない。
 
+`Cue.ProjectHub`は`Cue.Foundation`、`Cue.IO`、`Cue.Project`だけへ依存するApplication Moduleとする。
+Platform Compositionは、Project Locatorの正規化と合成、RootのOpen、Project ID供給だけを`ProjectHubPlatform`として注入する。
+Root OpenはLocatorが存在しない場合を成功したNull Root、Access失敗を`Error`として区別し、ServiceがMissingとBrokenを混同しないようにする。
+
+Project Hub ViewModelはRecent RegistryのIdentity、順序、Pin、Locator状態に、Descriptor表示名とCompatibility結果を合成した
+Snapshotとする。Descriptor Parse、Blank Project生成、Compatibility判定、Recent永続化は既存`Cue.Project` APIを正本とし、
+ViewModelまたはImGui Adapterへ再実装しない。BrokenはDescriptorを修復せずEntry単位で隔離し、他のProject操作を継続可能にする。
+Recentからの除外はWorkspace Registryだけを更新し、Project Folderを削除するAPIをProject Hubへ設けない。
+
 ### Presentation Adapter
 
 ImGui AdapterはEditor Coreから取得した不変ViewModelを描画し、User入力をSemantic Intentとして返す。
