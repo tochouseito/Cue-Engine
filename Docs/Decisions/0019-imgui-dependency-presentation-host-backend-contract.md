@@ -299,7 +299,8 @@ ImGui Adapterは表示用ViewとPresentation Stateだけを読み、User操作�
 - Device Removal確認後はFenceをSignalまたはWaitせず、Removal Reasonを記録してDREDを一度だけBest-effortで採取する。
   DRED採取失敗は制御解放を妨げず、Message Sink detach、DirectX 12 Renderer Backend、Win32 Platform Backend、ImGui Context、
   Command Resource、Back Buffer、RTV／SRV Heap、Swap Chain／Binding、Fence／Event、Queue、Device、Windowの順に待機なしで解放し、
-  最初のErrorを記録してTool Sessionを終了する
+  `ToolHostError::DeviceRemoved`をPrimary、Removal ReasonをNative Error、Device Removal検出前の先行ErrorとDRED／Cleanup Errorを
+  発生順のCause Contextとして記録してTool Sessionを終了する。Device Removalでは先行Error維持より本規則を優先する
 - Fence Signal／Wait／待機Primitiveが失敗した場合は、Fence完了とDevice Removalを再検査する。Fence完了を確認できれば
   安全なResource解放を最後まで行って最初のErrorを返し、Device Removalを確認できれば上記経路へ移る。どちらも確認できなければ
   GPUが参照し得るNative Resourceを解放せず、ErrorとContextを一度Log／FlushしてFatal HandlerでProcessを終端する
