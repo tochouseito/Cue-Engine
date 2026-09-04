@@ -94,7 +94,12 @@ Option Dを採用し、Dear ImGuiをvcpkg Manifest Modeで導入する。
 - Dependency Control PlaneはRepository Rootの`ThirdParty`配下に置く
 - `ThirdParty/vcpkg.json`へDear ImGui Core、`win32-binding`、`dx12-binding`だけを宣言する
 - `ThirdParty/vcpkg-configuration.json`で公式vcpkg Registryと40文字のBaseline Commitを固定する
-- `ThirdParty/vcpkg-tool.json`で公式vcpkg RepositoryとTool Commit `f8be6942c0c5abd48bb325726d57af9ac39e251d`を固定する
+- `ThirdParty/vcpkg-tool.json`で公式vcpkg Repository、Tool Commit
+  `f8be6942c0c5abd48bb325726d57af9ac39e251d`、Tool Release `2026-03-04`、Windows x64 Tool Version
+  `2026-03-04-4b3e4c276b5b87a649e66341e11553e8c577459c`、実行Binary SHA-256
+  `13a1c66b9c7578427b3eda7eba2332b73d4fb86706e053ad6426dad2f354cbc3`、Tool Source SHA-512
+  `5eeffe70ab71a4d1ea1a836b5c16b60fbd318bfe1d4473bd2b9e03e089e81508b00d3b9368b2a1a8423010d9bf479500a00f03524f4e88aa3d444c2ef3b30ca1`
+  を固定する
 - 初期導入は確認済みbuiltin portのDear ImGui `1.92.6`を使用し、導入時のBaselineでVersionを固定する
 - `ThirdParty/vcpkg_installed`をProject専用Install Rootとし、生成物としてGit管理対象外にする
 - `ThirdParty/.tools/vcpkg`は明示Dependency Restoreだけが作成できるPin済みTool Checkoutとし、Git管理対象外にする
@@ -103,8 +108,12 @@ Option Dを採用し、Dear ImGuiをvcpkg Manifest Modeで導入する。
 - 第三者Sourceは変更、Copy、Patch、Rename、部分抽出しない
 - `Engine`配下には第三者Source、Header、Binary、License Copyを配置しない
 - Dependency Restoreは専用Script／CI Stepとして明示実行し、通常のCMake Configure中の暗黙Network取得は無効にする
-- Dependency Restoreは`VCPKG_ROOT`で指定されたCheckoutまたは`ThirdParty/.tools/vcpkg`のCommitを
-  `vcpkg-tool.json`と照合し、不一致ならInstall前に失敗する
+- Dependency Restoreは`ThirdParty/.tools/vcpkg`の管理Checkoutだけを実行元とし、外部`VCPKG_ROOT`を使用しない
+- Restore前に管理Checkoutの追跡対象WorktreeがCleanであること、HEAD Commit、
+  `scripts/vcpkg-tool-metadata.txt`のRelease／Source Hash、`vcpkg.exe version`、実行Binary SHA-256を
+  `vcpkg-tool.json`と照合する
+- 初回または実行Binary不一致時はPin済みClean Checkoutの`bootstrap-vcpkg.bat -disableMetrics`から再生成し、
+  再照合に失敗した場合はInstallを開始せず失敗する
 - Machine固有の絶対PathをRepositoryへ記録しない
 - Updateは専用Research／Maintenance IssueでUser承認を得て、Baseline、Version、License、API差分、3構成Buildを再検証する
 - Dear ImGui以外の外部LibraryをManifestへ追加する場合は、その変更前にUserの明示承認を得る
