@@ -118,15 +118,21 @@ class ProjectCreationOutcome final
     [[nodiscard]] bool is_recent_registered() const noexcept;
     /// @brief 生成済みProjectの正規化Locatorを返す
     [[nodiscard]] std::string_view project_locator() const noexcept;
-    /// @brief Project生成後のRecent登録失敗を返す。登録済みならnullptr
-    [[nodiscard]] const Error *try_registration_error() const noexcept;
+    /// @brief Project公開のDurabilityUnknown診断を返す。耐久性確認済みならnullptr
+    [[nodiscard]] const Error *try_creation_durability_error() const noexcept;
+    /// @brief Recent永続化の失敗またはDurabilityUnknown診断を返す。診断がなければnullptr
+    [[nodiscard]] const Error *try_recent_persistence_error() const noexcept;
 
   private:
     friend class ProjectHubService;
-    ProjectCreationOutcome(std::string &&a_projectLocator, std::optional<Error> &&a_registrationError) noexcept;
+    ProjectCreationOutcome(std::string &&a_projectLocator, bool a_isRecentRegistered,
+                           std::optional<Error> &&a_creationDurabilityError,
+                           std::optional<Error> &&a_recentPersistenceError) noexcept;
 
     std::string m_projectLocator;
-    std::optional<Error> m_registrationError;
+    bool m_isRecentRegistered;
+    std::optional<Error> m_creationDurabilityError;
+    std::optional<Error> m_recentPersistenceError;
 };
 
 /// @brief Project HubからEditor Processへ値だけで渡すLaunch契約
@@ -187,8 +193,9 @@ class ProjectHubService final
     [[nodiscard]] Result<void> refresh() noexcept;
     /// @brief Blank TemplateでProjectをAtomic生成しRecentへ登録する
     ///
-    /// Result失敗時はProjectが公開されていない。成功OutcomeでRecent未登録の場合もProject Folderは生成済みであり、
-    /// project_locatorをregister_projectへ渡してRecent登録だけを再試行する
+    /// DurabilityUnknown以外のResult失敗時はProjectが公開されていない。公開後のDurabilityUnknownは再Open検証し、
+    /// 成功Outcomeのcreation durability診断へ保持する。Recent未登録の場合はproject_locatorをregister_projectへ
+    /// 渡してRecent登録だけを再試行する
     [[nodiscard]] Result<ProjectCreationOutcome> create_blank_project(std::string_view a_parentLocator,
                                                                       std::string_view a_projectName,
                                                                       std::string_view a_displayName,
@@ -225,6 +232,7 @@ class ProjectHubService final
 
     [[nodiscard]] Result<PreparedRegistrySnapshot> prepare_registry_snapshot(
         RecentProjectRegistry &a_registry) noexcept;
+    void refresh_after_open_failure(Error &a_primary) noexcept;
     [[nodiscard]] Result<RecentProjectRegistry> clone_registry() const noexcept;
     [[nodiscard]] Result<void> commit_registry(RecentProjectRegistry &&a_registry) noexcept;
     [[nodiscard]] Result<ProjectId> parse_project_id(std::string_view a_projectId) const noexcept;

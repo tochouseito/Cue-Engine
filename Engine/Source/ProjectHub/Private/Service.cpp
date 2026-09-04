@@ -2,6 +2,7 @@
 
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Fatal.h>
+#include <Cue/IO/Error.h>
 #include <Cue/IO/Filesystem.h>
 #include <Cue/IO/RelativePath.h>
 #include <Cue/ProjectHub/Error.h>
@@ -15,6 +16,12 @@
 
 namespace
 {
+[[nodiscard]] bool is_durability_unknown(const cue::Error &a_error) noexcept
+{
+    return a_error.root_code().domain() == "Cue.IO" &&
+           a_error.root_code().value() == static_cast<std::int64_t>(cue::IoError::DurabilityUnknown);
+}
+
 [[nodiscard]] std::string make_version_text(const cue::EngineVersion &a_version)
 {
     return std::to_string(a_version.major) + "." + std::to_string(a_version.minor) + "." +
@@ -142,15 +149,18 @@ std::span<const ProjectRowView> ProjectHubService::projects() const noexcept
     return m_projects;
 }
 
-ProjectCreationOutcome::ProjectCreationOutcome(std::string &&a_projectLocator,
-                                               std::optional<Error> &&a_registrationError) noexcept
-    : m_projectLocator(std::move(a_projectLocator)), m_registrationError(std::move(a_registrationError))
+ProjectCreationOutcome::ProjectCreationOutcome(std::string &&a_projectLocator, bool a_isRecentRegistered,
+                                               std::optional<Error> &&a_creationDurabilityError,
+                                               std::optional<Error> &&a_recentPersistenceError) noexcept
+    : m_projectLocator(std::move(a_projectLocator)), m_isRecentRegistered(a_isRecentRegistered),
+      m_creationDurabilityError(std::move(a_creationDurabilityError)),
+      m_recentPersistenceError(std::move(a_recentPersistenceError))
 {
 }
 
 bool ProjectCreationOutcome::is_recent_registered() const noexcept
 {
-    return !m_registrationError.has_value();
+    return m_isRecentRegistered;
 }
 
 std::string_view ProjectCreationOutcome::project_locator() const noexcept
@@ -158,9 +168,14 @@ std::string_view ProjectCreationOutcome::project_locator() const noexcept
     return m_projectLocator;
 }
 
-const Error *ProjectCreationOutcome::try_registration_error() const noexcept
+const Error *ProjectCreationOutcome::try_creation_durability_error() const noexcept
 {
-    return m_registrationError ? &*m_registrationError : nullptr;
+    return m_creationDurabilityError ? &*m_creationDurabilityError : nullptr;
+}
+
+const Error *ProjectCreationOutcome::try_recent_persistence_error() const noexcept
+{
+    return m_recentPersistenceError ? &*m_recentPersistenceError : nullptr;
 }
 
 Result<void> ProjectHubService::refresh() noexcept
@@ -181,9 +196,16 @@ Result<void> ProjectHubService::refresh() noexcept
         auto saved = save_recent_project_registry(*m_workspaceFilesystem, candidate, *m_assertContext);
         if (!saved)
         {
-            return Result<void>::failure(reclassify_project_hub_error(
-                *m_assertContext, ProjectHubError::PersistenceFailure, "Project Hub registry state could not be saved",
-                std::move(*saved.try_error())));
+            const bool wasPublished = is_durability_unknown(*saved.try_error());
+            Error primary = reclassify_project_hub_error(*m_assertContext, ProjectHubError::PersistenceFailure,
+                                                         "Project Hub registry state could not be saved",
+                                                         std::move(*saved.try_error()));
+            if (wasPublished)
+            {
+                m_registry = std::move(candidate);
+                m_projects = std::move(prepared.try_value()->projects);
+            }
+            return Result<void>::failure(std::move(primary));
         }
         m_registry = std::move(candidate);
     }
@@ -337,35 +359,85 @@ Result<ProjectCreationOutcome> ProjectHubService::create_blank_project(std::stri
     auto descriptor =
         generate_blank_project(**parentRoot.try_value(), a_projectName, a_displayName, *projectId.try_value(),
                                BlankProjectTemplate{m_configuration.blankProjectCompatibility}, *m_assertContext);
+    std::optional<Error> creationDurabilityError;
     if (!descriptor)
     {
-        return Result<ProjectCreationOutcome>::failure(std::move(*descriptor.try_error()));
+        if (!is_durability_unknown(*descriptor.try_error()))
+        {
+            return Result<ProjectCreationOutcome>::failure(std::move(*descriptor.try_error()));
+        }
+        creationDurabilityError.emplace(std::move(*descriptor.try_error()));
+        auto publishedRoot = m_platform->open_root(*projectLocator.try_value());
+        if (!publishedRoot)
+        {
+            creationDurabilityError->append_secondary_diagnostics(*m_assertContext, *publishedRoot.try_error(),
+                                                                  "Published project re-open failed", "Revalidation");
+        }
+        else if (*publishedRoot.try_value() == nullptr)
+        {
+            Error revalidation = make_project_hub_error(*m_assertContext, ProjectHubError::ProjectMissing,
+                                                        "Published project was not found during revalidation");
+            creationDurabilityError->append_secondary_diagnostics(
+                *m_assertContext, revalidation, "Published project re-open returned no root", "Revalidation");
+        }
+        else
+        {
+            auto publishedDescriptor = load_project_descriptor(**publishedRoot.try_value(), *m_assertContext);
+            if (!publishedDescriptor)
+            {
+                creationDurabilityError->append_secondary_diagnostics(
+                    *m_assertContext, *publishedDescriptor.try_error(), "Published project descriptor is invalid",
+                    "Revalidation");
+            }
+            else if (publishedDescriptor.try_value()->project_id() != *projectId.try_value())
+            {
+                Error revalidation =
+                    make_project_hub_error(*m_assertContext, ProjectHubError::ProjectIdentityMismatch,
+                                           "Published project identity differs from the generated identity");
+                creationDurabilityError->append_secondary_diagnostics(
+                    *m_assertContext, revalidation, "Published project identity verification failed", "Revalidation");
+            }
+            else
+            {
+                descriptor = Result<ProjectDescriptor>::success(std::move(*publishedDescriptor.try_value()));
+            }
+        }
+        if (!descriptor)
+        {
+            std::optional<Error> recentPersistenceError;
+            return Result<ProjectCreationOutcome>::success(
+                ProjectCreationOutcome(std::string(*projectLocator.try_value()), false,
+                                       std::move(creationDurabilityError), std::move(recentPersistenceError)));
+        }
     }
-    auto makeUnregisteredOutcome = [&projectLocator](Error &&a_error)
+    auto makeOutcome = [&projectLocator, &creationDurabilityError](bool a_isRecentRegistered, Error &&a_error)
     {
-        std::optional<Error> registrationError(std::in_place, std::move(a_error));
+        std::optional<Error> recentPersistenceError(std::in_place, std::move(a_error));
         return Result<ProjectCreationOutcome>::success(
-            ProjectCreationOutcome(std::string(*projectLocator.try_value()), std::move(registrationError)));
+            ProjectCreationOutcome(std::string(*projectLocator.try_value()), a_isRecentRegistered,
+                                   std::move(creationDurabilityError), std::move(recentPersistenceError)));
     };
     auto candidate = clone_registry();
     if (!candidate)
     {
-        return makeUnregisteredOutcome(std::move(*candidate.try_error()));
+        return makeOutcome(false, std::move(*candidate.try_error()));
     }
     auto registered = candidate.try_value()->register_project(*descriptor.try_value(), *projectLocator.try_value(),
                                                               a_openedMilliseconds, *m_assertContext);
     if (!registered)
     {
-        return makeUnregisteredOutcome(std::move(*registered.try_error()));
+        return makeOutcome(false, std::move(*registered.try_error()));
     }
     auto committed = commit_registry(std::move(*candidate.try_value()));
     if (!committed)
     {
-        return makeUnregisteredOutcome(std::move(*committed.try_error()));
+        const bool isRegistered = is_durability_unknown(*committed.try_error());
+        return makeOutcome(isRegistered, std::move(*committed.try_error()));
     }
-    std::optional<Error> registrationError;
-    return Result<ProjectCreationOutcome>::success(
-        ProjectCreationOutcome(std::string(*projectLocator.try_value()), std::move(registrationError)));
+    std::optional<Error> recentPersistenceError;
+    return Result<ProjectCreationOutcome>::success(ProjectCreationOutcome(std::string(*projectLocator.try_value()),
+                                                                          true, std::move(creationDurabilityError),
+                                                                          std::move(recentPersistenceError)));
 }
 
 Result<void> ProjectHubService::register_project(std::string_view a_locator, std::uint64_t a_openedMilliseconds,
@@ -464,15 +536,18 @@ Result<EditorLaunchRequest> ProjectHubService::open_project(
         auto descriptor = load_project_descriptor(**root.try_value(), *m_assertContext);
         if (!descriptor)
         {
-            return Result<EditorLaunchRequest>::failure(reclassify_project_hub_error(
-                *m_assertContext, ProjectHubError::ProjectBroken, "Project descriptor could not be loaded",
-                std::move(*descriptor.try_error())));
+            Error primary = reclassify_project_hub_error(*m_assertContext, ProjectHubError::ProjectBroken,
+                                                         "Project descriptor could not be loaded",
+                                                         std::move(*descriptor.try_error()));
+            refresh_after_open_failure(primary);
+            return Result<EditorLaunchRequest>::failure(std::move(primary));
         }
         if (descriptor.try_value()->project_id() != *projectId.try_value())
         {
-            return Result<EditorLaunchRequest>::failure(
-                make_project_hub_error(*m_assertContext, ProjectHubError::ProjectIdentityMismatch,
-                                       "Project descriptor identity differs from the Recent registry"));
+            Error primary = make_project_hub_error(*m_assertContext, ProjectHubError::ProjectIdentityMismatch,
+                                                   "Project descriptor identity differs from the Recent registry");
+            refresh_after_open_failure(primary);
+            return Result<EditorLaunchRequest>::failure(std::move(primary));
         }
         auto compatibility = evaluate_project_compatibility(
             descriptor.try_value()->schema_version(), m_configuration.supportedProjectFormatVersion,
@@ -480,12 +555,16 @@ Result<EditorLaunchRequest> ProjectHubService::open_project(
             m_configuration.capabilityProfile, m_configuration.capabilitySnapshot, *m_assertContext);
         if (!compatibility)
         {
-            return Result<EditorLaunchRequest>::failure(std::move(*compatibility.try_error()));
+            Error primary = std::move(*compatibility.try_error());
+            refresh_after_open_failure(primary);
+            return Result<EditorLaunchRequest>::failure(std::move(primary));
         }
         if (!compatibility.try_value()->can_open())
         {
-            return Result<EditorLaunchRequest>::failure(make_project_hub_error(
-                *m_assertContext, ProjectHubError::ProjectUnsupported, "Project cannot be opened by this engine"));
+            Error primary = make_project_hub_error(*m_assertContext, ProjectHubError::ProjectUnsupported,
+                                                   "Project cannot be opened by this engine");
+            refresh_after_open_failure(primary);
+            return Result<EditorLaunchRequest>::failure(std::move(primary));
         }
         std::optional<std::string> sceneLocator;
         if (a_initialSceneLocator.has_value())
@@ -594,6 +673,16 @@ Result<RecentProjectRegistry> ProjectHubService::clone_registry() const noexcept
     return parse_recent_project_registry(*serialized.try_value(), *m_assertContext);
 }
 
+void ProjectHubService::refresh_after_open_failure(Error &a_primary) noexcept
+{
+    auto refreshed = refresh();
+    if (!refreshed)
+    {
+        a_primary.append_secondary_diagnostics(*m_assertContext, *refreshed.try_error(),
+                                               "Project Hub view refresh failed after open rejection", "Refresh");
+    }
+}
+
 Result<void> ProjectHubService::commit_registry(RecentProjectRegistry &&a_registry) noexcept
 {
     auto prepared = prepare_registry_snapshot(a_registry);
@@ -604,9 +693,18 @@ Result<void> ProjectHubService::commit_registry(RecentProjectRegistry &&a_regist
     auto saved = save_recent_project_registry(*m_workspaceFilesystem, a_registry, *m_assertContext);
     if (!saved)
     {
-        return Result<void>::failure(reclassify_project_hub_error(*m_assertContext, ProjectHubError::PersistenceFailure,
-                                                                  "Project Hub registry could not be saved",
-                                                                  std::move(*saved.try_error())));
+        const bool wasPublished = is_durability_unknown(*saved.try_error());
+        Error primary =
+            reclassify_project_hub_error(*m_assertContext, ProjectHubError::PersistenceFailure,
+                                         wasPublished ? "Project Hub registry durability could not be confirmed"
+                                                      : "Project Hub registry could not be saved",
+                                         std::move(*saved.try_error()));
+        if (wasPublished)
+        {
+            m_registry = std::move(a_registry);
+            m_projects = std::move(prepared.try_value()->projects);
+        }
+        return Result<void>::failure(std::move(primary));
     }
     m_registry = std::move(a_registry);
     m_projects = std::move(prepared.try_value()->projects);

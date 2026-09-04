@@ -1,6 +1,7 @@
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Fatal.h>
 #include <Cue/Foundation/Log.h>
+#include <Cue/IO/Error.h>
 #include <Cue/IO/Windows/WindowsFilesystem.h>
 #include <Cue/ProjectHub/Error.h>
 #include <Cue/ProjectHub/Service.h>
@@ -92,6 +93,16 @@ class FailingWorkspaceFilesystem final : public cue::FilesystemRoot
         m_shouldFail = a_shouldFail;
     }
 
+    void set_write_durability_unknown(bool a_shouldFail) noexcept
+    {
+        m_writeDurabilityUnknown = a_shouldFail;
+    }
+
+    void set_publish_durability_unknown(bool a_shouldFail) noexcept
+    {
+        m_publishDurabilityUnknown = a_shouldFail;
+    }
+
     void reset_write_count() noexcept
     {
         m_writeCount = 0U;
@@ -128,7 +139,17 @@ class FailingWorkspaceFilesystem final : public cue::FilesystemRoot
                 *m_assertContext, cue::project_hub::ProjectHubError::PersistenceFailure,
                 "Test workspace write failure"));
         }
-        return m_inner->write_file_atomic(a_path, a_bytes);
+        auto written = m_inner->write_file_atomic(a_path, a_bytes);
+        if (!written)
+        {
+            return written;
+        }
+        if (m_writeDurabilityUnknown)
+        {
+            return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::DurabilityUnknown,
+                                                                 "Test workspace durability is unknown"));
+        }
+        return cue::Result<void>::success();
     }
 
     [[nodiscard]] cue::Result<void> write_recovery_backup_atomic(
@@ -167,7 +188,18 @@ class FailingWorkspaceFilesystem final : public cue::FilesystemRoot
     [[nodiscard]] cue::Result<void> publish_staging_area(cue::StagingArea &&a_staging,
                                                          const cue::RelativePath &a_destination) noexcept override
     {
-        return m_inner->publish_staging_area(std::move(a_staging), a_destination);
+        auto published = m_inner->publish_staging_area(std::move(a_staging), a_destination);
+        if (!published)
+        {
+            return published;
+        }
+        if (m_publishDurabilityUnknown)
+        {
+            m_publishDurabilityUnknown = false;
+            return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::DurabilityUnknown,
+                                                                 "Test project publish durability is unknown"));
+        }
+        return cue::Result<void>::success();
     }
 
     [[nodiscard]] cue::Result<void> rollback_staging_area(cue::StagingArea &&a_staging) noexcept override
@@ -179,6 +211,8 @@ class FailingWorkspaceFilesystem final : public cue::FilesystemRoot
     std::unique_ptr<cue::FilesystemRoot> m_inner;
     const cue::AssertContext *m_assertContext;
     bool m_shouldFail = false;
+    bool m_writeDurabilityUnknown = false;
+    bool m_publishDurabilityUnknown = false;
     std::size_t m_writeCount = 0U;
 };
 
@@ -188,6 +222,11 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
     explicit TestProjectHubPlatform(const cue::AssertContext &a_assertContext) noexcept
         : m_assertContext(&a_assertContext)
     {
+    }
+
+    void set_next_project_publish_durability_unknown() noexcept
+    {
+        m_nextProjectPublishDurabilityUnknown = true;
     }
 
     [[nodiscard]] cue::Result<std::string> normalize_project_locator(std::string_view a_locator) noexcept override
@@ -265,7 +304,17 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
                 std::unique_ptr<cue::FilesystemRoot> missing;
                 return cue::Result<std::unique_ptr<cue::FilesystemRoot>>::success(std::move(missing));
             }
-            return cue::create_windows_filesystem_root(to_utf8(path), *m_assertContext);
+            auto root = cue::create_windows_filesystem_root(to_utf8(path), *m_assertContext);
+            if (!root || !m_nextProjectPublishDurabilityUnknown)
+            {
+                return root;
+            }
+            m_nextProjectPublishDurabilityUnknown = false;
+            auto injected =
+                std::make_unique<FailingWorkspaceFilesystem>(std::move(*root.try_value()), *m_assertContext);
+            injected->set_publish_durability_unknown(true);
+            std::unique_ptr<cue::FilesystemRoot> result(std::move(injected));
+            return cue::Result<std::unique_ptr<cue::FilesystemRoot>>::success(std::move(result));
         }
         catch (...)
         {
@@ -278,7 +327,8 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
     {
         constexpr std::string_view ids[] = {
             "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002",
-            "00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000004"};
+            "00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000004",
+            "00000000-0000-4000-8000-000000000005"};
         if (m_nextIdentity >= std::size(ids))
         {
             return cue::Result<cue::ProjectId>::failure(cue::project_hub::make_project_hub_error(
@@ -291,6 +341,7 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
   private:
     const cue::AssertContext *m_assertContext;
     std::size_t m_nextIdentity = 0U;
+    bool m_nextProjectPublishDurabilityUnknown = false;
 };
 
 [[nodiscard]] cue::Result<cue::project_hub::ProjectHubConfiguration> make_configuration(
@@ -372,6 +423,7 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
     constexpr std::string_view bravoId = "00000000-0000-4000-8000-000000000002";
     constexpr std::string_view charlieId = "00000000-0000-4000-8000-000000000003";
     constexpr std::string_view deltaId = "00000000-0000-4000-8000-000000000004";
+    constexpr std::string_view echoId = "00000000-0000-4000-8000-000000000005";
     const auto *alpha = find_project(service.try_value()->get()->projects(), alphaId);
     if (alpha == nullptr || alpha->state != cue::project_hub::ProjectEntryState::Available || !alpha->canOpen ||
         alpha->compatibilityStatus != cue::ProjectCompatibilityStatus::Compatible ||
@@ -454,8 +506,12 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
         return false;
     }
 
-    if (!overwrite_descriptor(directory.path() / "Projects" / "Charlie" / "CueProject.json", "{broken") ||
-        !service.try_value()->get()->refresh())
+    if (!overwrite_descriptor(directory.path() / "Projects" / "Charlie" / "CueProject.json", "{broken"))
+    {
+        return false;
+    }
+    auto brokenLaunch = service.try_value()->get()->open_project(charlieId, 525U);
+    if (brokenLaunch)
     {
         return false;
     }
@@ -466,17 +522,43 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
         return false;
     }
 
+    workspaceFilesystem.set_write_durability_unknown(true);
+    auto uncertainPin = service.try_value()->get()->set_project_pinned(charlieId, true);
+    workspaceFilesystem.set_write_durability_unknown(false);
+    const auto *durabilitySynchronizedCharlie = find_project(service.try_value()->get()->projects(), charlieId);
+    if (uncertainPin || uncertainPin.try_error()->root_code().domain() != "Cue.IO" ||
+        uncertainPin.try_error()->root_code().value() != static_cast<std::int64_t>(cue::IoError::DurabilityUnknown) ||
+        durabilitySynchronizedCharlie == nullptr || !durabilitySynchronizedCharlie->isPinned)
+    {
+        return false;
+    }
+
     workspaceFilesystem.set_write_failure(true);
     auto partiallyCreated = service.try_value()->get()->create_blank_project(
         projectsLocator, "Delta", "Delta Project", cue::project_hub::k_blank3dTemplateId, 550U);
     workspaceFilesystem.set_write_failure(false);
     if (!partiallyCreated || partiallyCreated.try_value()->is_recent_registered() ||
-        partiallyCreated.try_value()->try_registration_error() == nullptr ||
+        partiallyCreated.try_value()->try_recent_persistence_error() == nullptr ||
         !std::filesystem::exists(directory.path() / "Projects" / "Delta" / "CueProject.json") ||
         find_project(service.try_value()->get()->projects(), deltaId) != nullptr ||
         !service.try_value()->get()->register_project(partiallyCreated.try_value()->project_locator(), 550U, false) ||
         find_project(service.try_value()->get()->projects(), deltaId) == nullptr ||
         !service.try_value()->get()->remove_project(deltaId))
+    {
+        return false;
+    }
+
+    platform.set_next_project_publish_durability_unknown();
+    auto uncertainCreation = service.try_value()->get()->create_blank_project(
+        projectsLocator, "Echo", "Echo Project", cue::project_hub::k_blank3dTemplateId, 575U);
+    if (!uncertainCreation || !uncertainCreation.try_value()->is_recent_registered() ||
+        uncertainCreation.try_value()->try_creation_durability_error() == nullptr ||
+        uncertainCreation.try_value()->try_recent_persistence_error() != nullptr ||
+        uncertainCreation.try_value()->try_creation_durability_error()->root_code().domain() != "Cue.IO" ||
+        uncertainCreation.try_value()->try_creation_durability_error()->root_code().value() !=
+            static_cast<std::int64_t>(cue::IoError::DurabilityUnknown) ||
+        find_project(service.try_value()->get()->projects(), echoId) == nullptr ||
+        !service.try_value()->get()->remove_project(echoId))
     {
         return false;
     }
@@ -504,7 +586,8 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
         workspaceFilesystem, platform, std::move(*restartedConfiguration.try_value()), a_assertContext);
     return restarted && restarted.try_value()->get()->projects().size() == 2U &&
            find_project(restarted.try_value()->get()->projects(), bravoId) != nullptr &&
-           find_project(restarted.try_value()->get()->projects(), charlieId) != nullptr;
+           find_project(restarted.try_value()->get()->projects(), charlieId) != nullptr &&
+           find_project(restarted.try_value()->get()->projects(), charlieId)->isPinned;
 }
 } // namespace
 
