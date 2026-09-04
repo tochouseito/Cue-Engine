@@ -322,6 +322,7 @@ State ID、Scene Data Digestを含む。既知の古いVersionは`N -> N + 1`の
 
 Recovery書込み成功は`savedStateId`を更新しない。起動時に有効なRecoveryを検出した場合は、正本を暗黙置換せず、Recover、Discard、
 Inspectの明示Intentを要求する。Recover後のDocumentはDirtyな新Stateとして開き、通常Saveが成功するまで正本としない。
+Autosave対象はDirtyなDocumentに加え、`currentStateId == savedStateId`でも保存先をまだ持たない新規Documentを含む。
 `ignore_recovery`は現在Sessionの表示だけを解除し、`discard_recovery`はSaved RootのRecovery File削除成功時だけ候補を解除する。
 削除失敗時はRecovery Fileと候補状態を維持する。
 
@@ -374,6 +375,7 @@ Save完了後は、同期／非同期の実装方式にかかわらず、Close�
 Save Uncertainが存在しないことを再確認する。保存開始後に編集が進んだ場合やUncertainが残る場合はDocumentを閉じず、
 新しい状態に対するSave、Discard、Cancelを選択する`AwaitingDecision`へ戻す。
 Lease取得、Fingerprint取得、Serializationを含む保存前の失敗も`SaveRequested`へ留めず、同じ`AwaitingDecision`へ戻す。
+Save UncertainのRetryも、失敗または再び不確定な結果になった場合はPending Recordを維持したまま`AwaitingDecision`へ戻す。
 
 DiscardはMemory上のEditorDocumentを閉じるだけで、正本FileやRecovery Fileを削除しない。Recovery削除は別の明示Intentとする。
 

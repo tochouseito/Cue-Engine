@@ -627,17 +627,33 @@ Result<std::vector<scene::SceneSaveStatus>> EditorController::save_all_documents
 Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocumentId a_documentId) noexcept
 {
     assert_owner_thread();
-    auto services = require_persistence_services();
-    if (!services)
-    {
-        return Result<scene::SceneSaveStatus>::failure(std::move(*services.try_error()));
-    }
     EditorDocument *document = find_document(a_documentId);
     if (document == nullptr)
     {
         return Result<scene::SceneSaveStatus>::failure(
             make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
                                        "Editor document was not found", a_documentId.value()));
+    }
+
+    struct RetryCloseGuard final
+    {
+        /// @brief 未確定または失敗したRetry後にClose判断待ちへ戻す
+        ~RetryCloseGuard()
+        {
+            if (!dismissed && *state == DocumentCloseState::SaveRequested)
+            {
+                *state = DocumentCloseState::AwaitingDecision;
+            }
+        }
+
+        DocumentCloseState *state;
+        bool dismissed = false;
+    } closeGuard{&document->m_closeState};
+
+    auto services = require_persistence_services();
+    if (!services)
+    {
+        return Result<scene::SceneSaveStatus>::failure(std::move(*services.try_error()));
     }
     if (!document->m_pendingSave.has_value() || document->m_persistenceState != DocumentPersistenceState::SaveUncertain)
     {
@@ -829,9 +845,14 @@ Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocu
     {
         document->m_locator = std::move(destination);
     }
+    closeGuard.dismissed = true;
     auto marked = mark_saved(a_documentId, savedState);
     if (!marked)
     {
+        if (document->m_closeState == DocumentCloseState::SaveRequested)
+        {
+            document->m_closeState = DocumentCloseState::AwaitingDecision;
+        }
         return Result<scene::SceneSaveStatus>::failure(std::move(*marked.try_error()));
     }
     return Result<scene::SceneSaveStatus>::success(std::move(status));
@@ -953,7 +974,7 @@ Result<void> EditorController::autosave_recovery(EditorDocumentId a_documentId) 
         return Result<void>::failure(make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
                                                                 "Editor document was not found", a_documentId.value()));
     }
-    if (!document->is_dirty())
+    if (!document->is_dirty() && document->m_hasSavedDestination)
     {
         return Result<void>::success();
     }

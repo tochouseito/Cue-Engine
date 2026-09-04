@@ -1243,6 +1243,19 @@ void test_scene_persistence_workflow() noexcept
     require(secondDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::SaveUncertain);
     require(secondDocument->requires_close_decision());
     sourceAssets.make_write_uncertain("Scenes/Second.cuescene", false);
+    require(take_value(controller->request_close(secondDocumentId)) ==
+            cue::editor_core::DocumentCloseState::AwaitingDecision);
+    require(take_value(controller->respond_to_close(secondDocumentId, cue::editor_core::CloseDecision::Save)) ==
+            cue::editor_core::DocumentCloseState::SaveRequested);
+    sourceAssets.fail_lease("Scenes/Second.cuescene", true);
+    require(!controller->retry_uncertain_save(secondDocumentId).has_value());
+    sourceAssets.fail_lease("Scenes/Second.cuescene", false);
+    secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr);
+    require(secondDocument->close_state() == cue::editor_core::DocumentCloseState::AwaitingDecision);
+    require(secondDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::SaveUncertain);
+    require(take_value(controller->respond_to_close(secondDocumentId, cue::editor_core::CloseDecision::Cancel)) ==
+            cue::editor_core::DocumentCloseState::Open);
     require(!controller->reload_document(secondDocumentId).has_value());
     secondDocument = controller->session().find_document(secondDocumentId);
     require(secondDocument != nullptr && secondDocument->is_dirty());
@@ -1351,8 +1364,17 @@ void test_scene_persistence_workflow() noexcept
     require(mainUncertainSave.try_value()->status() == cue::scene::SceneSaveStatus::PublishedButDurabilityUnknown);
     sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene", false);
     sourceAssets.make_recovery_backup_uncertain("Scenes/Second-Renamed.cuescene", true);
+    require(take_value(controller->request_close(secondDocumentId)) ==
+            cue::editor_core::DocumentCloseState::AwaitingDecision);
+    require(take_value(controller->respond_to_close(secondDocumentId, cue::editor_core::CloseDecision::Save)) ==
+            cue::editor_core::DocumentCloseState::SaveRequested);
     require(take_value(controller->retry_uncertain_save(secondDocumentId)) ==
             cue::scene::SceneSaveStatus::PublishedButBackupDurabilityUnknown);
+    secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr);
+    require(secondDocument->close_state() == cue::editor_core::DocumentCloseState::AwaitingDecision);
+    require(take_value(controller->respond_to_close(secondDocumentId, cue::editor_core::CloseDecision::Cancel)) ==
+            cue::editor_core::DocumentCloseState::Open);
     require(sourceAssets.recovery_backup_text("Scenes/Second-Renamed.cuescene") == mainThenBackupSource);
     sourceAssets.make_recovery_backup_uncertain("Scenes/Second-Renamed.cuescene", false);
     sourceAssets.fail_write("Scenes/Second-Renamed.cuescene", true);
@@ -1409,6 +1431,23 @@ void test_scene_persistence_workflow() noexcept
     require(secondDocument != nullptr && secondDocument->is_dirty());
     require(secondDocument->external_change_state() == cue::editor_core::ExternalChangeState::Modified);
     require(sourceAssets.text("Scenes/Second-Renamed.cuescene") == secondOriginalJson);
+
+    auto unsavedRecoveryScene =
+        make_scene_document("00000000-0000-4000-8000-000000000703", assertContext);
+    const auto unsavedRecoveryRoot = make_object_id("00000000-0000-4000-8000-000000000713", assertContext);
+    require(unsavedRecoveryScene
+                .add_object(unsavedRecoveryRoot, "Unsaved Recovery", true, std::nullopt, cue::math::Transform{})
+                .has_value());
+    const auto unsavedRecoveryId = take_value(controller->open_document(
+        std::move(unsavedRecoveryScene),
+        take_value(cue::RelativePath::parse("Scenes/Unsaved-Recovery.cuescene", assertContext)), false));
+    const auto *unsavedRecoveryDocument = controller->session().find_document(unsavedRecoveryId);
+    require(unsavedRecoveryDocument != nullptr && !unsavedRecoveryDocument->is_dirty() &&
+            !unsavedRecoveryDocument->has_saved_destination());
+    require(controller->autosave_recovery(unsavedRecoveryId).has_value());
+    unsavedRecoveryDocument = controller->session().find_document(unsavedRecoveryId);
+    require(unsavedRecoveryDocument != nullptr && unsavedRecoveryDocument->has_recovery_candidate());
+    require(!savedRoot.text("Editor/Recovery/00000000-0000-4000-8000-000000000703.cuerecovery").empty());
 
     require(controller
                 ->execute_command(cue::editor_core::SceneCommandRequest{
