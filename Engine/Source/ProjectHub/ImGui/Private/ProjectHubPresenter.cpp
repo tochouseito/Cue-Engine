@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -109,6 +110,69 @@ bool input_locator(const char *a_label, std::string &a_value, const cue::AssertC
     return ImGui::InputText(a_label, a_value.data(), a_value.capacity() + 1U, ImGuiInputTextFlags_CallbackResize,
                             resize_string_input, &context);
 }
+
+/// @brief Font AtlasにないUnicode Scalarを識別可能なASCII表記へ変換する
+[[nodiscard]] std::string make_renderable_text(std::string_view a_text)
+{
+    std::string rendered;
+    rendered.reserve(a_text.size());
+    const char *cursor = a_text.data();
+    const char *const end = cursor + a_text.size();
+    ImFont *font = ImGui::GetFont();
+    constexpr char k_hexDigits[] = "0123456789ABCDEF";
+    while (cursor < end)
+    {
+        const auto first = static_cast<unsigned char>(*cursor);
+        unsigned int scalar = first;
+        int byteCount = 1;
+        if ((first & 0xE0U) == 0xC0U && end - cursor >= 2)
+        {
+            scalar = static_cast<unsigned int>(first & 0x1FU) << 6U;
+            scalar |= static_cast<unsigned char>(cursor[1]) & 0x3FU;
+            byteCount = 2;
+        }
+        else if ((first & 0xF0U) == 0xE0U && end - cursor >= 3)
+        {
+            scalar = static_cast<unsigned int>(first & 0x0FU) << 12U;
+            scalar |= static_cast<unsigned int>(static_cast<unsigned char>(cursor[1]) & 0x3FU) << 6U;
+            scalar |= static_cast<unsigned char>(cursor[2]) & 0x3FU;
+            byteCount = 3;
+        }
+        else if ((first & 0xF8U) == 0xF0U && end - cursor >= 4)
+        {
+            scalar = static_cast<unsigned int>(first & 0x07U) << 18U;
+            scalar |= static_cast<unsigned int>(static_cast<unsigned char>(cursor[1]) & 0x3FU) << 12U;
+            scalar |= static_cast<unsigned int>(static_cast<unsigned char>(cursor[2]) & 0x3FU) << 6U;
+            scalar |= static_cast<unsigned char>(cursor[3]) & 0x3FU;
+            byteCount = 4;
+        }
+        else if (first >= 0x80U)
+        {
+            scalar = 0xFFFDU;
+        }
+        const bool isRepresentable = scalar <= static_cast<unsigned int>((std::numeric_limits<ImWchar>::max)());
+        if (font != nullptr && isRepresentable && font->IsGlyphInFont(static_cast<ImWchar>(scalar)))
+        {
+            rendered.append(cursor, static_cast<std::size_t>(byteCount));
+            cursor += byteCount;
+            continue;
+        }
+
+        rendered.append("[U+");
+        int highestShift = 12;
+        while (highestShift < 20 && scalar >= (1U << (highestShift + 4)))
+        {
+            highestShift += 4;
+        }
+        for (int shift = highestShift; shift >= 0; shift -= 4)
+        {
+            rendered.push_back(k_hexDigits[(scalar >> shift) & 0x0FU]);
+        }
+        rendered.push_back(']');
+        cursor += byteCount;
+    }
+    return rendered;
+}
 } // namespace
 
 namespace cue::project_hub
@@ -145,7 +209,7 @@ Result<std::unique_ptr<ProjectHubPresenter>> ProjectHubPresenter::create(Project
     }
 }
 
-void ProjectHubPresenter::draw() noexcept
+void ProjectHubPresenter::draw(bool a_canLaunchEditor) noexcept
 {
     if (ImGui::IsKeyPressed(ImGuiKey_Escape) && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId))
     {
@@ -188,7 +252,7 @@ void ProjectHubPresenter::draw() noexcept
             }
         }
         ImGui::Separator();
-        draw_project_list();
+        draw_project_list(a_canLaunchEditor);
         if (!m_message.empty())
         {
             ImGui::Separator();
@@ -205,7 +269,7 @@ void ProjectHubPresenter::draw() noexcept
     draw_remove_dialog();
 }
 
-void ProjectHubPresenter::draw_project_list() noexcept
+void ProjectHubPresenter::draw_project_list(bool a_canLaunchEditor) noexcept
 {
     std::string openProjectId;
     std::string pinProjectId;
@@ -221,7 +285,7 @@ void ProjectHubPresenter::draw_project_list() noexcept
                 if (ImGui::Selectable("##ProjectRow", isSelected, ImGuiSelectableFlags_AllowDoubleClick))
                 {
                     m_selectedProjectId = project.projectId;
-                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && project.canOpen)
+                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && project.canOpen && a_canLaunchEditor)
                     {
                         openProjectId = project.projectId;
                     }
@@ -230,10 +294,11 @@ void ProjectHubPresenter::draw_project_list() noexcept
                 const ImVec2 rowMinimum = ImGui::GetItemRectMin();
                 const ImVec2 rowMaximum = ImGui::GetItemRectMax();
                 const float textOffset = (rowMaximum.y - rowMinimum.y - ImGui::GetTextLineHeight()) * 0.5F;
+                const std::string renderedDisplayName = make_renderable_text(project.displayName);
                 drawList->PushClipRect(rowMinimum, ImVec2(rowMinimum.x + 250.0F, rowMaximum.y), true);
                 drawList->AddText(ImVec2(rowMinimum.x + ImGui::GetStyle().FramePadding.x, rowMinimum.y + textOffset),
-                                  ImGui::GetColorU32(ImGuiCol_Text), project.displayName.data(),
-                                  project.displayName.data() + project.displayName.size());
+                                  ImGui::GetColorU32(ImGuiCol_Text), renderedDisplayName.data(),
+                                  renderedDisplayName.data() + renderedDisplayName.size());
                 drawList->PopClipRect();
                 ImGui::SameLine(260.0F);
                 ImGui::TextDisabled("%s / %s", entry_state_text(project.state),
@@ -264,8 +329,9 @@ void ProjectHubPresenter::draw_project_list() noexcept
                 break;
             }
         }
-        ImGui::BeginDisabled(selected == nullptr || !selected->canOpen);
-        const bool canActivateWithEnter = selected != nullptr && selected->canOpen && projectListHasKeyboardFocus &&
+        ImGui::BeginDisabled(selected == nullptr || !selected->canOpen || !a_canLaunchEditor);
+        const bool canActivateWithEnter = a_canLaunchEditor && selected != nullptr && selected->canOpen &&
+                                          projectListHasKeyboardFocus &&
                                           !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId) &&
                                           ImGui::IsKeyPressed(ImGuiKey_Enter);
         if (ImGui::Button("Editorで開く") || canActivateWithEnter)
@@ -539,6 +605,9 @@ void ProjectHubPresenter::set_error(const Error &a_error) noexcept
         case ProjectHubError::EditorLaunchFailed:
             message = "Editorを起動できませんでした。Editor実行Fileを確認してください。";
             break;
+        case ProjectHubError::EditorProcessFailed:
+            message = "Editorが異常終了したか、終了状態を確認できませんでした。Logを確認して再試行してください。";
+            break;
         default:
             break;
         }
@@ -662,7 +731,29 @@ std::optional<EditorLaunchRequest> ProjectHubPresenter::take_editor_launch_reque
 
 void ProjectHubPresenter::report_editor_launch_failure(const Error &a_error) noexcept
 {
+    if (a_error.root_code().domain() == "Editor.ExitCode")
+    {
+        std::string message;
+        try
+        {
+            message = "Editorが異常終了しました（Exit Code: ";
+            message.append(std::to_string(a_error.root_code().value()));
+            message.append("）。Logを確認して再試行してください。");
+        }
+        catch (...)
+        {
+            terminate_allocation(*m_assertContext);
+        }
+        set_status(message);
+        m_hasError = true;
+        return;
+    }
     set_error(a_error);
+}
+
+void ProjectHubPresenter::report_editor_process_completed() noexcept
+{
+    set_status("Editorを終了しました。別のProjectを開けます。");
 }
 
 bool ProjectHubPresenter::is_exit_requested() const noexcept

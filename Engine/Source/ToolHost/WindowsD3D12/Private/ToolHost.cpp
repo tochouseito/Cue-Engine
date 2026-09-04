@@ -446,7 +446,7 @@ class WindowsD3d12ToolHost final
     /// @brief 最後のUI提出後へTerminal Signalを置いて正常終了可能にする
     [[nodiscard]] cue::Result<void> drain_for_shutdown() noexcept;
     /// @brief GPU完了確認後またはDevice Removal時にBackendとNative Resourceを逆順解放する
-    void cleanup() noexcept;
+    void cleanup(cue::Error *a_secondaryDiagnostics = nullptr) noexcept;
 
     const cue::AssertContext *m_assertContext;
     ImGuiWindowsMessageSink m_messageSink;
@@ -876,7 +876,7 @@ void WindowsD3d12ToolHost::collect_device_removed_diagnostics(cue::Error &a_prim
 cue::Result<void> WindowsD3d12ToolHost::finish_device_removed(cue::Error &&a_removed) noexcept
 {
     collect_device_removed_diagnostics(a_removed);
-    cleanup();
+    cleanup(&a_removed);
     return cue::Result<void>::failure(std::move(a_removed));
 }
 
@@ -1307,11 +1307,17 @@ cue::Result<void> WindowsD3d12ToolHost::run(cue::tool_host::ToolHostClient &a_cl
     return drain_for_shutdown();
 }
 
-void WindowsD3d12ToolHost::cleanup() noexcept
+void WindowsD3d12ToolHost::cleanup(cue::Error *a_secondaryDiagnostics) noexcept
 {
     if (m_isMessageSinkAttached && m_window != nullptr && m_window->state() != cue::WindowState::Destroyed)
     {
-        static_cast<void>(cue::detach_windows_message_sink(*m_window, m_messageSink, *m_assertContext));
+        cue::Result<void> detached =
+            cue::detach_windows_message_sink(*m_window, m_messageSink, *m_assertContext);
+        if (!detached && a_secondaryDiagnostics != nullptr)
+        {
+            a_secondaryDiagnostics->append_secondary_diagnostics(
+                *m_assertContext, *detached.try_error(), "Device Removal message sink detach also failed", "Cleanup");
+        }
     }
     m_isMessageSinkAttached = false;
     if (m_isDx12BackendInitialized)
@@ -1347,7 +1353,12 @@ void WindowsD3d12ToolHost::cleanup() noexcept
 
     if (m_window != nullptr && m_window->state() != cue::WindowState::Destroyed)
     {
-        static_cast<void>(m_window->destroy());
+        cue::Result<void> destroyed = m_window->destroy();
+        if (!destroyed && a_secondaryDiagnostics != nullptr)
+        {
+            a_secondaryDiagnostics->append_secondary_diagnostics(
+                *m_assertContext, *destroyed.try_error(), "Device Removal window destruction also failed", "Cleanup");
+        }
     }
     m_window.reset();
     m_windowSystem.reset();

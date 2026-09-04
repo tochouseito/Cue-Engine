@@ -34,14 +34,17 @@ class ProjectHubPresenter final
     [[nodiscard]] static Result<std::unique_ptr<ProjectHubPresenter>> create(
         ProjectHubService &a_service, const AssertContext &a_assertContext) noexcept;
 
-    /// @brief 現在のService ViewからProject Hub画面を描画してSemantic操作を適用する
-    void draw() noexcept;
+    /// @brief 現在のService ViewからProject Hub画面を描画し、Editor起動可否を操作へ反映する
+    void draw(bool a_canLaunchEditor = true) noexcept;
 
     /// @brief Open操作で生成されたEditor Launch Requestを一度だけ移動して返す
     [[nodiscard]] std::optional<EditorLaunchRequest> take_editor_launch_request() noexcept;
 
     /// @brief Composition Rootで失敗したEditor Process起動を日本語Messageへ反映する
     void report_editor_launch_failure(const Error &a_error) noexcept;
+
+    /// @brief 監視中Editor Processの正常終了を再操作可能な状態として表示する
+    void report_editor_process_completed() noexcept;
 
     /// @brief Escapeまたは終了操作がTool Session終了を要求したか返す
     [[nodiscard]] bool is_exit_requested() const noexcept;
@@ -50,7 +53,7 @@ class ProjectHubPresenter final
     ProjectHubPresenter(ProjectHubService &a_service, const AssertContext &a_assertContext) noexcept;
 
     /// @brief Recent Project一覧と選択中Projectの操作を描画する
-    void draw_project_list() noexcept;
+    void draw_project_list(bool a_canLaunchEditor) noexcept;
     /// @brief Blank Project作成Dialogを描画してServiceへIntentを渡す
     void draw_create_dialog() noexcept;
     /// @brief 既存Project登録Dialogを描画してServiceへIntentを渡す

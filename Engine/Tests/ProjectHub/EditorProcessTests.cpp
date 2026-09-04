@@ -201,17 +201,55 @@ class TestDirectory final
     {
         return false;
     }
-    cue::Result<void> launched =
+    cue::Result<std::unique_ptr<cue::project_hub::WindowsEditorProcess>> launched =
         cue::project_hub::launch_windows_editor_process(probeLocator, *request.try_value(), a_context);
     if (!launched)
     {
         return false;
     }
+    bool didExitNormally = false;
     for (std::uint32_t attempt = 0; attempt < 500U; ++attempt)
     {
-        if (GetFileAttributesW(directory.marker().c_str()) != INVALID_FILE_ATTRIBUTES)
+        cue::Result<bool> processState = launched.try_value()->get()->poll();
+        if (!processState)
         {
-            return true;
+            return false;
+        }
+        if (!*processState.try_value())
+        {
+            didExitNormally = true;
+            break;
+        }
+        Sleep(10);
+    }
+    if (!didExitNormally || GetFileAttributesW(directory.marker().c_str()) == INVALID_FILE_ATTRIBUTES)
+    {
+        return false;
+    }
+
+    if (!SetEnvironmentVariableW(L"CUE_EDITOR_PROCESS_PROBE_EXIT_CODE", L"23"))
+    {
+        return false;
+    }
+    cue::Result<std::unique_ptr<cue::project_hub::WindowsEditorProcess>> abnormal =
+        cue::project_hub::launch_windows_editor_process(probeLocator, *request.try_value(), a_context);
+    static_cast<void>(SetEnvironmentVariableW(L"CUE_EDITOR_PROCESS_PROBE_EXIT_CODE", nullptr));
+    if (!abnormal)
+    {
+        return false;
+    }
+    for (std::uint32_t attempt = 0; attempt < 500U; ++attempt)
+    {
+        cue::Result<bool> processState = abnormal.try_value()->get()->poll();
+        if (!processState)
+        {
+            return processState.try_error()->code().domain() == "Cue.ProjectHub" &&
+                   processState.try_error()->root_code().domain() == "Editor.ExitCode" &&
+                   processState.try_error()->root_code().value() == 23;
+        }
+        if (!*processState.try_value())
+        {
+            return false;
         }
         Sleep(10);
     }

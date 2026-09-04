@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <string>
 #include <string_view>
 
@@ -30,6 +31,14 @@ int wmain(int a_argumentCount, wchar_t **a_arguments)
     if (protocol != L"1" || descriptor.empty() || projectId.size() != 36 || compatibility.empty())
     {
         return 1;
+    }
+
+    wchar_t injectedExitCode[16]{};
+    const DWORD injectedLength = GetEnvironmentVariableW(L"CUE_EDITOR_PROCESS_PROBE_EXIT_CODE", injectedExitCode,
+                                                          static_cast<DWORD>(_countof(injectedExitCode)));
+    if (injectedLength > 0 && injectedLength < _countof(injectedExitCode))
+    {
+        return static_cast<int>(std::wcstol(injectedExitCode, nullptr, 10));
     }
 
     const std::size_t separator = descriptor.find_last_of(L"\\/");

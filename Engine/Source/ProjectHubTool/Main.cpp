@@ -46,33 +46,48 @@ class ProjectHubToolClient final : public cue::tool_host::ToolHostClient
     /// @brief Project Hub画面を描画し、生成されたLaunch RequestをWindows Adapterへ渡す
     void draw_frame() noexcept override
     {
-        m_presenter->draw();
+        if (m_editorProcess != nullptr)
+        {
+            cue::Result<bool> processState = m_editorProcess->poll();
+            if (!processState)
+            {
+                m_presenter->report_editor_launch_failure(*processState.try_error());
+                m_editorProcess.reset();
+            }
+            else if (!*processState.try_value())
+            {
+                m_presenter->report_editor_process_completed();
+                m_editorProcess.reset();
+            }
+        }
+
+        m_presenter->draw(m_editorProcess == nullptr);
         std::optional<cue::project_hub::EditorLaunchRequest> request = m_presenter->take_editor_launch_request();
         if (!request.has_value())
         {
             return;
         }
-        cue::Result<void> launched =
+        cue::Result<std::unique_ptr<cue::project_hub::WindowsEditorProcess>> launched =
             cue::project_hub::launch_windows_editor_process(m_editorExecutableLocator, *request, *m_assertContext);
         if (!launched)
         {
             m_presenter->report_editor_launch_failure(*launched.try_error());
             return;
         }
-        m_didLaunchEditor = true;
+        m_editorProcess = std::move(*launched.try_value());
     }
 
-    /// @brief Escape終了またはEditor起動成功後にTool Host終了を要求する
+    /// @brief EscapeまたはWindow終了だけをTool Host終了要求として返す
     [[nodiscard]] bool should_close() const noexcept override
     {
-        return m_didLaunchEditor || m_presenter->is_exit_requested();
+        return m_presenter->is_exit_requested();
     }
 
   private:
     cue::project_hub::ProjectHubPresenter *m_presenter;
     const cue::AssertContext *m_assertContext;
     std::string m_editorExecutableLocator;
-    bool m_didLaunchEditor = false;
+    std::unique_ptr<cue::project_hub::WindowsEditorProcess> m_editorProcess;
 };
 
 /// @brief 実行中Project Hubと同じDirectoryにあるCueEditorTool.exeをUTF-8 Locatorで返す
