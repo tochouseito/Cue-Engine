@@ -204,7 +204,7 @@ using HierarchySelectionIndex = std::unordered_set<cue::scene::ObjectId, ObjectI
 /// @brief Frame単位Child索引から一ObjectとChild群を再帰描画する
 void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyChildIndex &a_childrenByParent,
                       const HierarchySelectionIndex &a_selectionIndex,
-                      std::span<const cue::scene::ObjectId> a_selection,
+                      std::span<const cue::scene::ObjectId> a_selection, const cue::scene::ObjectId *a_primarySelection,
                       std::optional<cue::editor_core::EditorIntent> &a_pendingIntent)
 {
     const auto children = a_childrenByParent.find(a_object.id());
@@ -244,7 +244,11 @@ void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyCh
                 nextSelection.erase(found);
                 if (!nextSelection.empty())
                 {
-                    primary = nextSelection.back();
+                    const bool canKeepPrimary = a_primarySelection != nullptr && *a_primarySelection != a_object.id() &&
+                                                std::find(nextSelection.begin(), nextSelection.end(),
+                                                          *a_primarySelection) != nextSelection.end();
+                    primary = canKeepPrimary ? std::optional<cue::scene::ObjectId>(*a_primarySelection)
+                                             : std::optional<cue::scene::ObjectId>(nextSelection.back());
                 }
             }
         }
@@ -260,7 +264,8 @@ void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyCh
     {
         for (const cue::scene::SceneObject *child : children->second)
         {
-            draw_object_node(*child, a_childrenByParent, a_selectionIndex, a_selection, a_pendingIntent);
+            draw_object_node(*child, a_childrenByParent, a_selectionIndex, a_selection, a_primarySelection,
+                             a_pendingIntent);
         }
         ImGui::TreePop();
     }
@@ -616,7 +621,8 @@ void EditorPresenter::draw_hierarchy(const editor_core::EditorDocument &a_docume
     {
         if (object.try_parent_id() == nullptr)
         {
-            draw_object_node(object, childrenByParent, selectionIndex, a_document.selection(), a_pendingIntent);
+            draw_object_node(object, childrenByParent, selectionIndex, a_document.selection(), primarySelection,
+                             a_pendingIntent);
         }
     }
     ImGui::EndChild();
