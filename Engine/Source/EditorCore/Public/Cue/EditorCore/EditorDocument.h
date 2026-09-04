@@ -213,7 +213,7 @@ class EditorDocument final
         scene::SceneDocumentCheckpoint candidateCheckpoint;
         std::uint64_t candidateByteSize;
         std::uint64_t candidateDigest;
-        std::vector<std::byte> recoveryBackupBytes;
+        std::optional<std::vector<std::byte>> recoveryBackupBytes;
         PendingSaveReason reason;
         bool switchDestination;
     };

@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -178,7 +179,8 @@ class SceneSaveOutcome final
     /// @brief 本文未公開の失敗結果を生成する
     [[nodiscard]] static SceneSaveOutcome not_published(Error a_error) noexcept;
     /// @brief 本文公開済みだがDurability不明の結果を生成する
-    [[nodiscard]] static SceneSaveOutcome durability_unknown(Error a_error) noexcept;
+    [[nodiscard]] static SceneSaveOutcome durability_unknown(
+        Error a_error, std::optional<std::vector<std::byte>> a_recoveryBackupBytes) noexcept;
     /// @brief 本文公開済みだがRecovery BackupのDurabilityが不明な結果を生成する
     [[nodiscard]] static SceneSaveOutcome backup_durability_unknown(Error a_error,
                                                                     std::vector<std::byte> a_backupBytes) noexcept;
@@ -235,4 +237,11 @@ class SceneSaveOutcome final
     const SceneDocument &a_document, const schema::SchemaRegistry &a_schemaRegistry,
     const ComponentValueSchemaRegistry &a_valueSchemaRegistry, const SceneMigrationRegistry &a_migrationRegistry,
     const ComponentMigrationRegistry &a_componentMigrations, const AssertContext &a_assertContext) noexcept;
+/// @brief 保持済みの保存前Byte列をBackupへ使い、期待Fingerprint一致時だけSceneをAtomic置換する
+[[nodiscard]] SceneSaveOutcome save_scene_document_if_unchanged_with_backup(
+    FilesystemRoot &a_filesystem, FileWriteLease &a_lease, const RelativePath &a_path, FileFingerprint a_expected,
+    std::span<const std::byte> a_recoveryBackupBytes, const SceneDocument &a_document,
+    const schema::SchemaRegistry &a_schemaRegistry, const ComponentValueSchemaRegistry &a_valueSchemaRegistry,
+    const SceneMigrationRegistry &a_migrationRegistry, const ComponentMigrationRegistry &a_componentMigrations,
+    const AssertContext &a_assertContext) noexcept;
 } // namespace cue::scene

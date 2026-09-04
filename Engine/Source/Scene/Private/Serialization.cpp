@@ -705,10 +705,11 @@ SceneSaveOutcome SceneSaveOutcome::not_published(Error a_error) noexcept
     return SceneSaveOutcome(SceneSaveStatus::NotPublished, std::optional<Error>(std::move(a_error)), std::nullopt);
 }
 
-SceneSaveOutcome SceneSaveOutcome::durability_unknown(Error a_error) noexcept
+SceneSaveOutcome SceneSaveOutcome::durability_unknown(
+    Error a_error, std::optional<std::vector<std::byte>> a_recoveryBackupBytes) noexcept
 {
     return SceneSaveOutcome(SceneSaveStatus::PublishedButDurabilityUnknown, std::optional<Error>(std::move(a_error)),
-                            std::nullopt);
+                            std::move(a_recoveryBackupBytes));
 }
 
 SceneSaveOutcome SceneSaveOutcome::backup_durability_unknown(Error a_error,
@@ -1359,7 +1360,8 @@ Result<SceneLoadResult> load_scene_document(FilesystemRoot &a_filesystem, const 
 
 SceneSaveOutcome save_scene_document_internal(
     FilesystemRoot &a_filesystem, FileWriteLease *a_lease, const FileFingerprint *a_expected,
-    const RelativePath &a_path, const SceneDocument &a_document, const schema::SchemaRegistry &a_schemaRegistry,
+    std::optional<std::span<const std::byte>> a_recoveryBackupOverride, const RelativePath &a_path,
+    const SceneDocument &a_document, const schema::SchemaRegistry &a_schemaRegistry,
     const ComponentValueSchemaRegistry &a_valueSchemaRegistry, const SceneMigrationRegistry &a_migrationRegistry,
     const ComponentMigrationRegistry &a_componentMigrations, const AssertContext &a_assertContext) noexcept
 {
@@ -1439,7 +1441,14 @@ SceneSaveOutcome save_scene_document_internal(
             {
                 return SceneSaveOutcome::not_published(std::move(*parsedBackupPath.try_error()));
             }
-            backupBytes.emplace(std::move(*original.try_value()));
+            if (a_recoveryBackupOverride.has_value())
+            {
+                backupBytes.emplace(a_recoveryBackupOverride->begin(), a_recoveryBackupOverride->end());
+            }
+            else
+            {
+                backupBytes.emplace(std::move(*original.try_value()));
+            }
             recoveryBackupPath.emplace(std::move(*parsedBackupPath.try_value()));
         }
         else if (*entry.try_value() != EntryType::Missing)
@@ -1464,7 +1473,7 @@ SceneSaveOutcome save_scene_document_internal(
                                        durabilityUnknown ? "Scene is visible but storage durability is unknown"
                                                          : "Scene atomic publish failed before replacement",
                                        std::move(*written.try_error()));
-            return durabilityUnknown ? SceneSaveOutcome::durability_unknown(std::move(error))
+            return durabilityUnknown ? SceneSaveOutcome::durability_unknown(std::move(error), std::move(backupBytes))
                                      : SceneSaveOutcome::not_published(std::move(error));
         }
 
@@ -1524,9 +1533,9 @@ SceneSaveOutcome save_scene_document(FilesystemRoot &a_filesystem, const Relativ
                                      const ComponentMigrationRegistry &a_componentMigrations,
                                      const AssertContext &a_assertContext) noexcept
 {
-    return save_scene_document_internal(a_filesystem, nullptr, nullptr, a_path, a_document, a_schemaRegistry,
-                                        a_valueSchemaRegistry, a_migrationRegistry, a_componentMigrations,
-                                        a_assertContext);
+    return save_scene_document_internal(a_filesystem, nullptr, nullptr, std::nullopt, a_path, a_document,
+                                        a_schemaRegistry, a_valueSchemaRegistry, a_migrationRegistry,
+                                        a_componentMigrations, a_assertContext);
 }
 
 SceneSaveOutcome save_scene_document_if_unchanged(
@@ -1535,8 +1544,20 @@ SceneSaveOutcome save_scene_document_if_unchanged(
     const ComponentValueSchemaRegistry &a_valueSchemaRegistry, const SceneMigrationRegistry &a_migrationRegistry,
     const ComponentMigrationRegistry &a_componentMigrations, const AssertContext &a_assertContext) noexcept
 {
-    return save_scene_document_internal(a_filesystem, &a_lease, &a_expected, a_path, a_document, a_schemaRegistry,
-                                        a_valueSchemaRegistry, a_migrationRegistry, a_componentMigrations,
-                                        a_assertContext);
+    return save_scene_document_internal(a_filesystem, &a_lease, &a_expected, std::nullopt, a_path, a_document,
+                                        a_schemaRegistry, a_valueSchemaRegistry, a_migrationRegistry,
+                                        a_componentMigrations, a_assertContext);
+}
+
+SceneSaveOutcome save_scene_document_if_unchanged_with_backup(
+    FilesystemRoot &a_filesystem, FileWriteLease &a_lease, const RelativePath &a_path, FileFingerprint a_expected,
+    std::span<const std::byte> a_recoveryBackupBytes, const SceneDocument &a_document,
+    const schema::SchemaRegistry &a_schemaRegistry, const ComponentValueSchemaRegistry &a_valueSchemaRegistry,
+    const SceneMigrationRegistry &a_migrationRegistry, const ComponentMigrationRegistry &a_componentMigrations,
+    const AssertContext &a_assertContext) noexcept
+{
+    return save_scene_document_internal(a_filesystem, &a_lease, &a_expected, a_recoveryBackupBytes, a_path,
+                                        a_document, a_schemaRegistry, a_valueSchemaRegistry, a_migrationRegistry,
+                                        a_componentMigrations, a_assertContext);
 }
 } // namespace cue::scene

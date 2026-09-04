@@ -815,6 +815,10 @@ void test_serialization() noexcept
     auto uncertain = cue::scene::save_scene_document(filesystem, path, parsed.try_value()->document(), *registry,
                                                      valueRegistry, migrations, componentMigrations, assertContext);
     require(uncertain.status() == cue::scene::SceneSaveStatus::PublishedButDurabilityUnknown);
+    auto uncertainBackupBytes = uncertain.take_recovery_backup_bytes();
+    require(uncertainBackupBytes.has_value());
+    require(std::string_view(reinterpret_cast<const char *>(uncertainBackupBytes->data()),
+                             uncertainBackupBytes->size()) == "original");
     require(filesystem.text("Scenes/Main.cuescene") != "original");
     require(filesystem.text("Scenes/Main.cuescene.backup") == "prior-backup");
     filesystem.make_main_write_durability_unknown(false);

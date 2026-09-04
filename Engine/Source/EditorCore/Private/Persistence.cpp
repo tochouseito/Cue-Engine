@@ -578,9 +578,7 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
             auto recoveryBackupBytes = outcome.take_recovery_backup_bytes();
             document->m_pendingSave.emplace(EditorDocument::PendingSaveRecord{
                 savedState, std::move(a_locator), expectedFingerprint, std::move(candidateCheckpoint),
-                candidateByteSize, candidateDigest,
-                recoveryBackupBytes.has_value() ? std::move(*recoveryBackupBytes) : std::vector<std::byte>{}, reason,
-                a_switchDestination});
+                candidateByteSize, candidateDigest, std::move(recoveryBackupBytes), reason, a_switchDestination});
         }
         if (document->m_closeState == DocumentCloseState::SaveRequested)
         {
@@ -720,7 +718,14 @@ Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocu
         {
             return Result<scene::SceneSaveStatus>::failure(std::move(*backupPath.try_error()));
         }
-        auto backupWritten = m_sourceAssetsRoot->write_file_atomic(*backupPath.try_value(), record.recoveryBackupBytes);
+        if (!record.recoveryBackupBytes.has_value())
+        {
+            return Result<scene::SceneSaveStatus>::failure(make_editor_document_error(
+                *m_assertContext, EditorCoreError::InvalidDocumentState,
+                "Backup retry requires the original destination bytes", a_documentId.value()));
+        }
+        auto backupWritten =
+            m_sourceAssetsRoot->write_file_atomic(*backupPath.try_value(), *record.recoveryBackupBytes);
         if (!backupWritten)
         {
             const bool durabilityUnknown =
@@ -740,9 +745,17 @@ Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocu
         {
             return Result<scene::SceneSaveStatus>::failure(std::move(*restored.try_error()));
         }
-        scene::SceneSaveOutcome retry = scene::save_scene_document_if_unchanged(
-            *m_sourceAssetsRoot, *lease.try_value(), record.destination, *currentFingerprint.try_value(), candidate,
-            *m_schemaRegistry, *m_valueSchemaRegistry, *m_sceneMigrations, *m_componentMigrations, *m_assertContext);
+        scene::SceneSaveOutcome retry = record.recoveryBackupBytes.has_value()
+                                            ? scene::save_scene_document_if_unchanged_with_backup(
+                                                  *m_sourceAssetsRoot, *lease.try_value(), record.destination,
+                                                  *currentFingerprint.try_value(), *record.recoveryBackupBytes,
+                                                  candidate, *m_schemaRegistry, *m_valueSchemaRegistry,
+                                                  *m_sceneMigrations, *m_componentMigrations, *m_assertContext)
+                                            : scene::save_scene_document_if_unchanged(
+                                                  *m_sourceAssetsRoot, *lease.try_value(), record.destination,
+                                                  *currentFingerprint.try_value(), candidate, *m_schemaRegistry,
+                                                  *m_valueSchemaRegistry, *m_sceneMigrations, *m_componentMigrations,
+                                                  *m_assertContext);
         status = retry.status();
         if (status == scene::SceneSaveStatus::NotPublished && retry.try_error() != nullptr &&
             retry.try_error()->root_code().domain() == "Cue.IO" &&
@@ -765,9 +778,9 @@ Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocu
             else if (status == scene::SceneSaveStatus::PublishedButBackupDurabilityUnknown)
             {
                 auto recoveryBackupBytes = retry.take_recovery_backup_bytes();
-                if (recoveryBackupBytes.has_value())
+                if (!record.recoveryBackupBytes.has_value() && recoveryBackupBytes.has_value())
                 {
-                    record.recoveryBackupBytes = std::move(*recoveryBackupBytes);
+                    record.recoveryBackupBytes = std::move(recoveryBackupBytes);
                 }
                 record.reason = EditorDocument::PendingSaveReason::BackupDurabilityUnknown;
             }
