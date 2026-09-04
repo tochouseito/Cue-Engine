@@ -207,6 +207,7 @@ class ProjectHubService final
     [[nodiscard]] Result<void> register_project(std::string_view a_locator, std::uint64_t a_openedMilliseconds,
                                                 bool a_confirmMovedProject) noexcept;
     /// @brief Descriptorを再検証し、互換ProjectのEditor Launch Requestを生成する
+    /// @note 戻り値にかかわらず再検証でViewModelが更新され得るため、呼出し前に取得したprojectsのSpanは再利用しない
     /// @note ErrorのRoot CodeがCue.IO/IoError::DurabilityUnknownならOpen時刻は公開済みでprojectsの旧Spanは無効
     [[nodiscard]] Result<EditorLaunchRequest> open_project(
         std::string_view a_projectId, std::uint64_t a_openedMilliseconds,
