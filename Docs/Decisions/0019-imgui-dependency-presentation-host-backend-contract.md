@@ -249,9 +249,19 @@ Context破棄より前に明示detachする。安定Error Code値は#162の実�
 7. 最終Executable Rootが所有するProject HubまたはEditor Application Service
 8. 同Rootが所有するPresentation Adapter State
 
-終了順は逆順とする。正常経路はProduction既定5,000 msの有限Fence WaitでGPU完了を確認し、Backend Shutdownが完了するまで
-Descriptor ResourceとDeviceを破棄しない。TimeoutをGPU完了として扱わない。
+正常終了は新しいFrame受付を停止し、最後にExecuteしたUI Drawより後ろへTerminal Fence SignalをQueueへ投入してから、
+Production既定5,000 msの有限Waitで完了を確認する。GPU完了確認後にだけMessage Sinkをdetachし、DirectX 12 Renderer Backend、
+Win32 Platform Backend、ImGui Context、Frame Resource、Descriptor Resource、Swap Chain／Binding、Fence／Event、Queue、Device、
+Windowの順に終了する。`ImGui_ImplDX12_Shutdown`相当を含むRenderer Backend ShutdownまたはGPU Resource解放をFence完了確認より
+先に行わない。TimeoutをGPU完了として扱わず、Device Removalも確認できない場合はResourceを解放せずFatal終端する。
 ImGui Contextは一つのTool Hostが一意所有し、Global SingletonまたはRuntime Serviceへ登録しない。
+
+Tool HostはQueue-globalな`nextFenceValue`を1から開始し、`UINT64_MAX`をDevice Removal検出用として予約する。
+UI DrawをExecuteする各SubmitとTerminal Signalは、全ての既発行値より大きい新規未使用値をSignal前に予約し、
+Signal成功／失敗にかかわらず巻き戻しまたは再利用を行わない。Frame Resourceの再利用値と最後のSubmit値は、対応する
+Executeより後ろへ並ぶこの予約値だけから更新する。Signal失敗後にGPU完了を証明できるのは、その失敗したSignal用に予約した
+未使用値へFence Completed Valueが到達した場合だけとし、過去の完了済み値を判定へ使用しない。次の予約値が`UINT64_MAX`へ
+達する場合は新しいExecuteを開始せず、既存Workを上記終了規則でDrainしてTool Sessionを終端する。
 
 一つのUI FrameはOwner Threadだけで処理する。Windows Message、ImGui Frame、Semantic Intent適用、Application Service Mutation、
 ViewModel再取得、Draw Data提出を同じThreadで順序付ける。Background ThreadからImGui APIまたはProjectHubServiceを直接呼ばない。
@@ -275,8 +285,9 @@ ImGui Adapterは表示用ViewとPresentation Stateだけを読み、User操作�
 - Device RemovalをFenceの`GetCompletedValue()`、Queue Signal、Fence Wait、Present、Resizeの失敗または
   `ID3D12Device::GetDeviceRemovedReason()`から確認した時点で新しいFrameとQueue操作を停止する
 - Device Removal確認後はFenceをSignalまたはWaitせず、Removal Reasonを記録してDREDを一度だけBest-effortで採取する。
-  DRED採取失敗は制御解放を妨げず、Command Resource、Back Buffer、RTV／SRV Heap、Swap Chain、Binding、Fence／Event、Queue、
-  Deviceを逆順に解放してからWindowを破棄し、最初のErrorを記録してTool Sessionを終了する
+  DRED採取失敗は制御解放を妨げず、Message Sink detach、DirectX 12 Renderer Backend、Win32 Platform Backend、ImGui Context、
+  Command Resource、Back Buffer、RTV／SRV Heap、Swap Chain／Binding、Fence／Event、Queue、Device、Windowの順に待機なしで解放し、
+  最初のErrorを記録してTool Sessionを終了する
 - Fence Signal／Wait／待機Primitiveが失敗した場合は、Fence完了とDevice Removalを再検査する。Fence完了を確認できれば
   安全なResource解放を最後まで行って最初のErrorを返し、Device Removalを確認できれば上記経路へ移る。どちらも確認できなければ
   GPUが参照し得るNative Resourceを解放せず、ErrorとContextを一度Log／FlushしてFatal HandlerでProcessを終端する
@@ -296,6 +307,9 @@ Headless TestはDear ImGuiのPixel出力に依存せず、次を検証する。
 - Service Mutation後に旧Viewを再利用しないこと
 
 Backend Integration TestはWindowとTool D3D12 Resourceを生成し、自動Close可能なSmoke ModeでFrameを提出する。
+Fault Injection TestはTerminal Signal／Wait成功、Timeout、Device Removal、Signal失敗後の予約値完了を分離し、GPU完了前に
+Renderer Backend Shutdownが呼ばれないこと、Fence値を再利用しないこと、Device Removalだけが待機なし解放へ進むこと、
+完了もRemovalも証明不能な経路がResource解放前にFatal Dispatchすることを検証する。
 Manual TestはProject作成、既存Project登録、Pin、一覧除外、Keyboard操作、Cancel、Editor Launch要求、正常Closeを確認する。
 
 Pixel完全一致、Theme、Font Raster差分、Docking、Multi-ViewportはM12 Gateに含めない。
