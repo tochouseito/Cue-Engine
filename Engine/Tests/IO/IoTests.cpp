@@ -914,6 +914,29 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     auto driveRelative = cue::create_windows_filesystem_root("C:RelativeRoot", a_assertContext);
     return has_io_error(relative, cue::IoError::InvalidPath) && has_io_error(driveRelative, cue::IoError::InvalidPath);
 }
+
+/// @brief LocalApplicationData配下のWorkspace Rootを作成後にOpenExistingで再利用できるか検証する
+[[nodiscard]] bool test_known_folder_root(const cue::AssertContext &a_assertContext)
+{
+    auto relative = cue::RelativePath::parse("CueEngine/Workspace", a_assertContext);
+    if (!relative)
+    {
+        return false;
+    }
+    auto created = cue::create_windows_known_folder_filesystem_root(
+        cue::WindowsKnownFolder::LocalApplicationData, *relative.try_value(),
+        cue::WindowsRootOpenMode::CreateOrOpen, a_assertContext);
+    if (!created)
+    {
+        return false;
+    }
+    created.try_value()->reset();
+
+    auto reopened = cue::create_windows_known_folder_filesystem_root(
+        cue::WindowsKnownFolder::LocalApplicationData, *relative.try_value(),
+        cue::WindowsRootOpenMode::OpenExisting, a_assertContext);
+    return reopened.has_value() && *reopened.try_value() != nullptr;
+}
 } // namespace
 
 /// @brief Portable Path、Windows Storage、Reparse 拒否、Failure Injection 契約を統合検証する
@@ -925,7 +948,7 @@ int main()
     cue::AssertContext assertContext(logger, fatalHandler);
     TestDirectory directory;
     if (!directory.is_created() || !test_relative_paths(assertContext) || !test_failure_injection(assertContext) ||
-        !test_root_factory_validation(assertContext))
+        !test_root_factory_validation(assertContext) || !test_known_folder_root(assertContext))
     {
         return 1;
     }

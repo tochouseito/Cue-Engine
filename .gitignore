@@ -36,6 +36,7 @@ generated/
 out/
 .serena/
 vcpkg_installed/
+ThirdParty/.tools/
 intermediate/
 CMakeUserPresets.json
 

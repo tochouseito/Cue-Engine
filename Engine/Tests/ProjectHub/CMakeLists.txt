@@ -9,6 +9,27 @@ if(WIN32)
     target_link_libraries(CueProjectHubTests PRIVATE Cue.ProjectHub Cue.IO.Windows)
     target_compile_features(CueProjectHubTests PRIVATE cxx_std_20)
     list(APPEND cueProjectHubTestTargets CueProjectHubTests)
+
+    add_executable(
+        CueProjectHubWindowsPublicHeaderTest
+        WindowsProjectHubPlatformHeaderCompile.cpp
+    )
+    target_link_libraries(CueProjectHubWindowsPublicHeaderTest PRIVATE Cue.ProjectHub.Windows)
+    target_compile_features(CueProjectHubWindowsPublicHeaderTest PRIVATE cxx_std_20)
+    list(APPEND cueProjectHubTestTargets CueProjectHubWindowsPublicHeaderTest)
+
+    add_executable(
+        CueProjectHubWindowsTests
+        WindowsProjectHubPlatformTests.cpp
+    )
+    target_link_libraries(
+        CueProjectHubWindowsTests
+        PRIVATE
+            Cue.Foundation.Windows
+            Cue.ProjectHub.Windows
+    )
+    target_compile_features(CueProjectHubWindowsTests PRIVATE cxx_std_20)
+    list(APPEND cueProjectHubTestTargets CueProjectHubWindowsTests)
 endif()
 
 foreach(testTarget IN LISTS cueProjectHubTestTargets)
@@ -41,5 +62,14 @@ set_tests_properties(Cue.ProjectHub.PublicHeaders PROPERTIES LABELS ProjectHub T
 
 if(WIN32)
     add_test(NAME Cue.ProjectHub.Service COMMAND CueProjectHubTests)
-    set_tests_properties(Cue.ProjectHub.Service PROPERTIES LABELS ProjectHub TIMEOUT 30)
+    add_test(NAME Cue.ProjectHub.Windows.PublicHeaders COMMAND CueProjectHubWindowsPublicHeaderTest)
+    add_test(NAME Cue.ProjectHub.Windows.Platform COMMAND CueProjectHubWindowsTests)
+    set_tests_properties(
+        Cue.ProjectHub.Service
+        Cue.ProjectHub.Windows.PublicHeaders
+        Cue.ProjectHub.Windows.Platform
+        PROPERTIES
+            LABELS ProjectHub
+            TIMEOUT 30
+    )
 endif()

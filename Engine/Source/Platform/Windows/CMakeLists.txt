@@ -7,6 +7,7 @@ target_sources(
         Private/UtfConversion.h
         Private/SystemCapabilityMapper.cpp
         Private/SystemCapabilityMapper.h
+        Private/WindowsMessageSink.cpp
         Private/WindowsWindowInterop.cpp
         Private/WindowsWindow.cpp
         Private/WindowsWindow.h
@@ -19,6 +20,7 @@ target_sources(
         BASE_DIRS Public
         FILES
             Public/Cue/Platform/Windows/WindowsPlatform.h
+            Public/Cue/Platform/Windows/WindowsMessageSink.h
             Public/Cue/Platform/Windows/WindowsWindowInterop.h
 )
 

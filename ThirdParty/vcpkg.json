@@ -1,0 +1,14 @@
+{
+    "name": "cue-engine",
+    "version-string": "0.0.0",
+    "dependencies": [
+        {
+            "name": "imgui",
+            "default-features": false,
+            "features": [
+                "dx12-binding",
+                "win32-binding"
+            ]
+        }
+    ]
+}

@@ -147,6 +147,13 @@ foreach(
         ${targetInjectionProperty}
     )
 
+    if(
+        targetInjectionProperty STREQUAL "VS_USER_PROPS"
+        AND targetInjectionValue STREQUAL "do_not_import_user.props"
+    )
+        continue()
+    endif()
+
     if(targetInjectionValue)
         message(
             FATAL_ERROR

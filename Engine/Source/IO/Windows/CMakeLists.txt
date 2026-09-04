@@ -18,6 +18,8 @@ target_link_libraries(
     PRIVATE
         Cue.Foundation.Windows
         bcrypt
+        Ole32
+        Shell32
 )
 
 target_compile_features(Cue.IO.Windows PUBLIC cxx_std_20)

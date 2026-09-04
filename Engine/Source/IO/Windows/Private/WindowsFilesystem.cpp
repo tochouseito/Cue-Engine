@@ -6,7 +6,9 @@
 
 #include <Windows.h>
 #include <bcrypt.h>
+#include <ShlObj.h>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -110,6 +112,37 @@ class UniqueHandle final
 
   private:
     HANDLE m_handle = INVALID_HANDLE_VALUE;
+};
+
+/// @brief SHGetKnownFolderPathが割り当てた文字列を一意所有する
+class UniqueCoTaskMemString final
+{
+  public:
+    /// @brief 空のShell文字列所有者を生成する
+    UniqueCoTaskMemString() noexcept = default;
+    UniqueCoTaskMemString(const UniqueCoTaskMemString &) = delete;
+    UniqueCoTaskMemString &operator=(const UniqueCoTaskMemString &) = delete;
+
+    /// @brief Shell Allocatorへ所有文字列を返却する
+    ~UniqueCoTaskMemString() noexcept
+    {
+        CoTaskMemFree(m_value);
+    }
+
+    /// @brief Shell APIが割当先を書き込むAddressを返す
+    [[nodiscard]] PWSTR *put() noexcept
+    {
+        return &m_value;
+    }
+
+    /// @brief 所有中のUTF-16文字列を非所有で返す
+    [[nodiscard]] PCWSTR get() const noexcept
+    {
+        return m_value;
+    }
+
+  private:
+    PWSTR m_value = nullptr;
 };
 
 /// @brief Windows Mutex Handleと取得元Root／Path／Threadを一意所有するWrite Lease State
@@ -328,6 +361,30 @@ struct NativePublishOutcome final
             cue::make_io_error(a_context, code, "Filesystem path UTF-8 conversion failed", conversion.nativeCode));
     }
     return cue::Result<std::wstring>::success(std::move(converted));
+}
+
+/// @brief Windows UTF-16 PathをStrict UTF-8へ変換してIO Errorとして失敗を返す
+[[nodiscard]] cue::Result<std::string> to_utf8(std::wstring_view a_text,
+                                               const cue::AssertContext &a_context) noexcept
+{
+    std::string converted;
+    const cue::WindowsUtfConversionResult conversion =
+        cue::convert_windows_utf16_to_utf8(a_text, converted, a_context.fatal_handler());
+    if (conversion.status != cue::WindowsUtfConversionStatus::Success)
+    {
+        cue::IoError code = cue::IoError::IoFailure;
+        if (conversion.status == cue::WindowsUtfConversionStatus::InvalidSequence)
+        {
+            code = cue::IoError::InvalidPath;
+        }
+        else if (conversion.status == cue::WindowsUtfConversionStatus::InputTooLong)
+        {
+            code = cue::IoError::CapacityExceeded;
+        }
+        return cue::Result<std::string>::failure(
+            cue::make_io_error(a_context, code, "Filesystem path UTF-16 conversion failed", conversion.nativeCode));
+    }
+    return cue::Result<std::string>::success(std::move(converted));
 }
 
 /// @brief Absolute Windows Path を Extended-length 表現へ変換する
@@ -595,6 +652,158 @@ struct NativePublishOutcome final
             make_windows_error(a_context, GetLastError(), "Staging directory cleanup failed"));
     }
     return cue::Result<void>::success();
+}
+
+/// @brief Absolute Pathの最終EntryをReparse Pointを追跡せず分類する
+[[nodiscard]] cue::Result<cue::EntryType> query_absolute_entry(std::wstring_view a_path,
+                                                               const cue::AssertContext &a_context) noexcept
+{
+    std::wstring path;
+    try
+    {
+        path.assign(a_path);
+    }
+    catch (...)
+    {
+        terminate_allocation(a_context);
+    }
+
+    cue::Result<std::wstring> extended = make_extended_path(std::move(path), a_context);
+    if (!extended)
+    {
+        return cue::Result<cue::EntryType>::failure(std::move(*extended.try_error()));
+    }
+    const DWORD attributes = GetFileAttributesW(extended.try_value()->c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES)
+    {
+        const DWORD code = GetLastError();
+        if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND)
+        {
+            return cue::Result<cue::EntryType>::success(cue::EntryType::Missing);
+        }
+        return cue::Result<cue::EntryType>::failure(
+            make_windows_error(a_context, code, "Known Folder root inspection failed"));
+    }
+    if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+    {
+        return cue::Result<cue::EntryType>::success(cue::EntryType::UnsupportedEntry);
+    }
+    if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+    {
+        return cue::Result<cue::EntryType>::success(cue::EntryType::Directory);
+    }
+    return cue::Result<cue::EntryType>::success(cue::EntryType::RegularFile);
+}
+
+/// @brief Absolute Pathが通常Directoryであることを検証し型衝突を安定分類する
+[[nodiscard]] cue::Result<void> require_absolute_directory(std::wstring_view a_path,
+                                                           const cue::AssertContext &a_context) noexcept
+{
+    cue::Result<cue::EntryType> type = query_absolute_entry(a_path, a_context);
+    if (!type)
+    {
+        return cue::Result<void>::failure(std::move(*type.try_error()));
+    }
+    if (*type.try_value() == cue::EntryType::Directory)
+    {
+        return cue::Result<void>::success();
+    }
+    if (*type.try_value() == cue::EntryType::UnsupportedEntry)
+    {
+        return cue::Result<void>::failure(cue::make_io_error(
+            a_context, cue::IoError::UnsupportedEntry, "Known Folder root contains a reparse point"));
+    }
+    if (*type.try_value() == cue::EntryType::RegularFile)
+    {
+        return cue::Result<void>::failure(
+            cue::make_io_error(a_context, cue::IoError::TypeMismatch, "Known Folder root contains a file"));
+    }
+    return cue::Result<void>::failure(
+        make_windows_error(a_context, ERROR_PATH_NOT_FOUND, "Known Folder root does not exist"));
+}
+
+/// @brief Known Folder配下の一Segmentを既存Directoryとして開くか競合安全に作成する
+[[nodiscard]] cue::Result<void> open_absolute_directory(std::wstring_view a_path, cue::WindowsRootOpenMode a_mode,
+                                                        const cue::AssertContext &a_context) noexcept
+{
+    constexpr std::size_t k_maxCreateAttempts = 3;
+    for (std::size_t attempt = 0; attempt < k_maxCreateAttempts; ++attempt)
+    {
+        cue::Result<cue::EntryType> type = query_absolute_entry(a_path, a_context);
+        if (!type)
+        {
+            return cue::Result<void>::failure(std::move(*type.try_error()));
+        }
+        if (*type.try_value() == cue::EntryType::Directory)
+        {
+            return cue::Result<void>::success();
+        }
+        if (*type.try_value() == cue::EntryType::UnsupportedEntry)
+        {
+            return cue::Result<void>::failure(cue::make_io_error(
+                a_context, cue::IoError::UnsupportedEntry, "Known Folder root contains a reparse point"));
+        }
+        if (*type.try_value() == cue::EntryType::RegularFile)
+        {
+            return cue::Result<void>::failure(
+                cue::make_io_error(a_context, cue::IoError::TypeMismatch, "Known Folder root contains a file"));
+        }
+        if (a_mode == cue::WindowsRootOpenMode::OpenExisting)
+        {
+            return cue::Result<void>::failure(
+                make_windows_error(a_context, ERROR_PATH_NOT_FOUND, "Known Folder root does not exist"));
+        }
+
+        std::wstring path;
+        try
+        {
+            path.assign(a_path);
+        }
+        catch (...)
+        {
+            terminate_allocation(a_context);
+        }
+        cue::Result<std::wstring> extended = make_extended_path(std::move(path), a_context);
+        if (!extended)
+        {
+            return cue::Result<void>::failure(std::move(*extended.try_error()));
+        }
+        if (CreateDirectoryW(extended.try_value()->c_str(), nullptr) != FALSE)
+        {
+            return require_absolute_directory(a_path, a_context);
+        }
+
+        const DWORD code = GetLastError();
+        if (code != ERROR_ALREADY_EXISTS)
+        {
+            return cue::Result<void>::failure(
+                make_windows_error(a_context, code, "Known Folder root creation failed"));
+        }
+
+        cue::Result<cue::EntryType> racedType = query_absolute_entry(a_path, a_context);
+        if (!racedType)
+        {
+            return cue::Result<void>::failure(std::move(*racedType.try_error()));
+        }
+        if (*racedType.try_value() == cue::EntryType::Directory)
+        {
+            return cue::Result<void>::success();
+        }
+        if (*racedType.try_value() == cue::EntryType::UnsupportedEntry)
+        {
+            return cue::Result<void>::failure(cue::make_io_error(
+                a_context, cue::IoError::UnsupportedEntry, "Known Folder root was replaced by a reparse point"));
+        }
+        if (*racedType.try_value() == cue::EntryType::RegularFile)
+        {
+            return cue::Result<void>::failure(cue::make_io_error(
+                a_context, cue::IoError::TypeMismatch, "Known Folder root was replaced by a file"));
+        }
+    }
+
+    return cue::Result<void>::failure(cue::make_io_error(
+        a_context, cue::IoError::IoFailure, "Known Folder root remained missing after creation races",
+        static_cast<std::int64_t>(ERROR_ALREADY_EXISTS)));
 }
 
 /// @brief Root Handle と相対操作を Win32 API へ閉じ込める Filesystem 実装
@@ -951,22 +1160,52 @@ cue::Result<void> WindowsFilesystemRoot::create_directories(const cue::RelativeP
             {
                 return cue::Result<void>::failure(std::move(*full.try_error()));
             }
-            if (CreateDirectoryW(full.try_value()->c_str(), nullptr) == FALSE)
+            constexpr std::size_t k_maxCreateAttempts = 3;
+            bool wasCreated = false;
+            for (std::size_t attempt = 0; attempt < k_maxCreateAttempts; ++attempt)
             {
+                if (CreateDirectoryW(full.try_value()->c_str(), nullptr) != FALSE)
+                {
+                    wasCreated = true;
+                    break;
+                }
+
                 const DWORD code = GetLastError();
                 if (code != ERROR_ALREADY_EXISTS)
                 {
                     return cue::Result<void>::failure(
                         make_windows_error(*m_assertContext, code, "Directory creation failed"));
                 }
+
                 cue::Result<cue::EntryType> racedType = validate_entry(*prefix.try_value());
-                if (!racedType || *racedType.try_value() != cue::EntryType::Directory)
+                if (!racedType)
                 {
-                    return racedType ? cue::Result<void>::failure(
-                                           cue::make_io_error(*m_assertContext, cue::IoError::AlreadyExists,
-                                                              "Directory path was occupied during creation"))
-                                     : cue::Result<void>::failure(std::move(*racedType.try_error()));
+                    return cue::Result<void>::failure(std::move(*racedType.try_error()));
                 }
+                if (*racedType.try_value() == cue::EntryType::Directory)
+                {
+                    wasCreated = true;
+                    break;
+                }
+                if (*racedType.try_value() == cue::EntryType::RegularFile)
+                {
+                    return cue::Result<void>::failure(cue::make_io_error(
+                        *m_assertContext, cue::IoError::TypeMismatch,
+                        "Directory path was occupied by a file during creation"));
+                }
+                if (*racedType.try_value() == cue::EntryType::UnsupportedEntry)
+                {
+                    return cue::Result<void>::failure(cue::make_io_error(
+                        *m_assertContext, cue::IoError::UnsupportedEntry,
+                        "Directory path was occupied by an unsupported entry during creation"));
+                }
+            }
+            if (!wasCreated)
+            {
+                return cue::Result<void>::failure(cue::make_io_error(
+                    *m_assertContext, cue::IoError::IoFailure,
+                    "Directory path remained missing after creation races",
+                    static_cast<std::int64_t>(ERROR_ALREADY_EXISTS)));
             }
         }
         else if (*type.try_value() != cue::EntryType::Directory)
@@ -1628,6 +1867,89 @@ cue::Result<void> WindowsFilesystemRoot::rollback_staging_area(cue::StagingArea 
 
 namespace cue
 {
+Result<std::unique_ptr<FilesystemRoot>> create_windows_known_folder_filesystem_root(
+    WindowsKnownFolder a_folder, const RelativePath &a_relativeRoot, WindowsRootOpenMode a_mode,
+    const AssertContext &a_assertContext) noexcept
+{
+    if (a_folder != WindowsKnownFolder::LocalApplicationData)
+    {
+        return Result<std::unique_ptr<FilesystemRoot>>::failure(
+            make_io_error(a_assertContext, IoError::InvalidPath, "Windows Known Folder is unsupported"));
+    }
+
+    UniqueCoTaskMemString knownFolderPath;
+    const HRESULT resolved =
+        SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, knownFolderPath.put());
+    if (FAILED(resolved) || knownFolderPath.get() == nullptr)
+    {
+        return Result<std::unique_ptr<FilesystemRoot>>::failure(make_io_error(
+            a_assertContext, IoError::IoFailure, "Windows Known Folder resolution failed",
+            static_cast<std::int64_t>(resolved)));
+    }
+
+    std::wstring currentPath;
+    try
+    {
+        currentPath.assign(knownFolderPath.get());
+    }
+    catch (...)
+    {
+        terminate_allocation(a_assertContext);
+    }
+
+    Result<void> knownFolder = require_absolute_directory(currentPath, a_assertContext);
+    if (!knownFolder)
+    {
+        return Result<std::unique_ptr<FilesystemRoot>>::failure(std::move(*knownFolder.try_error()));
+    }
+
+    Result<std::wstring> relativePath = to_utf16(a_relativeRoot.text(), a_assertContext);
+    if (!relativePath)
+    {
+        return Result<std::unique_ptr<FilesystemRoot>>::failure(std::move(*relativePath.try_error()));
+    }
+
+    std::size_t begin = 0;
+    while (begin < relativePath.try_value()->size())
+    {
+        const std::size_t separator = relativePath.try_value()->find(L'/', begin);
+        const std::size_t end = separator == std::wstring::npos ? relativePath.try_value()->size() : separator;
+        const std::wstring_view segment(relativePath.try_value()->data() + begin, end - begin);
+        if (currentPath.size() + 1 + segment.size() >= k_maxWindowsPathLength)
+        {
+            return Result<std::unique_ptr<FilesystemRoot>>::failure(make_io_error(
+                a_assertContext, IoError::CapacityExceeded, "Windows Known Folder root path is too long"));
+        }
+        try
+        {
+            currentPath.push_back(L'\\');
+            currentPath.append(segment);
+        }
+        catch (...)
+        {
+            terminate_allocation(a_assertContext);
+        }
+
+        Result<void> opened = open_absolute_directory(currentPath, a_mode, a_assertContext);
+        if (!opened)
+        {
+            return Result<std::unique_ptr<FilesystemRoot>>::failure(std::move(*opened.try_error()));
+        }
+        if (separator == std::wstring::npos)
+        {
+            break;
+        }
+        begin = separator + 1;
+    }
+
+    Result<std::string> rootPath = to_utf8(currentPath, a_assertContext);
+    if (!rootPath)
+    {
+        return Result<std::unique_ptr<FilesystemRoot>>::failure(std::move(*rootPath.try_error()));
+    }
+    return create_windows_filesystem_root(*rootPath.try_value(), a_assertContext);
+}
+
 Result<std::unique_ptr<FilesystemRoot>> create_windows_filesystem_root(std::string_view a_rootPath,
                                                                        const AssertContext &a_assertContext) noexcept
 {

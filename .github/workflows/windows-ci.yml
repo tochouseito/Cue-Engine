@@ -70,6 +70,10 @@ jobs:
                   "MSVC: $msvcVersion"
                   "Windows SDK: $windowsSdkVersion"
 
+            - name: Restore dependencies
+              shell: pwsh
+              run: ./Tools/Dependencies/RestoreVcpkg.ps1
+
             - name: Configure
               run: cmake --preset windows-vs2026
 

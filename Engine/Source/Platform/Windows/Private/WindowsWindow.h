@@ -13,6 +13,7 @@
 namespace cue
 {
 class AssertContext;
+class WindowsMessageSink;
 class WindowsWindow;
 
 /// @brief Win32 の Window Class、Main Window、Message Queue を Platform 契約へ適合させる実装
@@ -96,6 +97,15 @@ class WindowsWindow final : public Window
                                                            LPARAM a_lParam) noexcept;
 
   private:
+    friend Result<void> attach_windows_message_sink(Window &a_window, WindowsMessageSink &a_sink,
+                                                    const AssertContext &a_assertContext) noexcept;
+    friend Result<void> detach_windows_message_sink(Window &a_window, WindowsMessageSink &a_sink,
+                                                    const AssertContext &a_assertContext) noexcept;
+
+    /// @brief Owner Thread上でMessage Sinkを一意に関連付ける
+    [[nodiscard]] Result<void> attach_message_sink(WindowsMessageSink &a_sink) noexcept;
+    /// @brief Owner Thread上で同一Message Sinkの関連付けを解除する
+    [[nodiscard]] Result<void> detach_message_sink(WindowsMessageSink &a_sink) noexcept;
     /// @brief Win32 Window の Message を規定された順序と失敗規則で処理する
     [[nodiscard]] LRESULT process_message(UINT a_message, WPARAM a_wParam, LPARAM a_lParam) noexcept;
     /// @brief Win32 Window の Event を整合性を保って更新する
@@ -122,5 +132,9 @@ class WindowsWindow final : public Window
     bool m_isClosePending = false;
     // SIZE_RESTORED を通常 Resize と最小化復帰へ分類するため直前状態を保持する
     bool m_isMinimized = false;
+    // Tool UI SinkはWindowより短命であり、attachからdetachまでだけ非所有で参照する
+    WindowsMessageSink *m_messageSink = nullptr;
+    // Callback中の関連付け変更をProgramming Contract違反として検出する
+    bool m_isDispatchingMessageSink = false;
 };
 } // namespace cue

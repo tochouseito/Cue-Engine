@@ -6,6 +6,7 @@
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
 #include <Cue/Foundation/Fatal.h>
+#include <Cue/Platform/Windows/WindowsMessageSink.h>
 
 #include <Windows.h>
 
@@ -546,6 +547,7 @@ LRESULT WindowsWindow::process_message(UINT a_message, WPARAM a_wParam, LPARAM a
         // 公開済み Window だけ破棄を Event 化し、Runtime Loop の終了要求を Thread Message Queue へ送る
         // 公開前の生成 Rollback では通知先が存在しないため Event 追加と PostQuitMessage を行わない
         m_state = WindowState::Destroyed;
+        m_messageSink = nullptr;
 
         if (m_isPublished)
         {
@@ -598,6 +600,24 @@ LRESULT WindowsWindow::process_message(UINT a_message, WPARAM a_wParam, LPARAM a
         SetWindowLongPtrW(window, GWLP_USERDATA, 0);
         m_window = nullptr;
         return result;
+    }
+
+    if (m_messageSink != nullptr)
+    {
+        WindowsMessageView message = {
+            m_window,
+            static_cast<std::uint32_t>(a_message),
+            static_cast<std::uintptr_t>(a_wParam),
+            static_cast<std::intptr_t>(a_lParam),
+        };
+        m_isDispatchingMessageSink = true;
+        WindowsMessageResult result = m_messageSink->process_message(message);
+        m_isDispatchingMessageSink = false;
+
+        if (result.isHandled)
+        {
+            return static_cast<LRESULT>(result.nativeResult);
+        }
     }
 
     return DefWindowProcW(m_window, a_message, a_wParam, a_lParam);

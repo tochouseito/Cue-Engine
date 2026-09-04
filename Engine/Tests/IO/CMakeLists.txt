@@ -11,7 +11,7 @@ endif()
 
 get_target_property(cueIoWindowsLinks Cue.IO.Windows LINK_LIBRARIES)
 
-if(NOT "${cueIoWindowsLinks}" STREQUAL "Cue.IO;Cue.Foundation.Windows;bcrypt")
+if(NOT "${cueIoWindowsLinks}" STREQUAL "Cue.IO;Cue.Foundation.Windows;bcrypt;Ole32;Shell32")
     message(FATAL_ERROR "Cue.IO.Windows must use only Cue.IO and Windows system dependencies: ${cueIoWindowsLinks}")
 endif()
 
