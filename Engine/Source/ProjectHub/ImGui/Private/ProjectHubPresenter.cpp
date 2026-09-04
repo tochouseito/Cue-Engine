@@ -34,6 +34,14 @@ namespace
     return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(duration).count());
 }
 
+/// @brief Error ChainのRootが公開後のDurability確認失敗か返す
+[[nodiscard]] bool is_durability_unknown(const cue::Error &a_error) noexcept
+{
+    const cue::ErrorCode &rootCode = a_error.root_code();
+    return rootCode.domain() == "Cue.IO" &&
+           rootCode.value() == static_cast<std::int64_t>(cue::IoError::DurabilityUnknown);
+}
+
 /// @brief Entry Stateを日本語表示へ変換する
 [[nodiscard]] const char *entry_state_text(cue::project_hub::ProjectEntryState a_state) noexcept
 {
@@ -254,7 +262,16 @@ void ProjectHubPresenter::draw(bool a_canLaunchEditor) noexcept
             }
             else
             {
-                set_error(*refreshed.try_error());
+                const Error &error = *refreshed.try_error();
+                if (is_durability_unknown(error))
+                {
+                    set_warning("Project一覧の状態を更新しましたが、Diskへの永続化を確認できませんでした。"
+                                "現在の一覧を確認し、次回起動後にも同じ状態が保持されているか再確認してください。");
+                }
+                else
+                {
+                    set_error(error);
+                }
             }
         }
         ImGui::Separator();
@@ -380,7 +397,19 @@ void ProjectHubPresenter::draw_project_list(bool a_canLaunchEditor) noexcept
         }
         else
         {
-            set_error(*pinned.try_error());
+            const Error &error = *pinned.try_error();
+            if (is_durability_unknown(error))
+            {
+                set_warning(pinValue
+                                ? "ProjectをPinに固定しましたが、Diskへの永続化を確認できませんでした。"
+                                  "一覧のPin表示を確認し、次回起動後にも保持されているか再確認してください。"
+                                : "ProjectのPinを解除しましたが、Diskへの永続化を確認できませんでした。"
+                                  "一覧のPin表示を確認し、次回起動後にも解除されているか再確認してください。");
+            }
+            else
+            {
+                set_error(error);
+            }
         }
     }
 }
@@ -495,11 +524,7 @@ void ProjectHubPresenter::draw_register_dialog() noexcept
         else
         {
             const Error &error = *registered.try_error();
-            const ErrorCode &rootCode = error.root_code();
-            const bool wasPublishedWithUnknownDurability =
-                rootCode.domain() == "Cue.IO" &&
-                rootCode.value() == static_cast<std::int64_t>(IoError::DurabilityUnknown);
-            if (wasPublishedWithUnknownDurability)
+            if (is_durability_unknown(error))
             {
                 set_warning("Projectを一覧へ登録しましたが、Diskへの永続化を確認できませんでした。"
                             "一覧を更新し、表示されない場合はProject Folderを再登録してください。");
@@ -549,11 +574,7 @@ void ProjectHubPresenter::draw_remove_dialog() noexcept
         else
         {
             const Error &error = *removed.try_error();
-            const ErrorCode &rootCode = error.root_code();
-            const bool wasPublishedWithUnknownDurability =
-                rootCode.domain() == "Cue.IO" &&
-                rootCode.value() == static_cast<std::int64_t>(IoError::DurabilityUnknown);
-            if (wasPublishedWithUnknownDurability)
+            if (is_durability_unknown(error))
             {
                 if (m_selectedProjectId == m_pendingRemoveProjectId)
                 {
@@ -588,7 +609,16 @@ void ProjectHubPresenter::open_selected_project() noexcept
     }
     else
     {
-        set_error(*opened.try_error());
+        const Error &error = *opened.try_error();
+        if (is_durability_unknown(error))
+        {
+            set_warning("ProjectのOpen時刻を一覧へ反映しましたが、Diskへの永続化を確認できませんでした。"
+                        "Editorは起動していません。一覧を更新して状態を確認してから、もう一度開いてください。");
+        }
+        else
+        {
+            set_error(error);
+        }
     }
 }
 
