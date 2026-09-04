@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -271,6 +272,8 @@ void test_hierarchy_inspector_intents() noexcept
     require(document->selection().empty());
 
     require(presenter->submit(cue::editor::SelectObjectsIntent{{rootId}, rootId}).has_value());
+    const std::string longName(512U, 'N');
+    require(presenter->submit(cue::editor::RenameObjectIntent{rootId, longName}).has_value());
     require(ImGui::CreateContext() != nullptr);
     ImGuiIO &input = ImGui::GetIO();
     input.IniFilename = nullptr;
@@ -279,6 +282,23 @@ void test_hierarchy_inspector_intents() noexcept
     static_cast<void>(input.Fonts->Build());
     draw_frame(*presenter);
     ImGui::DestroyContext();
+
+    document = controller->session().find_document(documentId);
+    require(document->scene_document().find_object(rootId)->name() == longName);
+
+    constexpr std::string_view duplicateSuffix = " Copy";
+    std::string maximumName(cue::scene::k_maximumSceneStringBytes - duplicateSuffix.size() - 1U, 'A');
+    maximumName.append("\xE3\x81\x82");
+    maximumName.resize(cue::scene::k_maximumSceneStringBytes, 'B');
+    require(presenter->submit(cue::editor::RenameObjectIntent{rootId, maximumName}).has_value());
+    require(presenter->submit(cue::editor::DuplicateObjectIntent{rootId}).has_value());
+    document = controller->session().find_document(documentId);
+    require(document->selection().size() == 1U);
+    const cue::scene::SceneObject *maximumNameDuplicate =
+        document->scene_document().find_object(document->selection()[0]);
+    require(maximumNameDuplicate != nullptr);
+    require(maximumNameDuplicate->name().size() <= cue::scene::k_maximumSceneStringBytes);
+    require(maximumNameDuplicate->name().ends_with(duplicateSuffix));
 }
 } // namespace
 

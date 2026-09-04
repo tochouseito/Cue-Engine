@@ -84,6 +84,44 @@ template <typename T> [[nodiscard]] cue::Result<void> discard_value(cue::Result<
     return a_componentId.canonical_text();
 }
 
+/// @brief ImGuiの可変長Text編集へ所有StringとFatal境界を渡す
+struct StringInputContext final
+{
+    std::string *value;
+    const cue::AssertContext *assertContext;
+};
+
+/// @brief ImGuiのBuffer拡張要求へstd::stringの所有Bufferを追従させる
+int resize_string_input(ImGuiInputTextCallbackData *a_data) noexcept
+{
+    auto *context = static_cast<StringInputContext *>(a_data->UserData);
+    try
+    {
+        context->value->resize(static_cast<std::size_t>(a_data->BufTextLen));
+        a_data->Buf = context->value->data();
+        return 0;
+    }
+    catch (const std::bad_alloc &)
+    {
+        terminate_allocation(*context->assertContext);
+    }
+    catch (...)
+    {
+        terminate_exception(*context->assertContext);
+    }
+}
+
+/// @brief Scene Object名を切り捨てずにImGuiの可変長InputTextへ接続する
+[[nodiscard]] bool input_object_name(std::string &a_value, const cue::AssertContext &a_assertContext)
+{
+    StringInputContext context{&a_value, &a_assertContext};
+    const bool submitted = ImGui::InputText("Name", a_value.data(), a_value.capacity() + 1U,
+                                            ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackResize,
+                                            resize_string_input, &context);
+    a_value.resize(std::strlen(a_value.c_str()));
+    return submitted;
+}
+
 /// @brief Selection ViewにStable Object Identityが含まれるか判定する
 [[nodiscard]] bool is_selected(std::span<const cue::scene::ObjectId> a_selection,
                                const cue::scene::ObjectId &a_objectId) noexcept
@@ -114,6 +152,23 @@ struct GeneratedDuplicate final
     cue::editor_core::DuplicateObjectCommand command;
     cue::scene::ObjectId duplicateRootId;
 };
+
+/// @brief Scene名上限内でUTF-8境界を保ちつつ複製Suffixを付加する
+[[nodiscard]] std::string make_duplicate_name(std::string_view a_sourceName)
+{
+    constexpr std::string_view k_suffix = " Copy";
+    const std::size_t maximumPrefixBytes = cue::scene::k_maximumSceneStringBytes - k_suffix.size();
+    std::size_t prefixBytes = (std::min)(a_sourceName.size(), maximumPrefixBytes);
+    while (prefixBytes < a_sourceName.size() && prefixBytes > 0U &&
+           (static_cast<unsigned char>(a_sourceName[prefixBytes]) & 0xC0U) == 0x80U)
+    {
+        --prefixBytes;
+    }
+
+    std::string result(a_sourceName.substr(0U, prefixBytes));
+    result.append(k_suffix);
+    return result;
+}
 
 /// @brief Read-only Scene ViewからSubtree全体の新しいObject／Component Identity対応を生成する
 [[nodiscard]] cue::Result<GeneratedDuplicate> generate_duplicate(const cue::scene::SceneDocument &a_document,
@@ -164,11 +219,8 @@ struct GeneratedDuplicate final
             componentIds.push_back(std::move(*generatedComponentId.try_value()));
         }
 
-        std::string duplicateName(object.name());
-        if (object.id() == a_sourceRootId)
-        {
-            duplicateName.append(" Copy");
-        }
+        std::string duplicateName =
+            object.id() == a_sourceRootId ? make_duplicate_name(object.name()) : std::string(object.name());
         targets.push_back(cue::editor_core::DuplicateObjectTarget{object.id(), std::move(objectId),
                                                                   std::move(duplicateName), std::move(componentIds)});
     }
@@ -630,7 +682,7 @@ void EditorPresenter::draw_object_node(const scene::SceneDocument &a_sceneDocume
     }
 
     const scene::IdentityText objectIdText = a_object.id().canonical_text();
-    ImGui::PushID(objectIdText.data());
+    ImGui::PushID(objectIdText.data(), objectIdText.data() + objectIdText.size());
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
     if (!hasChildren)
     {
@@ -710,11 +762,10 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     }
     sync_inspector(a_document, *object);
 
-    const bool submittedName =
-        ImGui::InputText("Name", m_name.data(), m_name.size(), ImGuiInputTextFlags_EnterReturnsTrue);
+    const bool submittedName = input_object_name(m_name, *m_assertContext);
     if ((submittedName || ImGui::IsItemDeactivatedAfterEdit()) && !a_pendingIntent.has_value())
     {
-        a_pendingIntent.emplace(RenameObjectIntent{object->id(), m_name.data()});
+        a_pendingIntent.emplace(RenameObjectIntent{object->id(), m_name});
     }
 
     const scene::ObjectId *parentId = object->try_parent_id();
@@ -737,7 +788,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
                 continue;
             }
             const scene::IdentityText candidateId = candidate.id().canonical_text();
-            ImGui::PushID(candidateId.data());
+            ImGui::PushID(candidateId.data(), candidateId.data() + candidateId.size());
             const bool isCurrent = parentId != nullptr && *parentId == candidate.id();
             const std::string candidateName(candidate.name());
             if (ImGui::Selectable(candidateName.c_str(), isCurrent) && !a_pendingIntent.has_value())
@@ -792,7 +843,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     for (const scene::SceneComponent &component : object->components())
     {
         const scene::IdentityText componentId = component_id_text(component.instance_id());
-        ImGui::PushID(componentId.data());
+        ImGui::PushID(componentId.data(), componentId.data() + componentId.size());
         const std::string label = component_label(component, *m_schemaRegistry, *m_assertContext);
         if (ImGui::CollapsingHeader(label.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
         {
@@ -853,8 +904,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     ImGui::EndChild();
 }
 
-void EditorPresenter::sync_inspector(const editor_core::EditorDocument &a_document,
-                                     const scene::SceneObject &a_object) noexcept
+void EditorPresenter::sync_inspector(const editor_core::EditorDocument &a_document, const scene::SceneObject &a_object)
 {
     const std::uint64_t stateValue = a_document.current_state_id().value();
     if (m_inspectorObjectId.has_value() && *m_inspectorObjectId == a_object.id() && m_inspectorStateValue == stateValue)
@@ -862,9 +912,7 @@ void EditorPresenter::sync_inspector(const editor_core::EditorDocument &a_docume
         return;
     }
 
-    const std::size_t nameLength = (std::min)(a_object.name().size(), m_name.size() - 1U);
-    std::memcpy(m_name.data(), a_object.name().data(), nameLength);
-    m_name[nameLength] = '\0';
+    m_name.assign(a_object.name());
     const math::Vector3 translation = a_object.transform().translation();
     const math::Quaternion rotation = a_object.transform().rotation();
     const math::Vector3 scale = a_object.transform().scale();

@@ -160,7 +160,7 @@ class EditorPresenter final
     /// @brief Primary SelectionのName、Parent、Transform、Component操作を描画する
     void draw_inspector(const editor_core::EditorDocument &a_document, std::optional<EditorIntent> &a_pendingIntent);
     /// @brief SelectionまたはDocument State変更時に編集BufferをRead-only正本へ同期する
-    void sync_inspector(const editor_core::EditorDocument &a_document, const scene::SceneObject &a_object) noexcept;
+    void sync_inspector(const editor_core::EditorDocument &a_document, const scene::SceneObject &a_object);
     /// @brief Error分類と開発者診断を日本語の回復可能Messageへ変換する
     void set_error(const Error &a_error) noexcept;
     /// @brief 成功した操作の短いMessageを設定する
@@ -174,7 +174,7 @@ class EditorPresenter final
     editor_core::EditorDocumentId m_documentId;
     std::optional<scene::ObjectId> m_inspectorObjectId;
     std::uint64_t m_inspectorStateValue = 0U;
-    std::array<char, 257> m_name{};
+    std::string m_name;
     std::array<float, 3> m_translation{};
     std::array<float, 4> m_rotation{};
     std::array<float, 3> m_scale{1.0F, 1.0F, 1.0F};
