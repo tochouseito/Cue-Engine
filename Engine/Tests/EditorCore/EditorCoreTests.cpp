@@ -1432,8 +1432,7 @@ void test_scene_persistence_workflow() noexcept
     require(secondDocument->external_change_state() == cue::editor_core::ExternalChangeState::Modified);
     require(sourceAssets.text("Scenes/Second-Renamed.cuescene") == secondOriginalJson);
 
-    auto unsavedRecoveryScene =
-        make_scene_document("00000000-0000-4000-8000-000000000703", assertContext);
+    auto unsavedRecoveryScene = make_scene_document("00000000-0000-4000-8000-000000000703", assertContext);
     const auto unsavedRecoveryRoot = make_object_id("00000000-0000-4000-8000-000000000713", assertContext);
     require(unsavedRecoveryScene
                 .add_object(unsavedRecoveryRoot, "Unsaved Recovery", true, std::nullopt, cue::math::Transform{})
@@ -1448,6 +1447,27 @@ void test_scene_persistence_workflow() noexcept
     unsavedRecoveryDocument = controller->session().find_document(unsavedRecoveryId);
     require(unsavedRecoveryDocument != nullptr && unsavedRecoveryDocument->has_recovery_candidate());
     require(!savedRoot.text("Editor/Recovery/00000000-0000-4000-8000-000000000703.cuerecovery").empty());
+    require(savedRoot.text("Editor/Recovery/Registry.cueindex").find("00000000-0000-4000-8000-000000000703") !=
+            std::string_view::npos);
+
+    cue::editor_core::ScenePersistenceServices unsavedRestartServices(sourceAssets, savedRoot, *registry, valueRegistry,
+                                                                      sceneMigrations, componentMigrations);
+    auto unsavedRestart = cue::editor_core::EditorController::create(make_project_descriptor(assertContext),
+                                                                     unsavedRestartServices, assertContext);
+    const auto recoveryCandidates = take_value(unsavedRestart->list_recovery_candidates());
+    bool foundUnsavedRecovery = false;
+    for (const cue::editor_core::RecoveryMetadata &candidate : recoveryCandidates)
+    {
+        foundUnsavedRecovery = foundUnsavedRecovery || candidate.scene_id() == "00000000-0000-4000-8000-000000000703";
+    }
+    require(foundUnsavedRecovery);
+    const auto restartedUnsavedId =
+        take_value(unsavedRestart->open_document_from_recovery("00000000-0000-4000-8000-000000000703"));
+    const auto *restartedUnsavedDocument = unsavedRestart->session().find_document(restartedUnsavedId);
+    require(restartedUnsavedDocument != nullptr && restartedUnsavedDocument->is_dirty() &&
+            !restartedUnsavedDocument->has_saved_destination() && restartedUnsavedDocument->has_recovery_candidate());
+    require(restartedUnsavedDocument->scene_document().find_object(unsavedRecoveryRoot) != nullptr);
+    require(restartedUnsavedDocument->scene_document().find_object(unsavedRecoveryRoot)->name() == "Unsaved Recovery");
 
     require(controller
                 ->execute_command(cue::editor_core::SceneCommandRequest{

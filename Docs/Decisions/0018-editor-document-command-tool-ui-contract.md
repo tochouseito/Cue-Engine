@@ -326,6 +326,16 @@ Autosave対象はDirtyなDocumentに加え、`currentStateId == savedStateId`で
 `ignore_recovery`は現在Sessionの表示だけを解除し、`discard_recovery`はSaved RootのRecovery File削除成功時だけ候補を解除する。
 削除失敗時はRecovery Fileと候補状態を維持する。
 
+未保存Sceneを再起動後にも発見できるよう、`Editor/Recovery/Registry.cueindex`へProject IDとRecoveryを作成したScene IDを
+Version付きのAppend-only Registryとして保持する。AutosaveはEnvelopeより先にScene IDをRegistryへAtomic登録し、Envelope公開後に
+列挙不能なFileを残さない。Registry登録後にEnvelope公開が失敗した場合や明示Discard後もRegistry Entryは残してよいが、列挙時は
+対応するRegular Fileが存在し、Envelope、Project ID、Scene ID、Scene本文を完全検証できるEntryだけを候補として返す。
+`list_recovery_candidates`で起動時候補を列挙し、`open_document_from_recovery`は正本Fileの存在を前提にせずEnvelopeから直接
+Dirty Documentを開く。Recover後も正本は暗黙作成・置換しない。
+
+Registry v1はMagic `CueRecoveryRegistry`、Registry Version、Project ID、Scene ID列を改行区切りで保持する。EntryはScene ID順に
+決定的に並べ、重複、未知Version、Project不一致、上限超過を`InvalidRecovery`または`UnsupportedRecovery`として拒否する。
+
 #### Recovery Envelope v1
 
 M12のRecovery本文はSaved Root基準の`Editor/Recovery/<SceneAssetId>.cuerecovery`へ保存する。

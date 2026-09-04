@@ -24,14 +24,24 @@ namespace cue::editor_core
 namespace
 {
 constexpr std::uint32_t k_recoveryFormatVersion = 1U;
+constexpr std::uint32_t k_recoveryRegistryVersion = 1U;
 constexpr std::size_t k_maximumRecoveryHeaderBytes = 4096U;
+constexpr std::size_t k_maximumRecoveryRegistryBytes = 4U * 1024U * 1024U;
+constexpr std::size_t k_maximumRecoveryRegistryEntries = 65536U;
 constexpr std::string_view k_recoveryMagic = "CueRecovery";
+constexpr std::string_view k_recoveryRegistryMagic = "CueRecoveryRegistry";
 
 struct ParsedRecovery final
 {
     RecoveryMetadata metadata;
     std::string sceneJson;
 };
+
+/// @brief Saved Root内のProject単位Recovery Registry Locatorを返す
+[[nodiscard]] Result<RelativePath> make_recovery_registry_path(const AssertContext &a_assertContext) noexcept
+{
+    return RelativePath::parse("Editor/Recovery/Registry.cueindex", a_assertContext);
+}
 
 /// @brief UTF-8文字列の決定的Digestを返す
 [[nodiscard]] std::uint64_t digest_text(std::string_view a_text) noexcept
@@ -92,6 +102,189 @@ template <typename Value> [[nodiscard]] bool parse_unsigned(std::string_view a_t
     }
     const auto parsed = std::from_chars(a_text.data(), a_text.data() + a_text.size(), a_value);
     return parsed.ec == std::errc{} && parsed.ptr == a_text.data() + a_text.size();
+}
+
+/// @brief Append-only Recovery Registryを完全検証してScene Identity列へ変換する
+[[nodiscard]] Result<std::vector<scene::SceneAssetId>> parse_recovery_registry(
+    std::string_view a_text, const ProjectDescriptor &a_project, const AssertContext &a_assertContext) noexcept
+{
+    std::size_t cursor = 0U;
+    std::string_view magic;
+    std::string_view versionText;
+    std::string_view projectId;
+    if (!take_line(a_text, cursor, magic) || !take_line(a_text, cursor, versionText) ||
+        !take_line(a_text, cursor, projectId) || magic != k_recoveryRegistryMagic)
+    {
+        return Result<std::vector<scene::SceneAssetId>>::failure(make_editor_core_error(
+            a_assertContext, EditorCoreError::InvalidRecovery, "Recovery registry header is malformed"));
+    }
+
+    std::uint32_t version = 0U;
+    if (!parse_unsigned(versionText, version) || version == 0U)
+    {
+        return Result<std::vector<scene::SceneAssetId>>::failure(make_editor_core_error(
+            a_assertContext, EditorCoreError::InvalidRecovery, "Recovery registry version is invalid"));
+    }
+    if (version != k_recoveryRegistryVersion)
+    {
+        return Result<std::vector<scene::SceneAssetId>>::failure(make_editor_core_error(
+            a_assertContext, EditorCoreError::UnsupportedRecovery, "Recovery registry version is unsupported"));
+    }
+    if (projectId != a_project.project_id().text())
+    {
+        return Result<std::vector<scene::SceneAssetId>>::failure(make_editor_core_error(
+            a_assertContext, EditorCoreError::InvalidRecovery, "Recovery registry project identity does not match"));
+    }
+
+    try
+    {
+        std::vector<scene::SceneAssetId> sceneIds;
+        while (cursor < a_text.size())
+        {
+            if (sceneIds.size() == k_maximumRecoveryRegistryEntries)
+            {
+                return Result<std::vector<scene::SceneAssetId>>::failure(make_editor_core_error(
+                    a_assertContext, EditorCoreError::InvalidRecovery, "Recovery registry entry limit was exceeded"));
+            }
+            std::string_view sceneIdText;
+            if (!take_line(a_text, cursor, sceneIdText) || sceneIdText.empty())
+            {
+                return Result<std::vector<scene::SceneAssetId>>::failure(make_editor_core_error(
+                    a_assertContext, EditorCoreError::InvalidRecovery, "Recovery registry entry is malformed"));
+            }
+            auto sceneId = scene::SceneAssetId::parse(sceneIdText, a_assertContext);
+            if (!sceneId)
+            {
+                return Result<std::vector<scene::SceneAssetId>>::failure(std::move(*sceneId.try_error()));
+            }
+            if (std::find(sceneIds.begin(), sceneIds.end(), *sceneId.try_value()) != sceneIds.end())
+            {
+                return Result<std::vector<scene::SceneAssetId>>::failure(make_editor_core_error(
+                    a_assertContext, EditorCoreError::InvalidRecovery, "Recovery registry contains a duplicate entry"));
+            }
+            sceneIds.push_back(std::move(*sceneId.try_value()));
+        }
+        return Result<std::vector<scene::SceneAssetId>>::success(std::move(sceneIds));
+    }
+    catch (...)
+    {
+        a_assertContext.fatal_handler().terminate("Cue.EditorCore recovery registry parsing allocation failed");
+    }
+    std::terminate();
+}
+
+/// @brief Registryが指すRecovery MetadataをProjectと要求Scene Identityへ照合する
+[[nodiscard]] Result<void> validate_recovery_candidate(const RecoveryMetadata &a_metadata,
+                                                       const ProjectDescriptor &a_project,
+                                                       const scene::SceneAssetId &a_sceneId,
+                                                       const AssertContext &a_assertContext) noexcept
+{
+    const scene::IdentityText sceneText = a_sceneId.canonical_text();
+    if (a_metadata.project_id() != a_project.project_id().text() ||
+        a_metadata.scene_id() != std::string_view(sceneText.data(), sceneText.size()))
+    {
+        return Result<void>::failure(
+            make_editor_core_error(a_assertContext, EditorCoreError::InvalidRecovery,
+                                   "Recovery metadata does not match the current project and registry entry"));
+    }
+    return Result<void>::success();
+}
+
+/// @brief Recovery RegistryへScene Identityを先行登録し、Envelope公開後の孤立を防ぐ
+[[nodiscard]] Result<void> register_recovery_candidate(FilesystemRoot &a_savedRoot, const ProjectDescriptor &a_project,
+                                                       const scene::SceneAssetId &a_sceneId,
+                                                       const AssertContext &a_assertContext) noexcept
+{
+    auto registryPath = make_recovery_registry_path(a_assertContext);
+    if (!registryPath)
+    {
+        return Result<void>::failure(std::move(*registryPath.try_error()));
+    }
+    auto expected =
+        fingerprint_file(a_savedRoot, *registryPath.try_value(), k_maximumRecoveryRegistryBytes, a_assertContext);
+    if (!expected)
+    {
+        return Result<void>::failure(std::move(*expected.try_error()));
+    }
+    auto lease = a_savedRoot.acquire_file_write_lease(*registryPath.try_value());
+    if (!lease)
+    {
+        return Result<void>::failure(std::move(*lease.try_error()));
+    }
+    auto leased =
+        fingerprint_file(a_savedRoot, *registryPath.try_value(), k_maximumRecoveryRegistryBytes, a_assertContext);
+    if (!leased)
+    {
+        return Result<void>::failure(std::move(*leased.try_error()));
+    }
+    if (*leased.try_value() != *expected.try_value())
+    {
+        return Result<void>::failure(
+            make_editor_core_error(a_assertContext, EditorCoreError::ExternalConflict,
+                                   "Recovery registry changed before the write lease was acquired"));
+    }
+
+    std::vector<scene::SceneAssetId> sceneIds;
+    if (expected.try_value()->exists)
+    {
+        auto bytes = a_savedRoot.read_file(*registryPath.try_value(), k_maximumRecoveryRegistryBytes);
+        if (!bytes)
+        {
+            return Result<void>::failure(std::move(*bytes.try_error()));
+        }
+        const auto &storage = *bytes.try_value();
+        auto parsed =
+            parse_recovery_registry(std::string_view(reinterpret_cast<const char *>(storage.data()), storage.size()),
+                                    a_project, a_assertContext);
+        if (!parsed)
+        {
+            return Result<void>::failure(std::move(*parsed.try_error()));
+        }
+        sceneIds = std::move(*parsed.try_value());
+    }
+    const bool containsScene = std::find(sceneIds.begin(), sceneIds.end(), a_sceneId) != sceneIds.end();
+    if (!containsScene && sceneIds.size() == k_maximumRecoveryRegistryEntries)
+    {
+        return Result<void>::failure(make_editor_core_error(a_assertContext, EditorCoreError::InvalidRecovery,
+                                                            "Recovery registry entry limit was exceeded"));
+    }
+
+    try
+    {
+        if (!containsScene)
+        {
+            sceneIds.push_back(a_sceneId);
+            std::sort(sceneIds.begin(), sceneIds.end());
+        }
+        std::string registry;
+        registry.reserve(k_recoveryRegistryMagic.size() + a_project.project_id().text().size() + 16U +
+                         sceneIds.size() * 37U);
+        registry.append(k_recoveryRegistryMagic);
+        registry.push_back('\n');
+        registry.append(std::to_string(k_recoveryRegistryVersion));
+        registry.push_back('\n');
+        registry.append(a_project.project_id().text());
+        registry.push_back('\n');
+        for (const scene::SceneAssetId &sceneId : sceneIds)
+        {
+            const scene::IdentityText sceneText = sceneId.canonical_text();
+            registry.append(sceneText.data(), sceneText.size());
+            registry.push_back('\n');
+        }
+        if (registry.size() > k_maximumRecoveryRegistryBytes)
+        {
+            return Result<void>::failure(make_editor_core_error(a_assertContext, EditorCoreError::InvalidRecovery,
+                                                                "Recovery registry byte limit was exceeded"));
+        }
+        return a_savedRoot.write_file_atomic_if_unchanged(*lease.try_value(), *registryPath.try_value(),
+                                                          *expected.try_value(), k_maximumRecoveryRegistryBytes,
+                                                          std::as_bytes(std::span(registry.data(), registry.size())));
+    }
+    catch (...)
+    {
+        a_assertContext.fatal_handler().terminate("Cue.EditorCore recovery registry allocation failed");
+    }
+    std::terminate();
 }
 
 /// @brief Version付きRecovery Envelopeを完全検証して所有値へ変換する
@@ -996,6 +1189,12 @@ Result<void> EditorController::autosave_recovery(EditorDocumentId a_documentId) 
     {
         return created;
     }
+    auto registered = register_recovery_candidate(*m_savedRoot, m_session.m_descriptor,
+                                                  document->m_document.scene_asset_id(), *m_assertContext);
+    if (!registered)
+    {
+        return registered;
+    }
     auto expectedRecovery =
         fingerprint_file(*m_savedRoot, *recoveryPath.try_value(),
                          scene::k_maximumSceneBytes + k_maximumRecoveryHeaderBytes, *m_assertContext);
@@ -1069,6 +1268,200 @@ Result<void> EditorController::autosave_recovery(EditorDocumentId a_documentId) 
     {
         terminate_exception();
     }
+}
+
+Result<std::vector<RecoveryMetadata>> EditorController::list_recovery_candidates() noexcept
+{
+    assert_owner_thread();
+    auto services = require_persistence_services();
+    if (!services)
+    {
+        return Result<std::vector<RecoveryMetadata>>::failure(std::move(*services.try_error()));
+    }
+    auto registryPath = make_recovery_registry_path(*m_assertContext);
+    if (!registryPath)
+    {
+        return Result<std::vector<RecoveryMetadata>>::failure(std::move(*registryPath.try_error()));
+    }
+    auto registryEntry = m_savedRoot->query_entry(*registryPath.try_value());
+    if (!registryEntry)
+    {
+        return Result<std::vector<RecoveryMetadata>>::failure(std::move(*registryEntry.try_error()));
+    }
+    if (*registryEntry.try_value() == EntryType::Missing)
+    {
+        return Result<std::vector<RecoveryMetadata>>::success({});
+    }
+    if (*registryEntry.try_value() != EntryType::RegularFile)
+    {
+        return Result<std::vector<RecoveryMetadata>>::failure(make_editor_core_error(
+            *m_assertContext, EditorCoreError::InvalidRecovery, "Recovery registry is not a regular file"));
+    }
+
+    auto registryBytes = m_savedRoot->read_file(*registryPath.try_value(), k_maximumRecoveryRegistryBytes);
+    if (!registryBytes)
+    {
+        return Result<std::vector<RecoveryMetadata>>::failure(std::move(*registryBytes.try_error()));
+    }
+    const auto &registryStorage = *registryBytes.try_value();
+    auto sceneIds = parse_recovery_registry(
+        std::string_view(reinterpret_cast<const char *>(registryStorage.data()), registryStorage.size()),
+        m_session.m_descriptor, *m_assertContext);
+    if (!sceneIds)
+    {
+        return Result<std::vector<RecoveryMetadata>>::failure(std::move(*sceneIds.try_error()));
+    }
+
+    try
+    {
+        std::vector<RecoveryMetadata> candidates;
+        candidates.reserve(sceneIds.try_value()->size());
+        for (const scene::SceneAssetId &sceneId : *sceneIds.try_value())
+        {
+            auto recoveryPath = make_recovery_path(sceneId, *m_assertContext);
+            if (!recoveryPath)
+            {
+                return Result<std::vector<RecoveryMetadata>>::failure(std::move(*recoveryPath.try_error()));
+            }
+            auto recoveryEntry = m_savedRoot->query_entry(*recoveryPath.try_value());
+            if (!recoveryEntry)
+            {
+                return Result<std::vector<RecoveryMetadata>>::failure(std::move(*recoveryEntry.try_error()));
+            }
+            if (*recoveryEntry.try_value() == EntryType::Missing)
+            {
+                continue;
+            }
+            if (*recoveryEntry.try_value() != EntryType::RegularFile)
+            {
+                return Result<std::vector<RecoveryMetadata>>::failure(
+                    make_editor_core_error(*m_assertContext, EditorCoreError::InvalidRecovery,
+                                           "Recovery registry entry does not refer to a regular file"));
+            }
+            auto bytes = m_savedRoot->read_file(*recoveryPath.try_value(),
+                                                scene::k_maximumSceneBytes + k_maximumRecoveryHeaderBytes);
+            if (!bytes)
+            {
+                return Result<std::vector<RecoveryMetadata>>::failure(std::move(*bytes.try_error()));
+            }
+            const auto &storage = *bytes.try_value();
+            auto parsed = parse_recovery_envelope(
+                std::string_view(reinterpret_cast<const char *>(storage.data()), storage.size()), *m_assertContext);
+            if (!parsed)
+            {
+                return Result<std::vector<RecoveryMetadata>>::failure(std::move(*parsed.try_error()));
+            }
+            auto identity = validate_recovery_candidate(parsed.try_value()->metadata, m_session.m_descriptor, sceneId,
+                                                        *m_assertContext);
+            if (!identity)
+            {
+                return Result<std::vector<RecoveryMetadata>>::failure(std::move(*identity.try_error()));
+            }
+            auto recovered =
+                scene::parse_scene_document(parsed.try_value()->sceneJson, *m_schemaRegistry, *m_valueSchemaRegistry,
+                                            *m_sceneMigrations, *m_componentMigrations, *m_assertContext);
+            if (!recovered)
+            {
+                return Result<std::vector<RecoveryMetadata>>::failure(std::move(*recovered.try_error()));
+            }
+            if (recovered.try_value()->document().scene_asset_id() != sceneId)
+            {
+                return Result<std::vector<RecoveryMetadata>>::failure(
+                    make_editor_core_error(*m_assertContext, EditorCoreError::SceneMismatch,
+                                           "Recovery scene identity does not match its registry entry"));
+            }
+            candidates.push_back(std::move(parsed.try_value()->metadata));
+        }
+        return Result<std::vector<RecoveryMetadata>>::success(std::move(candidates));
+    }
+    catch (const std::bad_alloc &)
+    {
+        terminate_allocation();
+    }
+    catch (...)
+    {
+        terminate_exception();
+    }
+}
+
+Result<EditorDocumentId> EditorController::open_document_from_recovery(std::string_view a_sceneId) noexcept
+{
+    assert_owner_thread();
+    auto services = require_persistence_services();
+    if (!services)
+    {
+        return Result<EditorDocumentId>::failure(std::move(*services.try_error()));
+    }
+    auto sceneId = scene::SceneAssetId::parse(a_sceneId, *m_assertContext);
+    if (!sceneId)
+    {
+        return Result<EditorDocumentId>::failure(std::move(*sceneId.try_error()));
+    }
+    auto recoveryPath = make_recovery_path(*sceneId.try_value(), *m_assertContext);
+    if (!recoveryPath)
+    {
+        return Result<EditorDocumentId>::failure(std::move(*recoveryPath.try_error()));
+    }
+    auto bytes =
+        m_savedRoot->read_file(*recoveryPath.try_value(), scene::k_maximumSceneBytes + k_maximumRecoveryHeaderBytes);
+    if (!bytes)
+    {
+        return Result<EditorDocumentId>::failure(std::move(*bytes.try_error()));
+    }
+    const auto &storage = *bytes.try_value();
+    auto parsed = parse_recovery_envelope(
+        std::string_view(reinterpret_cast<const char *>(storage.data()), storage.size()), *m_assertContext);
+    if (!parsed)
+    {
+        return Result<EditorDocumentId>::failure(std::move(*parsed.try_error()));
+    }
+    auto identity = validate_recovery_candidate(parsed.try_value()->metadata, m_session.m_descriptor,
+                                                *sceneId.try_value(), *m_assertContext);
+    if (!identity)
+    {
+        return Result<EditorDocumentId>::failure(std::move(*identity.try_error()));
+    }
+    auto recovered =
+        scene::parse_scene_document(parsed.try_value()->sceneJson, *m_schemaRegistry, *m_valueSchemaRegistry,
+                                    *m_sceneMigrations, *m_componentMigrations, *m_assertContext);
+    if (!recovered)
+    {
+        return Result<EditorDocumentId>::failure(std::move(*recovered.try_error()));
+    }
+    if (recovered.try_value()->document().scene_asset_id() != *sceneId.try_value())
+    {
+        return Result<EditorDocumentId>::failure(
+            make_editor_core_error(*m_assertContext, EditorCoreError::SceneMismatch,
+                                   "Recovery scene identity does not match the requested registry entry"));
+    }
+
+    const SceneFileFingerprint recoveryBase = parsed.try_value()->metadata.base_fingerprint();
+    RelativePath locator = parsed.try_value()->metadata.source_locator();
+    auto currentBase = fingerprint_scene_file(*m_sourceAssetsRoot, locator, *m_assertContext);
+    if (!currentBase)
+    {
+        return Result<EditorDocumentId>::failure(std::move(*currentBase.try_error()));
+    }
+    auto opened = open_document(std::move(recovered.try_value()->document()), std::move(locator), recoveryBase.exists);
+    if (!opened)
+    {
+        return opened;
+    }
+    EditorDocument *document = find_document(*opened.try_value());
+    auto state = issue_persistent_state(*opened.try_value(), true);
+    if (!state)
+    {
+        return Result<EditorDocumentId>::failure(std::move(*state.try_error()));
+    }
+    document->m_baseFingerprint = recoveryBase;
+    document->m_externalChangeState =
+        recoveryBase == *currentBase.try_value()
+            ? ExternalChangeState::None
+            : (currentBase.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed);
+    document->m_persistenceState = DocumentPersistenceState::Idle;
+    document->m_closeState = DocumentCloseState::Open;
+    document->m_hasRecoveryCandidate = true;
+    return opened;
 }
 
 Result<RecoveryMetadata> EditorController::inspect_recovery(EditorDocumentId a_documentId) noexcept

@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -133,6 +134,10 @@ class EditorController final
     [[nodiscard]] Result<ExternalChangeState> poll_external_change(EditorDocumentId a_documentId) noexcept;
     /// @brief Dirty SceneをSaved RootのVersion付きRecovery EnvelopeへAtomic保存する
     [[nodiscard]] Result<void> autosave_recovery(EditorDocumentId a_documentId) noexcept;
+    /// @brief Recovery Registryから現在Projectの検証済み候補を列挙する
+    [[nodiscard]] Result<std::vector<RecoveryMetadata>> list_recovery_candidates() noexcept;
+    /// @brief Scene Identityに対応するRecovery EnvelopeからDirty Documentを直接開く
+    [[nodiscard]] Result<EditorDocumentId> open_document_from_recovery(std::string_view a_sceneId) noexcept;
     /// @brief Documentに対応するRecovery Envelopeを検証してMetadataを返す
     [[nodiscard]] Result<RecoveryMetadata> inspect_recovery(EditorDocumentId a_documentId) noexcept;
     /// @brief 検証済みRecovery本文をDirtyな新StateとしてDocumentへ適用する
