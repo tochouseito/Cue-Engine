@@ -12,6 +12,7 @@
 #include <exception>
 #include <limits>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -40,6 +41,38 @@ namespace
     const cue::ErrorCode &rootCode = a_error.root_code();
     return rootCode.domain() == "Cue.IO" &&
            rootCode.value() == static_cast<std::int64_t>(cue::IoError::DurabilityUnknown);
+}
+
+/// @brief Open拒否後の一覧公開部分成功から元の拒否Categoryを日本語理由へ変換する
+[[nodiscard]] const char *open_rejection_text(const cue::Error &a_error) noexcept
+{
+    const std::span<const cue::ErrorCause> causes = a_error.causes();
+    if (causes.empty())
+    {
+        return "Projectを開けませんでした。";
+    }
+    const cue::ErrorCode &code = causes.front().code();
+    if (code.domain() == "Cue.ProjectHub")
+    {
+        switch (static_cast<cue::project_hub::ProjectHubError>(code.value()))
+        {
+        case cue::project_hub::ProjectHubError::ProjectMissing:
+            return "Project Folderが見つからないため開けませんでした。";
+        case cue::project_hub::ProjectHubError::ProjectBroken:
+            return "Project情報を読み取れないため開けませんでした。";
+        case cue::project_hub::ProjectHubError::ProjectIdentityMismatch:
+            return "Projectの識別情報が一覧と一致しないため開けませんでした。";
+        case cue::project_hub::ProjectHubError::ProjectUnsupported:
+            return "このVersionのCueEngineでは対応できないためProjectを開けませんでした。";
+        default:
+            return "Projectを開けませんでした。";
+        }
+    }
+    if (code.domain() == "Cue.Project")
+    {
+        return "Project情報または互換性情報が正しくないため開けませんでした。";
+    }
+    return "Projectを開けませんでした。";
 }
 
 /// @brief Entry Stateを日本語表示へ変換する
@@ -610,10 +643,27 @@ void ProjectHubPresenter::open_selected_project() noexcept
     else
     {
         const Error &error = *opened.try_error();
-        if (is_durability_unknown(error))
+        if (error.code().domain() == "Cue.ProjectHub" &&
+            error.code().value() ==
+                static_cast<std::int64_t>(ProjectHubError::OpenRejectedViewDurabilityUnknown))
         {
-            set_warning("Projectは開けませんでした。一覧状態は更新されましたが、Diskへの永続化を確認できませんでした。"
-                        "Editorは起動していません。現在の一覧と次回起動後の状態を確認し、問題を解決してからもう一度開いてください。");
+            std::string warning;
+            try
+            {
+                warning.assign(open_rejection_text(error));
+                warning.append(" 一覧状態は更新されましたが、Diskへの永続化を確認できませんでした。"
+                               "Editorは起動していません。現在の一覧と次回起動後の状態を確認してください。");
+            }
+            catch (...)
+            {
+                terminate_allocation(*m_assertContext);
+            }
+            set_warning(warning);
+        }
+        else if (is_durability_unknown(error))
+        {
+            set_warning("ProjectのOpen時刻を一覧へ反映しましたが、Diskへの永続化を確認できませんでした。"
+                        "Editorは起動していません。現在の一覧と次回起動後の状態を確認してから、もう一度開いてください。");
         }
         else
         {
@@ -657,6 +707,9 @@ void ProjectHubPresenter::set_error(const Error &a_error) noexcept
             break;
         case ProjectHubError::EditorProcessFailed:
             message = "Editorが異常終了したか、終了状態を確認できませんでした。Logを確認して再試行してください。";
+            break;
+        case ProjectHubError::OpenRejectedViewDurabilityUnknown:
+            message = "Projectを開けず、一覧状態のDiskへの永続化も確認できませんでした。";
             break;
         default:
             break;

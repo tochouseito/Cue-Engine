@@ -26,7 +26,8 @@ enum class ProjectHubError : std::int64_t
     PersistenceFailure = 9,
     InvalidTemplate = 10,
     EditorLaunchFailed = 11,
-    EditorProcessFailed = 12
+    EditorProcessFailed = 12,
+    OpenRejectedViewDurabilityUnknown = 13
 };
 
 /// @brief Project Hub Error を診断 Summary と共に生成する

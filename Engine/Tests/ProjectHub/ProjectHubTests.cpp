@@ -577,24 +577,14 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
     workspaceFilesystem.set_write_durability_unknown(true);
     auto brokenLaunch = service.try_value()->get()->open_project(charlieId, 525U);
     workspaceFilesystem.set_write_durability_unknown(false);
-    bool preservedOpenRejection = false;
-    if (!brokenLaunch)
-    {
-        for (const cue::ErrorContext &context : brokenLaunch.try_error()->contexts())
-        {
-            if (context.message() == "Project descriptor could not be loaded")
-            {
-                preservedOpenRejection = true;
-                break;
-            }
-        }
-    }
+    const bool preservedOpenRejection =
+        !brokenLaunch && !brokenLaunch.try_error()->causes().empty() &&
+        brokenLaunch.try_error()->causes().front().code().domain() == "Cue.ProjectHub" &&
+        brokenLaunch.try_error()->causes().front().code().value() ==
+            static_cast<std::int64_t>(cue::project_hub::ProjectHubError::ProjectBroken);
     if (brokenLaunch || brokenLaunch.try_error()->code().domain() != "Cue.ProjectHub" ||
         brokenLaunch.try_error()->code().value() !=
-            static_cast<std::int64_t>(cue::project_hub::ProjectHubError::PersistenceFailure) ||
-        brokenLaunch.try_error()->root_code().domain() != "Cue.IO" ||
-        brokenLaunch.try_error()->root_code().value() !=
-            static_cast<std::int64_t>(cue::IoError::DurabilityUnknown) ||
+            static_cast<std::int64_t>(cue::project_hub::ProjectHubError::OpenRejectedViewDurabilityUnknown) ||
         !preservedOpenRejection)
     {
         return false;
