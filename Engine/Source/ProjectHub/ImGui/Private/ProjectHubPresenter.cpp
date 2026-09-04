@@ -179,6 +179,35 @@ namespace
     return "互換性を判断できません。Project情報とEngine診断を確認してください。";
 }
 
+/// @brief Project CapabilityをUserがHardware／Driver項目と照合できる名前へ変換する
+[[nodiscard]] const char *capability_text(cue::ProjectCapability a_capability) noexcept
+{
+    switch (a_capability)
+    {
+    case cue::ProjectCapability::Baseline3D:
+        return "Baseline 3D";
+    case cue::ProjectCapability::WaveOperations:
+        return "Wave Operations";
+    case cue::ProjectCapability::EnhancedBarriers:
+        return "Enhanced Barriers";
+    case cue::ProjectCapability::RayTracing:
+        return "Ray Tracing";
+    case cue::ProjectCapability::MeshShader:
+        return "Mesh Shader";
+    case cue::ProjectCapability::VariableRateShading:
+        return "Variable Rate Shading";
+    case cue::ProjectCapability::SamplerFeedback:
+        return "Sampler Feedback";
+    }
+    return "Unknown Capability";
+}
+
+/// @brief Capability要件の必須／推奨区分を日本語表示へ変換する
+[[nodiscard]] const char *requirement_kind_text(cue::CapabilityRequirementKind a_kind) noexcept
+{
+    return a_kind == cue::CapabilityRequirementKind::Required ? "必須" : "推奨";
+}
+
 /// @brief 固定Bufferへ初期文字列をNUL終端で設定する
 template <std::size_t Size> void set_buffer(std::array<char, Size> &a_buffer, std::string_view a_text) noexcept
 {
@@ -480,7 +509,35 @@ void ProjectHubPresenter::draw_project_list(bool a_canLaunchEditor) noexcept
                     }
                     for (const ProjectCompatibilityReason &reason : project.compatibilityReasons)
                     {
-                        ImGui::TextWrapped("互換性: %s", compatibility_reason_text(reason.code));
+                        if (reason.capability.has_value())
+                        {
+                            ImGui::TextWrapped("互換性 [%s / %s]: %s", capability_text(*reason.capability),
+                                               requirement_kind_text(reason.requirementKind),
+                                               compatibility_reason_text(reason.code));
+                        }
+                        else if ((reason.code == ProjectCompatibilityReasonCode::EngineVersionTooOld ||
+                                  reason.code == ProjectCompatibilityReasonCode::EngineVersionTooNew) &&
+                                 project.engineCompatibility.has_value())
+                        {
+                            const EngineCompatibility &range = *project.engineCompatibility;
+                            if (range.maximumExclusive.has_value())
+                            {
+                                ImGui::TextWrapped("互換性 [対応Engine %u.%u.%u以上、%u.%u.%u未満]: %s",
+                                                   range.minimum.major, range.minimum.minor, range.minimum.patch,
+                                                   range.maximumExclusive->major, range.maximumExclusive->minor,
+                                                   range.maximumExclusive->patch, compatibility_reason_text(reason.code));
+                            }
+                            else
+                            {
+                                ImGui::TextWrapped("互換性 [対応Engine %u.%u.%u以上]: %s", range.minimum.major,
+                                                   range.minimum.minor, range.minimum.patch,
+                                                   compatibility_reason_text(reason.code));
+                            }
+                        }
+                        else
+                        {
+                            ImGui::TextWrapped("互換性: %s", compatibility_reason_text(reason.code));
+                        }
                     }
                     ImGui::Unindent();
                 }

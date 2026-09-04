@@ -877,6 +877,12 @@ class WindowsFilesystemRoot final : public cue::FilesystemRoot
     /// @brief Root Handle と Staging 追跡 Storage を解放する
     ~WindowsFilesystemRoot() override;
 
+    /// @brief Known Folder Factoryが取得した親Chain PinをRoot寿命へ移管する
+    void adopt_pinned_directories(std::vector<UniqueHandle> &&a_directories) noexcept
+    {
+        m_pinnedDirectories = std::move(a_directories);
+    }
+
     /// @brief Entry を Follow せず Portable 種別として返す
     [[nodiscard]] cue::Result<cue::EntryType> query_entry(const cue::RelativePath &a_path) noexcept override;
     /// @brief 上限内の Regular File 全体を所有 Byte 列として返す
@@ -942,6 +948,7 @@ class WindowsFilesystemRoot final : public cue::FilesystemRoot
 
     const cue::AssertContext *m_assertContext;
     std::wstring m_rootPath;
+    std::vector<UniqueHandle> m_pinnedDirectories;
     UniqueHandle m_rootHandle;
     std::unordered_map<std::uint64_t, StagingRecord> m_stagingPaths;
     DWORD m_rootVolumeSerial;
@@ -2021,7 +2028,15 @@ Result<std::unique_ptr<FilesystemRoot>> create_windows_known_folder_filesystem_r
     {
         return Result<std::unique_ptr<FilesystemRoot>>::failure(std::move(*rootPath.try_error()));
     }
-    return create_windows_filesystem_root(*rootPath.try_value(), a_assertContext);
+    Result<std::unique_ptr<FilesystemRoot>> filesystem =
+        create_windows_filesystem_root(*rootPath.try_value(), a_assertContext);
+    if (!filesystem)
+    {
+        return filesystem;
+    }
+    static_cast<WindowsFilesystemRoot *>(filesystem.try_value()->get())
+        ->adopt_pinned_directories(std::move(pinnedDirectories));
+    return filesystem;
 }
 
 Result<std::unique_ptr<FilesystemRoot>> create_windows_filesystem_root(std::string_view a_rootPath,

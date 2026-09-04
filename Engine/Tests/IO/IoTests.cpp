@@ -150,6 +150,7 @@ class KnownFolderTestDirectory final
         {
             m_cleanupPath = L"\\\\?\\" + nativePath;
         }
+        m_movedPath = m_cleanupPath + L".moved";
         CoTaskMemFree(localApplicationData);
     }
 
@@ -183,6 +184,21 @@ class KnownFolderTestDirectory final
         return m_relativePath;
     }
 
+    /// @brief Root寿命中のRenameがPin HandleのShare契約で拒否されるか確認する
+    [[nodiscard]] bool is_replacement_blocked() noexcept
+    {
+        if (MoveFileExW(m_cleanupPath.c_str(), m_movedPath.c_str(), 0) == FALSE)
+        {
+            const DWORD nativeCode = GetLastError();
+            return nativeCode == ERROR_SHARING_VIOLATION || nativeCode == ERROR_ACCESS_DENIED;
+        }
+        if (MoveFileExW(m_movedPath.c_str(), m_cleanupPath.c_str(), 0) == FALSE)
+        {
+            m_cleanupPath = std::move(m_movedPath);
+        }
+        return false;
+    }
+
     /// @brief Root Handle解放後にTest専用Directoryを長Path APIで削除できたか返す
     [[nodiscard]] bool remove() noexcept
     {
@@ -207,6 +223,7 @@ class KnownFolderTestDirectory final
   private:
     std::string m_relativePath;
     std::wstring m_cleanupPath;
+    std::wstring m_movedPath;
     bool m_isRemoved = false;
 };
 
@@ -1030,7 +1047,7 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     auto reopened = cue::create_windows_known_folder_filesystem_root(
         cue::WindowsKnownFolder::LocalApplicationData, *relative.try_value(),
         cue::WindowsRootOpenMode::OpenExisting, a_assertContext);
-    if (!reopened || *reopened.try_value() == nullptr)
+    if (!reopened || *reopened.try_value() == nullptr || !directory.is_replacement_blocked())
     {
         return false;
     }
