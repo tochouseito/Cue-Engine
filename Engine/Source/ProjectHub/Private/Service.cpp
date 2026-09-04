@@ -404,10 +404,7 @@ Result<ProjectCreationOutcome> ProjectHubService::create_blank_project(std::stri
         }
         if (!descriptor)
         {
-            std::optional<Error> recentPersistenceError;
-            return Result<ProjectCreationOutcome>::success(
-                ProjectCreationOutcome(std::string(*projectLocator.try_value()), false,
-                                       std::move(creationDurabilityError), std::move(recentPersistenceError)));
+            return Result<ProjectCreationOutcome>::failure(std::move(*creationDurabilityError));
         }
     }
     auto makeOutcome = [&projectLocator, &creationDurabilityError](bool a_isRecentRegistered, Error &&a_error)

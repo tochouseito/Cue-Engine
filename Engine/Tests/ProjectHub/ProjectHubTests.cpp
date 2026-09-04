@@ -229,6 +229,12 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
         m_nextProjectPublishDurabilityUnknown = true;
     }
 
+    /// @brief 次の Project 生成を Staging 内 Descriptor 書込みの DurabilityUnknown で失敗させる
+    void set_next_project_write_durability_unknown() noexcept
+    {
+        m_nextProjectWriteDurabilityUnknown = true;
+    }
+
     void set_failed_locator(std::string_view a_locator)
     {
         m_failedLocator = std::string(a_locator);
@@ -320,14 +326,22 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
                 return cue::Result<std::unique_ptr<cue::FilesystemRoot>>::success(std::move(missing));
             }
             auto root = cue::create_windows_filesystem_root(to_utf8(path), *m_assertContext);
-            if (!root || !m_nextProjectPublishDurabilityUnknown)
+            if (!root || (!m_nextProjectPublishDurabilityUnknown && !m_nextProjectWriteDurabilityUnknown))
             {
                 return root;
             }
-            m_nextProjectPublishDurabilityUnknown = false;
             auto injected =
                 std::make_unique<FailingWorkspaceFilesystem>(std::move(*root.try_value()), *m_assertContext);
-            injected->set_publish_durability_unknown(true);
+            if (m_nextProjectPublishDurabilityUnknown)
+            {
+                m_nextProjectPublishDurabilityUnknown = false;
+                injected->set_publish_durability_unknown(true);
+            }
+            if (m_nextProjectWriteDurabilityUnknown)
+            {
+                m_nextProjectWriteDurabilityUnknown = false;
+                injected->set_write_durability_unknown(true);
+            }
             std::unique_ptr<cue::FilesystemRoot> result(std::move(injected));
             return cue::Result<std::unique_ptr<cue::FilesystemRoot>>::success(std::move(result));
         }
@@ -343,7 +357,7 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
         constexpr std::string_view ids[] = {
             "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002",
             "00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000004",
-            "00000000-0000-4000-8000-000000000005"};
+            "00000000-0000-4000-8000-000000000005", "00000000-0000-4000-8000-000000000006"};
         if (m_nextIdentity >= std::size(ids))
         {
             return cue::Result<cue::ProjectId>::failure(cue::project_hub::make_project_hub_error(
@@ -357,6 +371,7 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
     const cue::AssertContext *m_assertContext;
     std::size_t m_nextIdentity = 0U;
     bool m_nextProjectPublishDurabilityUnknown = false;
+    bool m_nextProjectWriteDurabilityUnknown = false;
     std::optional<std::string> m_failedLocator;
 };
 
@@ -587,6 +602,17 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
             static_cast<std::int64_t>(cue::IoError::DurabilityUnknown) ||
         find_project(service.try_value()->get()->projects(), echoId) == nullptr ||
         !service.try_value()->get()->remove_project(echoId))
+    {
+        return false;
+    }
+
+    platform.set_next_project_write_durability_unknown();
+    auto unpublishedCreation = service.try_value()->get()->create_blank_project(
+        projectsLocator, "Foxtrot", "Foxtrot Project", cue::project_hub::k_blank3dTemplateId, 600U);
+    if (unpublishedCreation || unpublishedCreation.try_error()->root_code().domain() != "Cue.IO" ||
+        unpublishedCreation.try_error()->root_code().value() !=
+            static_cast<std::int64_t>(cue::IoError::DurabilityUnknown) ||
+        std::filesystem::exists(directory.path() / "Projects" / "Foxtrot"))
     {
         return false;
     }

@@ -194,9 +194,9 @@ class ProjectHubService final
     [[nodiscard]] Result<void> refresh() noexcept;
     /// @brief Blank TemplateでProjectをAtomic生成しRecentへ登録する
     ///
-    /// DurabilityUnknown以外のResult失敗時はProjectが公開されていない。公開後のDurabilityUnknownは再Open検証し、
-    /// 成功Outcomeのcreation durability診断へ保持する。Recent未登録の場合はproject_locatorをregister_projectへ
-    /// 渡してRecent登録だけを再試行する
+    /// 公開後のDurabilityUnknownは再Open検証し、成功Outcomeのcreation durability診断へ保持する。再Openで生成Projectを
+    /// 確認できない場合は失敗を返し、公開済みとは扱わない。Recent未登録の場合はproject_locatorをregister_projectへ渡して
+    /// Recent登録だけを再試行する
     [[nodiscard]] Result<ProjectCreationOutcome> create_blank_project(std::string_view a_parentLocator,
                                                                       std::string_view a_projectName,
                                                                       std::string_view a_displayName,
