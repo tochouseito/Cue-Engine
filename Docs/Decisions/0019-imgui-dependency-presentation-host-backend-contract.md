@@ -167,6 +167,27 @@ Platform非依存の`Cue.Platform` API、`WindowEvent`、Runtime ModuleへWin32�
 - Window破棄または初期化RollbackはSink関連付けを解除し、Sinkより後にWindowを破棄する
 - `NativeWindowView`のSubclass禁止は維持し、Tool Hostによる`SetWindowLongPtrW`置換を許可しない
 
+attach／detachは診断可能な`Result<void>`を返し、回復可能な失敗は`Cue.Platform.Windows` Error Categoryで表す。
+Owner Thread外からの呼出しとSink Callback実行中の再入attach／detachは既存Window APIと同じProgramming Contract違反とし、
+Debug／DevelopmentではAssertして終了し、Releaseでも状態を変更しない。Windows Windowではない対象は
+`InvalidWindowKind`、Close要求済みまたは破棄済みWindowへのattachは`MessageSinkUnavailable`を返す。
+
+関連付けの状態遷移は次の契約とする。
+
+| 操作 | 現在状態 | 結果 |
+| --- | --- | --- |
+| attach(A) | 未関連付け、Windowが利用可能 | Aを関連付けて成功する |
+| attach(A) | Aを関連付け済み | 冪等に成功し、状態を変更しない |
+| attach(B) | Aを関連付け済み | `MessageSinkAlreadyAttached`を返し、Aを維持する |
+| detach(A) | Aを関連付け済み | 関連付けを解除して成功する |
+| detach(A) | 未関連付け | 冪等に成功し、状態を変更しない |
+| detach(B) | Aを関連付け済み | `MessageSinkMismatch`を返し、Aを維持する |
+
+失敗したattach／detachはCallbackを呼ばず、既存関連付けとWindow Lifecycle状態を変更しない。Window破棄は、以後Callbackが
+発生しない状態へ遷移してから関連付けを自動解除する。このためWindow破棄後の同じSinkのdetachは未関連付けとして冪等に成功するが、
+Tool Hostの正常終了経路はBackend ShutdownとContext破棄より前に明示detachする。安定Error Code値は#162の実装時に
+既存Platform Error規約へ追加し、上記Categoryと状態不変条件をTestで固定する。
+
 この境界はTool UIのNative Input配送に限定し、一般Runtime Input System、IME抽象、Drag and DropはM12対象外とする。
 
 ## Ownership and Lifetime

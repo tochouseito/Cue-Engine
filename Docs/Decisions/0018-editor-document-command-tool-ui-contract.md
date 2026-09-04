@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-09-04
 - Decision Owners: CueEngine Project
+- Amendment: ADR-0019 replaces the Project Hub / ImGui / Platform host dependency edges below
 
 ## Context
 
@@ -87,14 +88,14 @@ Project、Schema、Scene、Runtime World境界へ接続する。
 依存方向は次のとおりとする。
 
 ```text
-Cue.ProjectHub.ImGui ----> Cue.EditorCore ----> Cue.Project
-          |                       |-----------> Cue.Scene ----> Cue.GameCore
-          |                       |-----------> Cue.IO
-          |                       `-----------> Cue.Foundation
-          `--------------> Cue.Platform
+Cue.ProjectHub.ImGui ----> Cue.ProjectHub ----> Cue.Project / Cue.IO / Cue.Foundation
+          `--------------> Cue.ImGui.Core
 
 Cue.Editor.ImGui --------> Cue.EditorCore
-          `--------------> Cue.Platform
+          `--------------> Cue.ImGui.Core
+
+Cue.ToolHost.WindowsD3D12 -> Cue.Platform.Windows
+          `----------------> Cue.ImGui.Backend.Win32D3D12
 
 Cue.RuntimeHost ---------> Cue.GameCore / Cue.Scene
 ```
@@ -104,6 +105,9 @@ Cue.RuntimeHost ---------> Cue.GameCore / Cue.Scene
 
 M12のImGui HostはEditor用Descriptor、Game Renderer、Viewport Render Targetを要求しない。WindowとImGui Backendに必要な
 Platform接続はPresentation Hostが所有し、`Cue.EditorCore`の公開APIへNative Handleを出さない。
+`Cue.ProjectHub.ImGui`と`Cue.Editor.ImGui`は`Cue.Platform`へ直接依存せず、Platform接続とD3D12 compositionは
+ADR-0019で決定した`Cue.ToolHost.WindowsD3D12`が所有する。本修正はPresentation／Hostの依存辺だけを更新し、
+本ADRのEditorDocument、Command、Transaction、Save、Process契約を変更しない。
 
 ### EditorDocument Ownership
 
