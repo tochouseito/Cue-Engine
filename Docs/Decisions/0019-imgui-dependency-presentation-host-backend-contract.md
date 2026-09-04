@@ -301,9 +301,10 @@ ImGui Adapterは表示用ViewとPresentation Stateだけを読み、User操作�
   Command Resource、Back Buffer、RTV／SRV Heap、Swap Chain／Binding、Fence／Event、Queue、Device、Windowの順に待機なしで解放し、
   `ToolHostError::DeviceRemoved`をPrimary、Removal ReasonをNative Error、Device Removal検出前の先行ErrorとDRED／Cleanup Errorを
   発生順のCause Contextとして記録してTool Sessionを終了する。Device Removalでは先行Error維持より本規則を優先する
-- Fence Signal／Wait／待機Primitiveが失敗した場合は、Fence完了とDevice Removalを再検査する。Fence完了を確認できれば
-  安全なResource解放を最後まで行って最初のErrorを返し、Device Removalを確認できれば上記経路へ移る。どちらも確認できなければ
-  GPUが参照し得るNative Resourceを解放せず、ErrorとContextを一度Log／FlushしてFatal HandlerでProcessを終端する
+- Fence Signal／Wait／待機Primitiveが失敗した場合は、Fence完了とDevice Removalの再検査結果を先に集める。
+  Device Removalを確認できればFence完了も同時に観測していてもRemoval経路を最優先し、Removal未確認でFence完了だけを
+  証明できた場合に限り安全なResource解放を最後まで行って先行Errorを返す。どちらも確認できなければGPUが参照し得る
+  Native Resourceを解放せず、ErrorとContextを一度Log／FlushしてFatal HandlerでProcessを終端する
 - 自動Device再生成と同一Process内RecoveryはM12対象外とする
 - UI AdapterはApplication ServiceのErrorを握りつぶさず、安定Categoryと操作対象を日本語Messageへ変換する
 - `DurabilityUnknown`は成功表示に変換せず、公開済み可能性と再確認手順を表示する
@@ -325,6 +326,9 @@ Renderer Backend Shutdownが呼ばれないこと、Fence値を再利用しな�
 完了もRemovalも証明不能な経路がResource解放前にFatal Dispatchすることを検証する。
 Fence枯渇は`nextFenceValue`と`lastSignaledFence`を注入し、未提出0値の即時Cleanup、1以上のSignalなしDrain、Timeout、
 Device Removal、非Wrap／非Sentinel Signal、Primary ErrorとProcess非0終了を個別に検証する。
+Signal／Wait／Present／Resizeの各Device Removal経路は、Fence完了との同時成立、先行Error、DRED失敗、複数Cleanup Errorを注入し、
+`ToolHostError::DeviceRemoved`が常にPrimary、Removal ReasonがNative Error、先行・DRED・Cleanup Errorが発生順のCause Contextに
+なることを検証する。
 Manual TestはProject作成、既存Project登録、Pin、一覧除外、Keyboard操作、Cancel、Editor Launch要求、正常Closeを確認する。
 
 Pixel完全一致、Theme、Font Raster差分、Docking、Multi-ViewportはM12 Gateに含めない。
