@@ -133,7 +133,12 @@ Cue.ToolHost.WindowsD3D12 -> Cue.Platform.Windows
 
 Cue.ProjectHub.Tool ------> Cue.ToolHost.WindowsD3D12
           |----------------> Cue.ProjectHub.ImGui
-          `----------------> Cue.ProjectHub
+          |----------------> Cue.ProjectHub.Windows
+          `----------------> Cue.IO.Windows
+
+Cue.ProjectHub.Windows ---> Cue.ProjectHub
+          |----------------> Cue.IO.Windows
+          `----------------> Cue.Foundation.Windows
 
 Cue.Editor.Tool ----------> Cue.ToolHost.WindowsD3D12
           |----------------> Cue.Editor.ImGui
@@ -154,6 +159,10 @@ Tool Host の Native ObjectをPresentation AdapterまたはApplication Service�
 `Cue.ProjectHub.Tool`と`Cue.Editor.Tool`を最終Executable Composition Rootとする。各Rootは
 `Cue.ToolHost.WindowsD3D12`、対応するApplication Service、Presentation Adapter、Presentation Stateを一意所有し、
 HostのFrame Callback内でAdapterを駆動する。共通Host TargetはProject HubまたはEditor固有型へ依存しない。
+
+`Cue.ProjectHub.Windows`は`ProjectHubPlatform`の本番Windows Adapter Factoryを提供し、Locator正規化、Project Locator合成、
+Windows Filesystem Root生成、UUID発行を実装する。`Cue.ProjectHub.Tool`はこのAdapterと`Cue.IO.Windows`からWorkspace
+`FilesystemRoot`を生成して、どちらも`ProjectHubService`より長く一意所有する。Presentation Adapterはこれらへ直接依存しない。
 
 M12 では Runtime Renderer、Game Swap Chain、Viewport Render Target、Cue.RHI 公開APIを Tool UI のために変更しない。
 Tool用D3D12 ResourceとGame Renderer Resourceの共有は対象外とする。
