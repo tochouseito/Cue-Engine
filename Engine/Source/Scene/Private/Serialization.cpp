@@ -679,8 +679,9 @@ bool SceneLoadResult::migration_required() const noexcept
     return m_sourceFormatVersion != k_currentSceneFormatVersion;
 }
 
-SceneSaveOutcome::SceneSaveOutcome(SceneSaveStatus a_status, std::optional<Error> a_error) noexcept
-    : m_status(a_status), m_error(std::move(a_error))
+SceneSaveOutcome::SceneSaveOutcome(SceneSaveStatus a_status, std::optional<Error> a_error,
+                                   std::optional<std::vector<std::byte>> a_recoveryBackupBytes) noexcept
+    : m_status(a_status), m_error(std::move(a_error)), m_recoveryBackupBytes(std::move(a_recoveryBackupBytes))
 {
 }
 
@@ -696,22 +697,37 @@ const Error *SceneSaveOutcome::try_error() const noexcept
 
 SceneSaveOutcome SceneSaveOutcome::committed() noexcept
 {
-    return SceneSaveOutcome(SceneSaveStatus::Committed, std::nullopt);
+    return SceneSaveOutcome(SceneSaveStatus::Committed, std::nullopt, std::nullopt);
 }
 
 SceneSaveOutcome SceneSaveOutcome::not_published(Error a_error) noexcept
 {
-    return SceneSaveOutcome(SceneSaveStatus::NotPublished, std::optional<Error>(std::move(a_error)));
+    return SceneSaveOutcome(SceneSaveStatus::NotPublished, std::optional<Error>(std::move(a_error)), std::nullopt);
 }
 
 SceneSaveOutcome SceneSaveOutcome::durability_unknown(Error a_error) noexcept
 {
-    return SceneSaveOutcome(SceneSaveStatus::PublishedButDurabilityUnknown, std::optional<Error>(std::move(a_error)));
+    return SceneSaveOutcome(SceneSaveStatus::PublishedButDurabilityUnknown, std::optional<Error>(std::move(a_error)),
+                            std::nullopt);
+}
+
+SceneSaveOutcome SceneSaveOutcome::backup_durability_unknown(Error a_error,
+                                                              std::vector<std::byte> a_backupBytes) noexcept
+{
+    return SceneSaveOutcome(SceneSaveStatus::PublishedButBackupDurabilityUnknown,
+                            std::optional<Error>(std::move(a_error)),
+                            std::optional<std::vector<std::byte>>(std::move(a_backupBytes)));
 }
 
 SceneSaveOutcome SceneSaveOutcome::verification_failed(Error a_error) noexcept
 {
-    return SceneSaveOutcome(SceneSaveStatus::PublishedButVerificationFailed, std::optional<Error>(std::move(a_error)));
+    return SceneSaveOutcome(SceneSaveStatus::PublishedButVerificationFailed, std::optional<Error>(std::move(a_error)),
+                            std::nullopt);
+}
+
+std::optional<std::vector<std::byte>> SceneSaveOutcome::take_recovery_backup_bytes() noexcept
+{
+    return std::move(m_recoveryBackupBytes);
 }
 
 Result<std::string> serialize_scene_document(const SceneDocument &a_document,
@@ -1466,8 +1482,9 @@ SceneSaveOutcome save_scene_document_internal(
                     durabilityUnknown ? "Scene is visible but recovery backup durability is unknown"
                                       : "Scene is visible but recovery backup publication failed",
                     std::move(*backupWritten.try_error()));
-                return durabilityUnknown ? SceneSaveOutcome::durability_unknown(std::move(error))
-                                         : SceneSaveOutcome::verification_failed(std::move(error));
+                return durabilityUnknown
+                           ? SceneSaveOutcome::backup_durability_unknown(std::move(error), std::move(*backupBytes))
+                           : SceneSaveOutcome::verification_failed(std::move(error));
             }
         }
 

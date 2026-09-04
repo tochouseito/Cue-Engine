@@ -201,6 +201,7 @@ class EditorDocument final
     enum class PendingSaveReason : std::uint8_t
     {
         DurabilityUnknown,
+        BackupDurabilityUnknown,
         VerificationFailed
     };
 
@@ -212,6 +213,7 @@ class EditorDocument final
         scene::SceneDocumentCheckpoint candidateCheckpoint;
         std::uint64_t candidateByteSize;
         std::uint64_t candidateDigest;
+        std::vector<std::byte> recoveryBackupBytes;
         PendingSaveReason reason;
         bool switchDestination;
     };

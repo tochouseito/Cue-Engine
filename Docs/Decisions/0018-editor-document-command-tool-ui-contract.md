@@ -236,7 +236,8 @@ Backup元Byte列もExpected FingerprintのSize／Digestと照合し、一致し�
 本文のConditional Publish直前には別のFingerprint再検査を維持し、Backup前検査後の変更を本文へ上書きしない。
 旧Byte列は本文Publishが成功するまでMemoryに保持し、本文が未公開またはDurability不明なら既存Backupを変更しない。
 本文Publish成功後だけSibling BackupをAtomic更新する。Backup更新失敗時は本文を公開済みとしてVerification Failedを返し、
-既存Backupを維持する。
+既存Backupを維持する。Backup更新が公開済みだがDurability不明の場合は、本文側のDurability不明と区別した
+`PublishedButBackupDurabilityUnknown`を返し、保存前の旧Byte列を結果へ保持する。
 
 既存Destinationの置換について、WindowsのPath単位Fingerprint再検査と`MoveFileExW`による公開の間を、Lease Protocolへ参加しない
 Processに対してAtomicなCompare-and-Publishにはできない。Publish後の再読込はCandidateが公開されたことの検証であり、その間に上書きした
@@ -258,6 +259,7 @@ Candidate Checkpointを`PendingSaveRecord`としてEditorDocumentが所有する
 | `Committed` | `savedStateId`をSave開始時Stateへ更新し、Destination Locatorと新しいFingerprintを記録する。現在Stateが進んでいればDirtyを維持する |
 | `NotPublished` | Document、History、Dirty、現在Locator、元Fileを維持し、失敗を通知する |
 | `PublishedButDurabilityUnknown` | Recordを保持したSave Uncertainへ遷移し、明示的な再確認を要求する |
+| `PublishedButBackupDurabilityUnknown` | 保存前Byte列を含むRecordを保持したSave Uncertainへ遷移し、Backupだけの再試行を要求する |
 | `PublishedButVerificationFailed` | Recordを保持したSave Uncertainへ遷移し、再確認後にExternal Conflictか保存済み状態を確定する |
 
 保存中に編集が進んだ場合も、保存開始時Stateだけを`savedStateId`として記録するため、現在Stateとの差によりDirtyを維持する。
@@ -274,6 +276,11 @@ External Conflictへ遷移し、Destinationを上書きしない。
 Retry用Expected Fingerprintを用いた`Cue.Scene`のAtomic Saveから新しい`Committed`を得た場合だけDurabilityを確定する。
 この場合はRecordの開始時Stateを`savedStateId`へ設定し、Destination Locatorと現在Fingerprintを記録してUncertainを解除する。
 再保存が失敗または再び`PublishedButDurabilityUnknown`になった場合はRecordとUncertainを維持する。
+
+`PublishedButBackupDurabilityUnknown`は、本文を上限付きで再読込してCandidate DigestとScene Identityが一致することを確認後、
+同じLease範囲でRecordに保持した保存前Byte列をSibling BackupへだけAtomic再書込みする。本文は再保存しない。
+Backup再書込みが失敗または再びDurability不明になった場合はRecordと保存前Byte列を維持し、成功した場合だけ
+Recordの開始時Stateを`savedStateId`へ設定してUncertainを解除する。
 
 `PublishedButVerificationFailed`はDurability成功済みであるため、本文を上限付きで再読込し、完全Parse、Migration、Validationした
 Byte列のDigestをCandidate Digestと比較してよい。DigestとScene Identityが一致した場合は、Recordの開始時Stateを

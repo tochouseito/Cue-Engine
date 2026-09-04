@@ -157,6 +157,12 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
         m_isMainDurabilityUnknown = a_unknown;
     }
 
+    /// @brief Recovery Backupへの次回Writeを公開済みDurability不明として報告する
+    void make_backup_write_durability_unknown(bool a_unknown) noexcept
+    {
+        m_isBackupDurabilityUnknown = a_unknown;
+    }
+
     /// @brief Main Scene本文の公開後だけ再読込を失敗させる
     void fail_read_after_main_write(bool a_fail) noexcept
     {
@@ -224,6 +230,11 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
             return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::DurabilityUnknown,
                                                                  "Injected scene durability uncertainty"));
         }
+        if (m_isBackupDurabilityUnknown && a_path.text() == "Scenes/Main.cuescene.backup")
+        {
+            return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::DurabilityUnknown,
+                                                                 "Injected backup durability uncertainty"));
+        }
         return cue::Result<void>::success();
     }
 
@@ -275,6 +286,7 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
     bool m_failMainWrite = false;
     bool m_failBackupWrite = false;
     bool m_isMainDurabilityUnknown = false;
+    bool m_isBackupDurabilityUnknown = false;
     bool m_failReadAfterMainWrite = false;
     bool m_hasWrittenMain = false;
 };
@@ -823,6 +835,20 @@ void test_serialization() noexcept
     require(backupFailed.status() == cue::scene::SceneSaveStatus::PublishedButVerificationFailed);
     require(backupFailureFilesystem.text("Scenes/Main.cuescene") != "backup-failure-original");
     require(backupFailureFilesystem.text("Scenes/Main.cuescene.backup") == "preserved-backup");
+
+    MemoryFilesystemRoot backupUncertainFilesystem(assertContext);
+    backupUncertainFilesystem.set("Scenes/Main.cuescene", "backup-uncertain-original");
+    backupUncertainFilesystem.make_backup_write_durability_unknown(true);
+    auto backupUncertain =
+        cue::scene::save_scene_document(backupUncertainFilesystem, path, parsed.try_value()->document(), *registry,
+                                        valueRegistry, migrations, componentMigrations, assertContext);
+    require(backupUncertain.status() == cue::scene::SceneSaveStatus::PublishedButBackupDurabilityUnknown);
+    auto retainedBackupBytes = backupUncertain.take_recovery_backup_bytes();
+    require(retainedBackupBytes.has_value());
+    require(std::string_view(reinterpret_cast<const char *>(retainedBackupBytes->data()), retainedBackupBytes->size()) ==
+            "backup-uncertain-original");
+    require(backupUncertainFilesystem.text("Scenes/Main.cuescene") != "backup-uncertain-original");
+    require(backupUncertainFilesystem.text("Scenes/Main.cuescene.backup") == "backup-uncertain-original");
 
     MemoryFilesystemRoot verificationFilesystem(assertContext);
     verificationFilesystem.set("Scenes/Main.cuescene", "verification-original");

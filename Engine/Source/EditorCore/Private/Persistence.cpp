@@ -519,7 +519,7 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
             document->m_persistenceState = DocumentPersistenceState::SaveUncertain;
             document->m_pendingSave.emplace(EditorDocument::PendingSaveRecord{
                 savedState, std::move(a_locator), expectedFingerprint, std::move(candidateCheckpoint),
-                candidateByteSize, candidateDigest, EditorDocument::PendingSaveReason::VerificationFailed,
+                candidateByteSize, candidateDigest, {}, EditorDocument::PendingSaveReason::VerificationFailed,
                 a_switchDestination});
             if (document->m_closeState == DocumentCloseState::SaveRequested)
             {
@@ -562,16 +562,25 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
     else
     {
         if (outcome.status() == scene::SceneSaveStatus::PublishedButDurabilityUnknown ||
+            outcome.status() == scene::SceneSaveStatus::PublishedButBackupDurabilityUnknown ||
             outcome.status() == scene::SceneSaveStatus::PublishedButVerificationFailed)
         {
             document->m_persistenceState = DocumentPersistenceState::SaveUncertain;
-            const EditorDocument::PendingSaveReason reason =
-                outcome.status() == scene::SceneSaveStatus::PublishedButDurabilityUnknown
-                    ? EditorDocument::PendingSaveReason::DurabilityUnknown
-                    : EditorDocument::PendingSaveReason::VerificationFailed;
+            EditorDocument::PendingSaveReason reason = EditorDocument::PendingSaveReason::VerificationFailed;
+            if (outcome.status() == scene::SceneSaveStatus::PublishedButDurabilityUnknown)
+            {
+                reason = EditorDocument::PendingSaveReason::DurabilityUnknown;
+            }
+            else if (outcome.status() == scene::SceneSaveStatus::PublishedButBackupDurabilityUnknown)
+            {
+                reason = EditorDocument::PendingSaveReason::BackupDurabilityUnknown;
+            }
+            auto recoveryBackupBytes = outcome.take_recovery_backup_bytes();
             document->m_pendingSave.emplace(EditorDocument::PendingSaveRecord{
                 savedState, std::move(a_locator), expectedFingerprint, std::move(candidateCheckpoint),
-                candidateByteSize, candidateDigest, reason, a_switchDestination});
+                candidateByteSize, candidateDigest,
+                recoveryBackupBytes.has_value() ? std::move(*recoveryBackupBytes) : std::vector<std::byte>{}, reason,
+                a_switchDestination});
         }
         if (document->m_closeState == DocumentCloseState::SaveRequested)
         {
@@ -702,7 +711,27 @@ Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocu
     }
 
     scene::SceneSaveStatus status = scene::SceneSaveStatus::Committed;
-    if (record.reason == EditorDocument::PendingSaveReason::DurabilityUnknown)
+    if (record.reason == EditorDocument::PendingSaveReason::BackupDurabilityUnknown)
+    {
+        std::string backupText(record.destination.text());
+        backupText.append(".backup");
+        auto backupPath = RelativePath::parse(backupText, *m_assertContext);
+        if (!backupPath)
+        {
+            return Result<scene::SceneSaveStatus>::failure(std::move(*backupPath.try_error()));
+        }
+        auto backupWritten = m_sourceAssetsRoot->write_file_atomic(*backupPath.try_value(), record.recoveryBackupBytes);
+        if (!backupWritten)
+        {
+            const bool durabilityUnknown =
+                backupWritten.try_error()->root_code().domain() == "Cue.IO" &&
+                backupWritten.try_error()->root_code().value() == static_cast<std::int64_t>(IoError::DurabilityUnknown);
+            status = durabilityUnknown ? scene::SceneSaveStatus::PublishedButBackupDurabilityUnknown
+                                       : scene::SceneSaveStatus::PublishedButVerificationFailed;
+            return Result<scene::SceneSaveStatus>::success(std::move(status));
+        }
+    }
+    else if (record.reason == EditorDocument::PendingSaveReason::DurabilityUnknown)
     {
         scene::SceneDocument candidate =
             scene::SceneDocument::create(document->m_document.scene_asset_id(), *m_assertContext);

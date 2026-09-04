@@ -1254,6 +1254,29 @@ void test_scene_persistence_workflow() noexcept
     require(secondDocument != nullptr && !secondDocument->is_dirty());
     require(secondDocument->scene_locator().text() == "Scenes/Second-Renamed.cuescene");
 
+    const std::string backupRetrySource(sourceAssets.text("Scenes/Second-Renamed.cuescene"));
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    secondDocumentId, secondSceneAssetId,
+                    cue::editor_core::RenameObjectCommand{secondRootId, "Backup Durability Retry"}})
+                .has_value());
+    sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene.backup", true);
+    auto backupUncertainSave = controller->save_document(secondDocumentId);
+    require(backupUncertainSave.has_value());
+    require(backupUncertainSave.try_value()->status() ==
+            cue::scene::SceneSaveStatus::PublishedButBackupDurabilityUnknown);
+    secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr && secondDocument->is_dirty());
+    require(secondDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::SaveUncertain);
+    sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene.backup", false);
+    sourceAssets.fail_write("Scenes/Second-Renamed.cuescene", true);
+    require(take_value(controller->retry_uncertain_save(secondDocumentId)) == cue::scene::SceneSaveStatus::Committed);
+    sourceAssets.fail_write("Scenes/Second-Renamed.cuescene", false);
+    secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr && !secondDocument->is_dirty());
+    require(secondDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::Idle);
+    require(sourceAssets.text("Scenes/Second-Renamed.cuescene.backup") == backupRetrySource);
+
     require(controller
                 ->execute_command(cue::editor_core::SceneCommandRequest{
                     secondDocumentId, secondSceneAssetId,

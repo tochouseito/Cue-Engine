@@ -5,6 +5,7 @@
 #include <Cue/IO/Filesystem.h>
 #include <Cue/Scene/SceneDocument.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -148,6 +149,7 @@ enum class SceneSaveStatus : std::uint8_t
     Committed,
     NotPublished,
     PublishedButDurabilityUnknown,
+    PublishedButBackupDurabilityUnknown,
     PublishedButVerificationFailed
 };
 
@@ -177,15 +179,22 @@ class SceneSaveOutcome final
     [[nodiscard]] static SceneSaveOutcome not_published(Error a_error) noexcept;
     /// @brief 本文公開済みだがDurability不明の結果を生成する
     [[nodiscard]] static SceneSaveOutcome durability_unknown(Error a_error) noexcept;
+    /// @brief 本文公開済みだがRecovery BackupのDurabilityが不明な結果を生成する
+    [[nodiscard]] static SceneSaveOutcome backup_durability_unknown(Error a_error,
+                                                                    std::vector<std::byte> a_backupBytes) noexcept;
     /// @brief 本文Commit後の再読込比較だけが失敗した結果を生成する
     [[nodiscard]] static SceneSaveOutcome verification_failed(Error a_error) noexcept;
+    /// @brief Backup再試行用の保存前Byte列を移動して返す
+    [[nodiscard]] std::optional<std::vector<std::byte>> take_recovery_backup_bytes() noexcept;
 
   private:
     /// @brief 公開状態と任意診断を束ねる
-    SceneSaveOutcome(SceneSaveStatus a_status, std::optional<Error> a_error) noexcept;
+    SceneSaveOutcome(SceneSaveStatus a_status, std::optional<Error> a_error,
+                     std::optional<std::vector<std::byte>> a_recoveryBackupBytes) noexcept;
 
     SceneSaveStatus m_status;
     std::optional<Error> m_error;
+    std::optional<std::vector<std::byte>> m_recoveryBackupBytes;
 };
 
 /// @brief 現行Versionの固定順JSONへSceneDocumentをSerializeする
