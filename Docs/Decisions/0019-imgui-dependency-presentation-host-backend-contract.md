@@ -249,7 +249,8 @@ Context破棄より前に明示detachする。安定Error Code値は#162の実�
 7. 最終Executable Rootが所有するProject HubまたはEditor Application Service
 8. 同Rootが所有するPresentation Adapter State
 
-終了順は逆順とする。GPU Idle確認とBackend Shutdownが完了するまでDescriptor ResourceとDeviceを破棄しない。
+終了順は逆順とする。正常経路はProduction既定5,000 msの有限Fence WaitでGPU完了を確認し、Backend Shutdownが完了するまで
+Descriptor ResourceとDeviceを破棄しない。TimeoutをGPU完了として扱わない。
 ImGui Contextは一つのTool Hostが一意所有し、Global SingletonまたはRuntime Serviceへ登録しない。
 
 一つのUI FrameはOwner Threadだけで処理する。Windows Message、ImGui Frame、Semantic Intent適用、Application Service Mutation、
@@ -271,7 +272,15 @@ ImGui Adapterは表示用ViewとPresentation Stateだけを読み、User操作�
 
 - External Dependency未復元は専用Dependency Checkで失敗させ、通常のCMake ConfigureからDownloadを自動開始しない
 - Backend初期化失敗は部分Hostを逆順に破棄し、Process Exit CodeとFoundation Errorへ記録する
-- Device RemovalはDRED診断を記録してTool Sessionを終了し、自動Device再生成はM12対象外とする
+- Device RemovalをFenceの`GetCompletedValue()`、Queue Signal、Fence Wait、Present、Resizeの失敗または
+  `ID3D12Device::GetDeviceRemovedReason()`から確認した時点で新しいFrameとQueue操作を停止する
+- Device Removal確認後はFenceをSignalまたはWaitせず、Removal Reasonを記録してDREDを一度だけBest-effortで採取する。
+  DRED採取失敗は制御解放を妨げず、Command Resource、Back Buffer、RTV／SRV Heap、Swap Chain、Binding、Fence／Event、Queue、
+  Deviceを逆順に解放してからWindowを破棄し、最初のErrorを記録してTool Sessionを終了する
+- Fence Signal／Wait／待機Primitiveが失敗した場合は、Fence完了とDevice Removalを再検査する。Fence完了を確認できれば
+  安全なResource解放を最後まで行って最初のErrorを返し、Device Removalを確認できれば上記経路へ移る。どちらも確認できなければ
+  GPUが参照し得るNative Resourceを解放せず、ErrorとContextを一度Log／FlushしてFatal HandlerでProcessを終端する
+- 自動Device再生成と同一Process内RecoveryはM12対象外とする
 - UI AdapterはApplication ServiceのErrorを握りつぶさず、安定Categoryと操作対象を日本語Messageへ変換する
 - `DurabilityUnknown`は成功表示に変換せず、公開済み可能性と再確認手順を表示する
 

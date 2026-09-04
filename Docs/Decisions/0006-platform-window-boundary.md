@@ -294,8 +294,10 @@ ADR-0019で決定した`Cue.ToolHost.WindowsD3D12`だけは、Tool UI用DXGI Swa
 `NativeWindowView::value()`を`CreateSwapChainForHwnd`相当の一回のNative呼出へ渡すことを許可する。AdapterはWindow Owner
 Threadの`Created`または`Visible`状態でViewを取得し、Native呼出から戻る前に値の利用を終え、First-party Objectへ値を保存しない。
 生成済みSwap Chainとの非所有Window関連付けはMove-onlyな`WindowsToolSwapChainBinding`で表し、BindingはRaw Native Window値を
-公開しない。WindowはBindingより長命とし、Tool HostはGPU完了を待ってSwap ChainとBindingを破棄した後にだけWindowの
-`destroy()`を開始する。生成失敗では部分Swap Chainを解放してBindingを公開しない。
+公開しない。WindowはBindingより長命とし、Tool Hostは正常経路で有限Fence WaitによるGPU完了を確認するか、Device Removalを
+確認してADR-0019の待機なし制御解放へ移った後、Swap ChainとBindingを破棄してからWindowの`destroy()`を開始する。
+GPU完了もDevice Removalも確認できない場合はNative Resourceを解放せずFatal終端し、通常Window破棄へ進まない。
+生成失敗では部分Swap Chainを解放してBindingを公開しない。
 この例外はTool UI用Composition Targetに限定し、`Cue.RHI`、`Cue.RHI.D3D12`、RuntimeHost、Presentation Adapter、
 Application ServiceへのView、値、Bindingの転送や、Game Swap Chainへの再利用を許可しない。
 
