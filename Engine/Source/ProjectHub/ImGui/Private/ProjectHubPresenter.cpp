@@ -124,6 +124,9 @@ struct StringInputContext final
     const cue::AssertContext *assertContext;
 };
 
+/// @brief FontにないUnicode ScalarをEscapeした識別可能な表示文字列へ変換する
+[[nodiscard]] std::string make_renderable_text(std::string_view a_text, bool *a_usedUnicodeEscape = nullptr);
+
 /// @brief ImGuiが要求した容量へProject Locator文字列を拡張する
 int resize_string_input(ImGuiInputTextCallbackData *a_data) noexcept
 {
@@ -148,12 +151,27 @@ int resize_string_input(ImGuiInputTextCallbackData *a_data) noexcept
 bool input_locator(const char *a_label, std::string &a_value, const cue::AssertContext &a_context) noexcept
 {
     StringInputContext context{&a_value, &a_context};
-    return ImGui::InputText(a_label, a_value.data(), a_value.capacity() + 1U, ImGuiInputTextFlags_CallbackResize,
-                            resize_string_input, &context);
+    const bool changed = ImGui::InputText(a_label, a_value.data(), a_value.capacity() + 1U,
+                                          ImGuiInputTextFlags_CallbackResize, resize_string_input, &context);
+    try
+    {
+        bool usedUnicodeEscape = false;
+        const std::string renderedLocator = make_renderable_text(a_value, &usedUnicodeEscape);
+        if (usedUnicodeEscape)
+        {
+            ImGui::TextDisabled("識別表示（Font非対応文字はUnicode Escape）");
+            ImGui::TextWrapped("%s", renderedLocator.c_str());
+        }
+    }
+    catch (...)
+    {
+        terminate_allocation(a_context);
+    }
+    return changed;
 }
 
 /// @brief FontにないUnicode Scalarと表示名中のEscape開始文字を衝突しないASCII表記へ変換する
-[[nodiscard]] std::string make_renderable_text(std::string_view a_text)
+[[nodiscard]] std::string make_renderable_text(std::string_view a_text, bool *a_usedUnicodeEscape)
 {
     std::string rendered;
     rendered.reserve(a_text.size());
@@ -205,6 +223,10 @@ bool input_locator(const char *a_label, std::string &a_value, const cue::AssertC
             continue;
         }
 
+        if (a_usedUnicodeEscape != nullptr)
+        {
+            *a_usedUnicodeEscape = true;
+        }
         rendered.append("\\u{");
         int highestShift = 12;
         while (highestShift < 20 && scalar >= (1U << (highestShift + 4)))
@@ -367,7 +389,9 @@ void ProjectHubPresenter::draw_project_list(bool a_canLaunchEditor) noexcept
                 if (isSelected)
                 {
                     ImGui::Indent();
-                    ImGui::TextWrapped("%s", project.locator.c_str());
+                    const std::string renderedLocator = make_renderable_text(project.locator);
+                    ImGui::TextDisabled("Locator（Unicode Escape表示）");
+                    ImGui::TextWrapped("%s", renderedLocator.c_str());
                     ImGui::Unindent();
                 }
                 ImGui::PopID();
