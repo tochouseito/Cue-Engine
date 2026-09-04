@@ -164,12 +164,21 @@ HostのFrame Callback内でAdapterを駆動する。共通Host TargetはProject 
 Windows Filesystem Root生成、UUID発行を実装する。`Cue.ProjectHub.Tool`はこのAdapterと`Cue.IO.Windows`からWorkspace
 `FilesystemRoot`を生成して、どちらも`ProjectHubService`より長く一意所有する。Presentation Adapterはこれらへ直接依存しない。
 
+Workspace RootはADR-0014をAmendする`create_windows_known_folder_filesystem_root()`へ
+`LocalApplicationData`、`CueEngine/Workspace`、`CreateOrOpen`を渡して生成する。初回起動時だけ不足Directoryを安全に作成し、
+File／Reparse Point衝突、Known Folder解決失敗、作成失敗はNative Context付きRecoverable ErrorとしてUIへ伝える。
+
 M12 では Runtime Renderer、Game Swap Chain、Viewport Render Target、Cue.RHI 公開APIを Tool UI のために変更しない。
 Tool用D3D12 ResourceとGame Renderer Resourceの共有は対象外とする。
 
 `Cue.ImGui.Core`はCMake上で`imgui::imgui`を`PUBLIC`または`INTERFACE`依存として公開し、Presentation Adapterへ
 Core HeaderとLink Symbolを供給する。`Cue.ImGui.Backend.Win32D3D12`は同じTargetの公式Win32／DX12 Backend APIを
 First-party Host Adapterから呼ぶ。Presentation AdapterはBackend Targetへ依存しない。
+
+公式Win32 Backendが初期化時のNative Window値を内部保持するため、ADR-0006をAmendし、
+`Cue.ImGui.Backend.Win32D3D12`の`WindowsBackendWindowBinding`だけにこの非所有保持を許可する。BindingはWindowより短命で、
+Backend Shutdownを完了してから破棄される。Tool HostはBinding破棄後にだけWindowの`destroy()`を開始し、First-party Codeは
+Native値を保存またはPresentation／Application／RHIへ公開しない。
 
 ## Win32 Message Delivery Contract
 

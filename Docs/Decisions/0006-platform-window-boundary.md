@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-22
 - Decision Owners: CueEngine Project
+- Amendment: ADR-0019 permits one bounded Tool Host backend retention of the native Window value
 - Superseded in part by: ADR-0009（UTF-8 and UTF-16 Boundary の変換 Primitive 所有者）
 
 ## Context
@@ -280,6 +281,14 @@ public:
 - `HWND`、`HINSTANCE`、`LRESULT`はPlatform非依存Header、RuntimeHost、RHI公開Headerへ出さない
 
 このInterop形状はM02でWindows Testが実WindowへResize／Minimize／Restore操作を行うためにも使用できるが、Test専用APIではない。Windows固有Toolや診断Adapterも同じ短命Viewを利用できる。D3D12 Swap Chainとの契約には使用せず、最終Interop境界をM03以降のRHI Research Issueで新規に決定する。
+
+ADR-0019で決定した`Cue.ImGui.Backend.Win32D3D12`だけは、公式ImGui Win32 Backendが初期化時に受け取った
+`NativeWindowView::value()`をBackend内部へ非所有で保持することを許可する。First-party Codeは値を別途保存せず、
+Move-onlyな`WindowsBackendWindowBinding`がBackend初期化済み状態と終了責務を表す。BindingはWindow Owner Threadで生成し、
+元Windowの`destroy()`開始前にBackend Shutdownを実行して破棄する。値の有効期間は既存契約どおりWindowの`destroy()`開始までとし、
+初期化RollbackでもBindingをWindowより先に解放する。Tool HostはBindingが残る間にWindowを破棄せず、Presentation Adapter、
+Application Service、Cue.RHIへ値またはBindingを公開しない。この例外は公式ImGui Win32 Backendの保持だけに限定し、
+Subclass化、別Thread利用、永続Identity利用、Runtime RHIへの転送を許可しない。
 
 ### Failure and Cleanup
 

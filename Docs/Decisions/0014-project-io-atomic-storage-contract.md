@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-09-01
 - Decision Owners: CueEngine Project
+- Amendment: ADR-0019 adds a Windows Known Folder create-or-open root boundary for the Project Hub workspace
 
 ## Context
 
@@ -58,6 +59,36 @@ Platform非依存Interfaceとして渡す。`Cue.IO`は`Cue.Platform`、`Cue.RHI
 
 公開APIへ`HANDLE`、`HRESULT`、Windows Known Folder ID、`std::filesystem::path`を出さない。Path文字列はUTF-8で所有し、
 Windows実装だけがStrict UTF-8／UTF-16変換を行う。新規Third-party Libraryまたは外部Source Codeを導入しない。
+
+Project Hubの初回起動に必要なUser Workspace Rootは、`Cue.IO.Windows`の次のWindows固有境界から生成する。
+
+```cpp
+enum class WindowsKnownFolder
+{
+    LocalApplicationData,
+};
+
+enum class WindowsRootOpenMode
+{
+    OpenExisting,
+    CreateOrOpen,
+};
+
+[[nodiscard]] Result<std::unique_ptr<FilesystemRoot>> create_windows_known_folder_filesystem_root(
+    WindowsKnownFolder a_folder,
+    const RelativePath& a_relativeRoot,
+    WindowsRootOpenMode a_mode,
+    const AssertContext& a_assertContext) noexcept;
+```
+
+- `LocalApplicationData`は`FOLDERID_LocalAppData`から解決し、Environment VariableやCurrent Directoryへ依存しない
+- Project Hubは検証済み`RelativePath`の`CueEngine/Workspace`と`CreateOrOpen`を指定する
+- `CreateOrOpen`はKnown Folder自体を作成せず、Relative Rootの各Segmentだけを順に作成または検証する
+- 既存Entryが通常Directoryなら再利用し、FileまたはReparse Pointなら`Cue.IO`のEntry Type Errorを返して先へ進まない
+- Known Folder解決、Directory作成、Open失敗はNative Errorを保持したRecoverable Errorとして返す
+- 作成後は既存のRoot Identity、Directory、Reparse Point検査を通してから`FilesystemRoot`を公開する
+- APIはRoot DirectoryだけをCreate-or-openし、`CueWorkspace.json`の作成とAtomic保存は`Cue.ProjectHub`が行う
+- `OpenExisting`と既存`create_windows_filesystem_root()`の契約は変更しない
 
 ### Root-bound Filesystem
 
