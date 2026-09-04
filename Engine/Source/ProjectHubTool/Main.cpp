@@ -267,9 +267,7 @@ class ProjectHubToolClient final : public cue::tool_host::ToolHostClient
                                                     std::move(*configuration.try_value()), a_assertContext);
     if (!service)
     {
-        static_cast<void>(a_logger.log(cue::LogLevel::Error, "Project Hub service initialization failed",
-                                       std::move(*service.try_error())));
-        return k_initializationFailure;
+        return show_initialization_failure(std::move(*service.try_error()), a_logger, a_assertContext);
     }
     cue::Result<std::unique_ptr<cue::project_hub::ProjectHubPresenter>> presenter =
         cue::project_hub::ProjectHubPresenter::create(**service.try_value(), a_assertContext);

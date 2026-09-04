@@ -1027,8 +1027,19 @@ cue::Result<void> WindowsD3d12ToolHost::render_frame(cue::tool_host::ToolHostCli
         cue::Result<void> drained = wait_for_fence(m_lastSignaledFence);
         if (!drained)
         {
+            const bool wasDeviceRemoved = is_device_removed_error(*drained.try_error());
+            const bool wasCompletionUnavailable = is_gpu_completion_unavailable_error(*drained.try_error());
             exhausted.append_secondary_diagnostics(*m_assertContext, *drained.try_error(),
                                                    "Tool Host Fence exhaustion drain failed", "Drain");
+            if (wasDeviceRemoved)
+            {
+                cue::Error removed = make_device_removed_error(std::move(exhausted));
+                return finish_device_removed(std::move(removed));
+            }
+            if (wasCompletionUnavailable)
+            {
+                terminate_unproven_completion(*m_assertContext, std::move(exhausted));
+            }
             return finish_after_wait_error(std::move(exhausted));
         }
         cleanup();
@@ -1231,8 +1242,19 @@ cue::Result<void> WindowsD3d12ToolHost::drain_for_shutdown() noexcept
         cue::Result<void> drained = wait_for_fence(m_lastSignaledFence);
         if (!drained)
         {
+            const bool wasDeviceRemoved = is_device_removed_error(*drained.try_error());
+            const bool wasCompletionUnavailable = is_gpu_completion_unavailable_error(*drained.try_error());
             exhausted.append_secondary_diagnostics(*m_assertContext, *drained.try_error(),
                                                    "Tool Host shutdown Fence exhaustion drain failed", "Drain");
+            if (wasDeviceRemoved)
+            {
+                cue::Error removed = make_device_removed_error(std::move(exhausted));
+                return finish_device_removed(std::move(removed));
+            }
+            if (wasCompletionUnavailable)
+            {
+                terminate_unproven_completion(*m_assertContext, std::move(exhausted));
+            }
             return finish_after_wait_error(std::move(exhausted));
         }
         cleanup();

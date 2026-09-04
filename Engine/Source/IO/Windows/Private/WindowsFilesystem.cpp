@@ -722,6 +722,53 @@ struct NativePublishOutcome final
         make_windows_error(a_context, ERROR_PATH_NOT_FOUND, "Known Folder root does not exist"));
 }
 
+/// @brief 検証済みKnown Folder親Directoryを置換不能な非追跡Handleとして固定する
+[[nodiscard]] cue::Result<UniqueHandle> pin_absolute_directory(std::wstring_view a_path,
+                                                               const cue::AssertContext &a_context) noexcept
+{
+    std::wstring path;
+    try
+    {
+        path.assign(a_path);
+    }
+    catch (...)
+    {
+        terminate_allocation(a_context);
+    }
+    cue::Result<std::wstring> extended = make_extended_path(std::move(path), a_context);
+    if (!extended)
+    {
+        return cue::Result<UniqueHandle>::failure(std::move(*extended.try_error()));
+    }
+
+    UniqueHandle directory(CreateFileW(extended.try_value()->c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+                                       FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                                       FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    if (!directory.is_valid())
+    {
+        return cue::Result<UniqueHandle>::failure(
+            make_windows_error(a_context, GetLastError(), "Known Folder root pin failed"));
+    }
+
+    BY_HANDLE_FILE_INFORMATION information{};
+    if (GetFileInformationByHandle(directory.get(), &information) == FALSE)
+    {
+        return cue::Result<UniqueHandle>::failure(
+            make_windows_error(a_context, GetLastError(), "Known Folder root identity query failed"));
+    }
+    if ((information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+    {
+        return cue::Result<UniqueHandle>::failure(cue::make_io_error(
+            a_context, cue::IoError::UnsupportedEntry, "Known Folder root contains a reparse point"));
+    }
+    if ((information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
+    {
+        return cue::Result<UniqueHandle>::failure(
+            cue::make_io_error(a_context, cue::IoError::TypeMismatch, "Known Folder root contains a file"));
+    }
+    return cue::Result<UniqueHandle>::success(std::move(directory));
+}
+
 /// @brief Known Folder配下の一Segmentを既存Directoryとして開くか競合安全に作成する
 [[nodiscard]] cue::Result<void> open_absolute_directory(std::wstring_view a_path, cue::WindowsRootOpenMode a_mode,
                                                         const cue::AssertContext &a_context) noexcept
@@ -1902,6 +1949,20 @@ Result<std::unique_ptr<FilesystemRoot>> create_windows_known_folder_filesystem_r
     {
         return Result<std::unique_ptr<FilesystemRoot>>::failure(std::move(*knownFolder.try_error()));
     }
+    std::vector<UniqueHandle> pinnedDirectories;
+    Result<UniqueHandle> pinnedKnownFolder = pin_absolute_directory(currentPath, a_assertContext);
+    if (!pinnedKnownFolder)
+    {
+        return Result<std::unique_ptr<FilesystemRoot>>::failure(std::move(*pinnedKnownFolder.try_error()));
+    }
+    try
+    {
+        pinnedDirectories.push_back(std::move(*pinnedKnownFolder.try_value()));
+    }
+    catch (...)
+    {
+        terminate_allocation(a_assertContext);
+    }
 
     Result<std::wstring> relativePath = to_utf16(a_relativeRoot.text(), a_assertContext);
     if (!relativePath)
@@ -1934,6 +1995,19 @@ Result<std::unique_ptr<FilesystemRoot>> create_windows_known_folder_filesystem_r
         if (!opened)
         {
             return Result<std::unique_ptr<FilesystemRoot>>::failure(std::move(*opened.try_error()));
+        }
+        Result<UniqueHandle> pinned = pin_absolute_directory(currentPath, a_assertContext);
+        if (!pinned)
+        {
+            return Result<std::unique_ptr<FilesystemRoot>>::failure(std::move(*pinned.try_error()));
+        }
+        try
+        {
+            pinnedDirectories.push_back(std::move(*pinned.try_value()));
+        }
+        catch (...)
+        {
+            terminate_allocation(a_assertContext);
         }
         if (separator == std::wstring::npos)
         {
