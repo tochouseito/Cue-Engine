@@ -612,8 +612,8 @@ void ProjectHubPresenter::open_selected_project() noexcept
         const Error &error = *opened.try_error();
         if (is_durability_unknown(error))
         {
-            set_warning("ProjectのOpen時刻を一覧へ反映しましたが、Diskへの永続化を確認できませんでした。"
-                        "Editorは起動していません。一覧を更新して状態を確認してから、もう一度開いてください。");
+            set_warning("Projectは開けませんでした。一覧状態は更新されましたが、Diskへの永続化を確認できませんでした。"
+                        "Editorは起動していません。現在の一覧と次回起動後の状態を確認し、問題を解決してからもう一度開いてください。");
         }
         else
         {
