@@ -2,6 +2,7 @@
 
 #include <Cue/Foundation/Assert.h>
 #include <Cue/IO/Error.h>
+#include <Cue/Project/Error.h>
 #include <Cue/ProjectHub/Error.h>
 
 #include <algorithm>
@@ -217,7 +218,7 @@ void ProjectHubPresenter::draw_project_list() noexcept
             {
                 ImGui::PushID(project.projectId.c_str());
                 const bool isSelected = m_selectedProjectId == project.projectId;
-                if (ImGui::Selectable(project.displayName.c_str(), isSelected, ImGuiSelectableFlags_AllowDoubleClick))
+                if (ImGui::Selectable("##ProjectRow", isSelected, ImGuiSelectableFlags_AllowDoubleClick))
                 {
                     m_selectedProjectId = project.projectId;
                     if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && project.canOpen)
@@ -225,6 +226,15 @@ void ProjectHubPresenter::draw_project_list() noexcept
                         openProjectId = project.projectId;
                     }
                 }
+                ImDrawList *drawList = ImGui::GetWindowDrawList();
+                const ImVec2 rowMinimum = ImGui::GetItemRectMin();
+                const ImVec2 rowMaximum = ImGui::GetItemRectMax();
+                const float textOffset = (rowMaximum.y - rowMinimum.y - ImGui::GetTextLineHeight()) * 0.5F;
+                drawList->PushClipRect(rowMinimum, ImVec2(rowMinimum.x + 250.0F, rowMaximum.y), true);
+                drawList->AddText(ImVec2(rowMinimum.x + ImGui::GetStyle().FramePadding.x, rowMinimum.y + textOffset),
+                                  ImGui::GetColorU32(ImGuiCol_Text), project.displayName.data(),
+                                  project.displayName.data() + project.displayName.size());
+                drawList->PopClipRect();
                 ImGui::SameLine(260.0F);
                 ImGui::TextDisabled("%s / %s", entry_state_text(project.state),
                                     compatibility_text(project.compatibilityStatus));
@@ -530,6 +540,33 @@ void ProjectHubPresenter::set_error(const Error &a_error) noexcept
             message = "Editorを起動できませんでした。Editor実行Fileを確認してください。";
             break;
         default:
+            break;
+        }
+    }
+    else if (code.domain() == "Cue.Project")
+    {
+        switch (static_cast<ProjectError>(code.value()))
+        {
+        case ProjectError::InvalidProjectName:
+            message = "Project名は予約語やPath区切りを含まない有効なFolder名にしてください。";
+            break;
+        case ProjectError::InvalidDisplayName:
+            message = "表示名は制御文字を含まない1～256 byteのUTF-8文字列にしてください。";
+            break;
+        case ProjectError::InvalidProjectLocator:
+            message = "Project Folderの場所が正しくありません。";
+            break;
+        case ProjectError::ProjectLocatorConflict:
+            message = "同じProject Folderが別のProjectとして登録されています。";
+            break;
+        case ProjectError::ProjectNotRegistered:
+            message = "Projectは一覧に登録されていません。一覧を更新してください。";
+            break;
+        case ProjectError::IoFailure:
+            message = "Project Fileを読み書きできませんでした。Folderの状態を確認してください。";
+            break;
+        default:
+            message = "Project情報が正しくありません。入力内容とProject Fileを確認してください。";
             break;
         }
     }

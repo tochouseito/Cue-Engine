@@ -78,7 +78,7 @@ class ProjectHubPresenter final
     std::string m_parentLocator;
     std::string m_registerLocator;
     std::array<char, 128> m_projectName{};
-    std::array<char, 128> m_displayName{};
+    std::array<char, 257> m_displayName{};
     bool m_openCreateDialog = false;
     bool m_openRegisterDialog = false;
     bool m_openRemoveDialog = false;
