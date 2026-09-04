@@ -111,7 +111,7 @@ bool input_locator(const char *a_label, std::string &a_value, const cue::AssertC
                             resize_string_input, &context);
 }
 
-/// @brief Font AtlasにないUnicode Scalarを識別可能なASCII表記へ変換する
+/// @brief FontにないUnicode Scalarと表示名中のEscape開始文字を衝突しないASCII表記へ変換する
 [[nodiscard]] std::string make_renderable_text(std::string_view a_text)
 {
     std::string rendered;
@@ -150,6 +150,12 @@ bool input_locator(const char *a_label, std::string &a_value, const cue::AssertC
         {
             scalar = 0xFFFDU;
         }
+        if (byteCount == 1 && scalar == static_cast<unsigned int>('\\'))
+        {
+            rendered.append("\\\\");
+            ++cursor;
+            continue;
+        }
         const bool isRepresentable = scalar <= static_cast<unsigned int>((std::numeric_limits<ImWchar>::max)());
         if (font != nullptr && isRepresentable && font->IsGlyphInFont(static_cast<ImWchar>(scalar)))
         {
@@ -158,7 +164,7 @@ bool input_locator(const char *a_label, std::string &a_value, const cue::AssertC
             continue;
         }
 
-        rendered.append("[U+");
+        rendered.append("\\u{");
         int highestShift = 12;
         while (highestShift < 20 && scalar >= (1U << (highestShift + 4)))
         {
@@ -168,7 +174,7 @@ bool input_locator(const char *a_label, std::string &a_value, const cue::AssertC
         {
             rendered.push_back(k_hexDigits[(scalar >> shift) & 0x0FU]);
         }
-        rendered.push_back(']');
+        rendered.push_back('}');
         cursor += byteCount;
     }
     return rendered;

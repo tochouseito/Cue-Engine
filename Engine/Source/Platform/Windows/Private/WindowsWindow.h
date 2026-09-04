@@ -42,13 +42,13 @@ class WindowsWindowSystem final : public WindowSystem
     /// @brief Win32 Window の Window を整合性を保って更新する
     void publish_window(WindowsWindow &a_window) noexcept;
     /// @brief Win32 Window の Window を依存関係と完了条件を守って安全に解放または停止する
-    void release_window(WindowsWindow &a_window) noexcept;
+    [[nodiscard]] Result<void> release_window(WindowsWindow &a_window) noexcept;
 
   private:
     /// @brief Win32 Window 生成に必要な Class を Process へ登録し、共有参照を確立する
     [[nodiscard]] Result<void> register_window_class() noexcept;
     /// @brief Win32 Window の Window Class を依存関係と完了条件を守って安全に解放または停止する
-    void unregister_window_class() noexcept;
+    [[nodiscard]] Result<void> unregister_window_class() noexcept;
 
     // Window と WindowSystem の全寿命を通して、契約違反と Native Error を同じ経路へ報告する
     const AssertContext *m_assertContext;
@@ -111,7 +111,7 @@ class WindowsWindow final : public Window
     /// @brief Win32 Window の Event を整合性を保って更新する
     void push_event(WindowEvent a_event) noexcept;
     /// @brief Win32 Window の System Reference を依存関係と完了条件を守って安全に解放または停止する
-    void release_system_reference() noexcept;
+    [[nodiscard]] Result<void> release_system_reference() noexcept;
     /// @brief Win32 Window の Thread が期待する契約を満たすか検証する
     void verify_thread() const noexcept;
 
