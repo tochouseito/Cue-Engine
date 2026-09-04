@@ -7,6 +7,7 @@
 #include <Cue/IO/Windows/WindowsFilesystem.h>
 
 #include <Windows.h>
+#include <ShlObj.h>
 
 #include <array>
 #include <cstddef>
@@ -118,6 +119,112 @@ class TestDirectory final
     std::wstring m_path;
     std::wstring m_outsidePath;
     bool m_isCreated = false;
+};
+
+/// @brief Known Folder Factory Test専用の一意なLocalApplicationData直下Directoryを限定Cleanupする
+class KnownFolderTestDirectory final
+{
+  public:
+    /// @brief 実User Workspaceと製品Directoryから分離した一意なRelative Pathと長Path Cleanup Pathを生成する
+    KnownFolderTestDirectory()
+    {
+        PWSTR localApplicationData = nullptr;
+        const HRESULT result =
+            SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &localApplicationData);
+        if (FAILED(result) || localApplicationData == nullptr)
+        {
+            CoTaskMemFree(localApplicationData);
+            return;
+        }
+
+        const std::string leaf =
+            "CueIoTests-" + std::to_string(GetCurrentProcessId()) + "-" + std::to_string(GetTickCount64());
+        const std::wstring nativeLeaf(leaf.begin(), leaf.end());
+        m_relativePath = leaf;
+        std::wstring nativePath = std::wstring(localApplicationData) + L"\\" + nativeLeaf;
+        if (nativePath.starts_with(L"\\\\"))
+        {
+            m_cleanupPath = L"\\\\?\\UNC\\" + nativePath.substr(2);
+        }
+        else
+        {
+            m_cleanupPath = L"\\\\?\\" + nativePath;
+        }
+        m_movedPath = m_cleanupPath + L".moved";
+        CoTaskMemFree(localApplicationData);
+    }
+
+    /// @brief Known Folder Test Directoryの一意Cleanup責務を保つためCopy構築を禁止する
+    KnownFolderTestDirectory(const KnownFolderTestDirectory &) = delete;
+    /// @brief Known Folder Test Directoryの一意Cleanup責務を保つためCopy代入を禁止する
+    KnownFolderTestDirectory &operator=(const KnownFolderTestDirectory &) = delete;
+    /// @brief Known Folder Test Directoryの一意Cleanup責務を保つためMove構築を禁止する
+    KnownFolderTestDirectory(KnownFolderTestDirectory &&) = delete;
+    /// @brief Known Folder Test Directoryの一意Cleanup責務を保つためMove代入を禁止する
+    KnownFolderTestDirectory &operator=(KnownFolderTestDirectory &&) = delete;
+
+    /// @brief 異常終了経路でもTest専用DirectoryだけをBest-effortで削除する
+    ~KnownFolderTestDirectory()
+    {
+        if (!m_isRemoved && !m_cleanupPath.empty())
+        {
+            static_cast<void>(RemoveDirectoryW(m_cleanupPath.c_str()));
+        }
+    }
+
+    /// @brief Known Folder解決とTest Path生成に成功したか返す
+    [[nodiscard]] bool is_ready() const noexcept
+    {
+        return !m_relativePath.empty() && !m_cleanupPath.empty();
+    }
+
+    /// @brief Known Folder Factoryへ渡すTest専用Relative Pathを返す
+    [[nodiscard]] const std::string &relative_path() const noexcept
+    {
+        return m_relativePath;
+    }
+
+    /// @brief Root寿命中のRenameがPin HandleのShare契約で拒否されるか確認する
+    [[nodiscard]] bool is_replacement_blocked() noexcept
+    {
+        if (MoveFileExW(m_cleanupPath.c_str(), m_movedPath.c_str(), 0) == FALSE)
+        {
+            const DWORD nativeCode = GetLastError();
+            return nativeCode == ERROR_SHARING_VIOLATION || nativeCode == ERROR_ACCESS_DENIED;
+        }
+        if (MoveFileExW(m_movedPath.c_str(), m_cleanupPath.c_str(), 0) == FALSE)
+        {
+            m_cleanupPath = std::move(m_movedPath);
+        }
+        return false;
+    }
+
+    /// @brief Root Handle解放後にTest専用Directoryを長Path APIで削除できたか返す
+    [[nodiscard]] bool remove() noexcept
+    {
+        if (m_isRemoved || m_cleanupPath.empty())
+        {
+            return m_isRemoved;
+        }
+        if (RemoveDirectoryW(m_cleanupPath.c_str()) != FALSE)
+        {
+            m_isRemoved = true;
+            return true;
+        }
+        const DWORD nativeCode = GetLastError();
+        if (nativeCode == ERROR_FILE_NOT_FOUND || nativeCode == ERROR_PATH_NOT_FOUND)
+        {
+            m_isRemoved = true;
+            return true;
+        }
+        return false;
+    }
+
+  private:
+    std::string m_relativePath;
+    std::wstring m_cleanupPath;
+    std::wstring m_movedPath;
+    bool m_isRemoved = false;
 };
 
 /// @brief Portable Path の ASCII 表現を Windows Test 用 UTF-16 へ変換する
@@ -914,6 +1021,39 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     auto driveRelative = cue::create_windows_filesystem_root("C:RelativeRoot", a_assertContext);
     return has_io_error(relative, cue::IoError::InvalidPath) && has_io_error(driveRelative, cue::IoError::InvalidPath);
 }
+
+/// @brief LocalApplicationData配下のWorkspace Rootを作成後にOpenExistingで再利用できるか検証する
+[[nodiscard]] bool test_known_folder_root(const cue::AssertContext &a_assertContext)
+{
+    KnownFolderTestDirectory directory;
+    if (!directory.is_ready())
+    {
+        return false;
+    }
+    auto relative = cue::RelativePath::parse(directory.relative_path(), a_assertContext);
+    if (!relative)
+    {
+        return false;
+    }
+    auto created = cue::create_windows_known_folder_filesystem_root(
+        cue::WindowsKnownFolder::LocalApplicationData, *relative.try_value(),
+        cue::WindowsRootOpenMode::CreateOrOpen, a_assertContext);
+    if (!created)
+    {
+        return false;
+    }
+    created.try_value()->reset();
+
+    auto reopened = cue::create_windows_known_folder_filesystem_root(
+        cue::WindowsKnownFolder::LocalApplicationData, *relative.try_value(),
+        cue::WindowsRootOpenMode::OpenExisting, a_assertContext);
+    if (!reopened || *reopened.try_value() == nullptr || !directory.is_replacement_blocked())
+    {
+        return false;
+    }
+    reopened.try_value()->reset();
+    return directory.remove();
+}
 } // namespace
 
 /// @brief Portable Path、Windows Storage、Reparse 拒否、Failure Injection 契約を統合検証する
@@ -925,7 +1065,7 @@ int main()
     cue::AssertContext assertContext(logger, fatalHandler);
     TestDirectory directory;
     if (!directory.is_created() || !test_relative_paths(assertContext) || !test_failure_injection(assertContext) ||
-        !test_root_factory_validation(assertContext))
+        !test_root_factory_validation(assertContext) || !test_known_folder_root(assertContext))
     {
         return 1;
     }

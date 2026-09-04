@@ -209,6 +209,8 @@ class ProjectHubService final
     /// @brief Descriptorを再検証し、互換ProjectのEditor Launch Requestを生成する
     /// @note 戻り値にかかわらず再検証でViewModelが更新され得るため、呼出し前に取得したprojectsのSpanは再利用しない
     /// @note ErrorのRoot CodeがCue.IO/IoError::DurabilityUnknownならOpen時刻は公開済みでprojectsの旧Spanは無効
+    /// @note Error CodeがOpenRejectedViewDurabilityUnknownならLaunch RequestとOpen時刻更新は未生成だが、拒否後の一覧状態は
+    /// 公開済みでprojectsの旧Spanは無効。Immediate Causeは元のOpen拒否Categoryを保持する
     [[nodiscard]] Result<EditorLaunchRequest> open_project(
         std::string_view a_projectId, std::uint64_t a_openedMilliseconds,
         std::optional<std::string_view> a_initialSceneLocator = std::nullopt) noexcept;

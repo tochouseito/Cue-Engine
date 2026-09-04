@@ -1,0 +1,40 @@
+add_executable(CueToolHostSmokeTests ToolHostSmokeTests.cpp)
+target_link_libraries(
+    CueToolHostSmokeTests
+    PRIVATE
+        Cue.Foundation
+        Cue.ImGui.Core
+        Cue.ToolHost.WindowsD3D12
+)
+target_compile_features(CueToolHostSmokeTests PRIVATE cxx_std_20)
+
+set_target_properties(
+    CueToolHostSmokeTests
+    PROPERTIES
+        CXX_EXTENSIONS OFF
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>"
+)
+
+if(MSVC)
+    target_compile_options(
+        CueToolHostSmokeTests
+        PRIVATE
+            /W4
+            /WX
+            /permissive-
+            /Zc:__cplusplus
+            /utf-8
+            $<$<CONFIG:Development>:/O2>
+            $<$<CONFIG:Development>:/Zi>
+    )
+    target_link_options(CueToolHostSmokeTests PRIVATE $<$<CONFIG:Development>:/DEBUG>)
+endif()
+
+add_test(NAME Cue.ToolHost.WindowsD3D12.Smoke COMMAND CueToolHostSmokeTests)
+set_tests_properties(
+    Cue.ToolHost.WindowsD3D12.Smoke
+    PROPERTIES
+        LABELS "ToolHost;Smoke"
+        TIMEOUT 30
+        RUN_SERIAL TRUE
+)

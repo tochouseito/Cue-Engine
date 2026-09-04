@@ -44,11 +44,13 @@ template <typename Value>
 /// @brief Reportが指定理由をCapability単位で保持するか判定する
 [[nodiscard]] bool has_reason(const cue::ProjectCompatibilityReport &a_report,
                               cue::ProjectCompatibilityReasonCode a_code,
-                              std::optional<cue::ProjectCapability> a_capability) noexcept
+                              std::optional<cue::ProjectCapability> a_capability,
+                              std::optional<cue::CapabilityVersion> a_minimumVersion = std::nullopt) noexcept
 {
     for (const cue::ProjectCompatibilityReason &reason : a_report.reasons())
     {
-        if (reason.code == a_code && reason.capability == a_capability)
+        if (reason.code == a_code && reason.capability == a_capability &&
+            reason.minimumVersion == a_minimumVersion)
         {
             return true;
         }
@@ -230,9 +232,9 @@ template <typename Value>
            lowReport.try_value()->status() == cue::ProjectCompatibilityStatus::Unsupported &&
            unknownReport.try_value()->status() == cue::ProjectCompatibilityStatus::Unknown &&
            has_reason(*lowReport.try_value(), cue::ProjectCompatibilityReasonCode::CapabilityVersionTooLow,
-                      cue::ProjectCapability::VariableRateShading) &&
+                      cue::ProjectCapability::VariableRateShading, cue::CapabilityVersion{2U, 0U}) &&
            has_reason(*unknownReport.try_value(), cue::ProjectCompatibilityReasonCode::CapabilityVersionUnknown,
-                      cue::ProjectCapability::VariableRateShading);
+                      cue::ProjectCapability::VariableRateShading, cue::CapabilityVersion{2U, 0U});
 }
 
 /// @brief ProfileとSnapshotの重複Capabilityを評価前に拒否することを検証する

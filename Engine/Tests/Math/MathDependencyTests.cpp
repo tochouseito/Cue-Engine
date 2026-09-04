@@ -474,7 +474,7 @@ void append_hidden_range(std::string &a_output, std::string_view a_source,
     }
 
     const auto name = lower_ascii(iterator->string());
-    return name == ".git" || name == ".vs" || name == "out" || name == "build";
+    return name == ".git" || name == ".vs" || name == "out" || name == "build" || name == "thirdparty";
 }
 
 /// @brief PathがRepository所有C++ Source拡張子を持つ場合にtrueを返す

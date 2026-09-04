@@ -677,6 +677,18 @@ void ProjectHubService::refresh_after_open_failure(Error &a_primary) noexcept
     auto refreshed = refresh();
     if (!refreshed)
     {
+        if (is_durability_unknown(*refreshed.try_error()))
+        {
+            Error uncertain = reclassify_project_hub_error(
+                *m_assertContext, ProjectHubError::OpenRejectedViewDurabilityUnknown,
+                "Project Hub view was published after open rejection but durability could not be confirmed",
+                std::move(a_primary));
+            uncertain.append_secondary_diagnostics(
+                *m_assertContext, *refreshed.try_error(),
+                "Project Hub view refresh was published but durability could not be confirmed", "View Refresh");
+            a_primary = std::move(uncertain);
+            return;
+        }
         a_primary.append_secondary_diagnostics(*m_assertContext, *refreshed.try_error(),
                                                "Project Hub view refresh failed after open rejection", "Refresh");
     }

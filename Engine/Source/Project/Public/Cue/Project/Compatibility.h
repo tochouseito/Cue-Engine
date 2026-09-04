@@ -163,6 +163,7 @@ struct ProjectCompatibilityReason final
     ProjectCompatibilityReasonCode code;
     std::optional<ProjectCapability> capability;
     CapabilityRequirementKind requirementKind = CapabilityRequirementKind::Required;
+    std::optional<CapabilityVersion> minimumVersion;
 };
 
 /// @brief Project Open可否と独立して返す個別Runtime Feature判定

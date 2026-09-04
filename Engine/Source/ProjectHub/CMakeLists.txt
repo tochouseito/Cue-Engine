@@ -39,6 +39,12 @@ if(MSVC)
     target_link_options(Cue.ProjectHub PRIVATE $<$<CONFIG:Development>:/DEBUG>)
 endif()
 
+if(WIN32)
+    add_subdirectory(Windows)
+endif()
+
+add_subdirectory(ImGui)
+
 get_target_property(cueProjectHubLinks Cue.ProjectHub LINK_LIBRARIES)
 if(NOT "${cueProjectHubLinks}" STREQUAL "Cue.Foundation;Cue.IO;Cue.Project")
     message(FATAL_ERROR "Cue.ProjectHub must depend only on Cue.Foundation, Cue.IO, and Cue.Project: ${cueProjectHubLinks}")

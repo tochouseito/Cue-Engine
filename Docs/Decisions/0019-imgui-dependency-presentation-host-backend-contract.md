@@ -349,6 +349,8 @@ ImGui Adapterは表示用ViewとPresentation Stateだけを読み、User操作�
 - 自動Device再生成と同一Process内RecoveryはM12対象外とする
 - UI AdapterはApplication ServiceのErrorを握りつぶさず、安定Categoryと操作対象を日本語Messageへ変換する
 - `DurabilityUnknown`は成功表示に変換せず、公開済み可能性と再確認手順を表示する
+- `open_project()`拒否後の一覧Refreshが`DurabilityUnknown`になった場合は
+  `OpenRejectedViewDurabilityUnknown`を返し、Immediate Causeへ元のOpen拒否Categoryを保持する
 
 ## Validation Contract
 

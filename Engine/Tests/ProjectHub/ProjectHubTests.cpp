@@ -245,6 +245,13 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
         m_failedLocator.reset();
     }
 
+    /// @brief 指定Locatorの次回Openだけ成功させ、その直後の再検証ではMissingを返す
+    void set_missing_after_next_open(std::string_view a_locator)
+    {
+        m_missingAfterNextOpenLocator = std::string(a_locator);
+        m_matchingOpenCount = 0U;
+    }
+
     [[nodiscard]] cue::Result<std::string> normalize_project_locator(std::string_view a_locator) noexcept override
     {
         try
@@ -310,6 +317,17 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
                 return cue::Result<std::unique_ptr<cue::FilesystemRoot>>::failure(cue::make_io_error(
                     *m_assertContext, cue::IoError::PermissionDenied, "Test locator access failure"));
             }
+            if (m_missingAfterNextOpenLocator.has_value() && *m_missingAfterNextOpenLocator == a_locator)
+            {
+                if (m_matchingOpenCount == 1U)
+                {
+                    m_missingAfterNextOpenLocator.reset();
+                    m_matchingOpenCount = 0U;
+                    std::unique_ptr<cue::FilesystemRoot> missing;
+                    return cue::Result<std::unique_ptr<cue::FilesystemRoot>>::success(std::move(missing));
+                }
+                ++m_matchingOpenCount;
+            }
             const std::filesystem::path path{std::string(a_locator)};
             std::error_code error;
             const bool exists = std::filesystem::exists(path, error);
@@ -373,6 +391,8 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
     bool m_nextProjectPublishDurabilityUnknown = false;
     bool m_nextProjectWriteDurabilityUnknown = false;
     std::optional<std::string> m_failedLocator;
+    std::optional<std::string> m_missingAfterNextOpenLocator;
+    std::size_t m_matchingOpenCount = 0U;
 };
 
 [[nodiscard]] cue::Result<cue::project_hub::ProjectHubConfiguration> make_configuration(
@@ -553,14 +573,24 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
     {
         return false;
     }
+    platform.set_missing_after_next_open(to_utf8(directory.path() / "Projects" / "Charlie"));
+    workspaceFilesystem.set_write_durability_unknown(true);
     auto brokenLaunch = service.try_value()->get()->open_project(charlieId, 525U);
-    if (brokenLaunch)
+    workspaceFilesystem.set_write_durability_unknown(false);
+    const bool preservedOpenRejection =
+        !brokenLaunch && !brokenLaunch.try_error()->causes().empty() &&
+        brokenLaunch.try_error()->causes().front().code().domain() == "Cue.ProjectHub" &&
+        brokenLaunch.try_error()->causes().front().code().value() ==
+            static_cast<std::int64_t>(cue::project_hub::ProjectHubError::ProjectBroken);
+    if (brokenLaunch || brokenLaunch.try_error()->code().domain() != "Cue.ProjectHub" ||
+        brokenLaunch.try_error()->code().value() !=
+            static_cast<std::int64_t>(cue::project_hub::ProjectHubError::OpenRejectedViewDurabilityUnknown) ||
+        !preservedOpenRejection)
     {
         return false;
     }
     const auto *brokenCharlie = find_project(service.try_value()->get()->projects(), charlieId);
-    if (brokenCharlie == nullptr || brokenCharlie->state != cue::project_hub::ProjectEntryState::Broken ||
-        brokenCharlie->problem != cue::project_hub::ProjectEntryProblem::DescriptorInvalid)
+    if (brokenCharlie == nullptr || brokenCharlie->state != cue::project_hub::ProjectEntryState::Missing)
     {
         return false;
     }

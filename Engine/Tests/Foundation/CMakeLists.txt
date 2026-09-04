@@ -167,7 +167,10 @@ get_target_property(cueFoundationVisualStudioUserProps Cue.Foundation VS_USER_PR
 
 if(cueFoundationVisualStudioUserProps MATCHES "-NOTFOUND$")
     set(cueFoundationVisualStudioUserProps "")
-elseif(NOT "${cueFoundationVisualStudioUserProps}" STREQUAL "")
+elseif(
+    NOT "${cueFoundationVisualStudioUserProps}" STREQUAL ""
+    AND NOT "${cueFoundationVisualStudioUserProps}" STREQUAL "do_not_import_user.props"
+)
     message(
         FATAL_ERROR
         "Cue.Foundation must not import Visual Studio user props: ${cueFoundationVisualStudioUserProps}"

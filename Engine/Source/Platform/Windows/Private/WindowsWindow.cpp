@@ -6,6 +6,7 @@
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
 #include <Cue/Foundation/Fatal.h>
+#include <Cue/Platform/Windows/WindowsMessageSink.h>
 
 #include <Windows.h>
 
@@ -92,7 +93,7 @@ class WindowClassRegistry final
     }
 
     /// @brief 保持する Native Resource を完了条件と所有権規則に従って解放する
-    void release(const cue::AssertContext &a_context, HINSTANCE a_instance) noexcept
+    [[nodiscard]] cue::Result<void> release(const cue::AssertContext &a_context, HINSTANCE a_instance) noexcept
     {
         AcquireSRWLockExclusive(&m_lock);
         CUE_ASSERT(a_context, m_referenceCount > 0, "Window Class reference count must not underflow");
@@ -103,7 +104,7 @@ class WindowClassRegistry final
         if (m_referenceCount > 0)
         {
             ReleaseSRWLockExclusive(&m_lock);
-            return;
+            return cue::Result<void>::success();
         }
 
         // 最後の Window が解放された時点でのみ解除し、存続中 HWND の WndProc を失わせない
@@ -114,13 +115,11 @@ class WindowClassRegistry final
 
         if (didUnregister != FALSE || nativeCode == ERROR_CLASS_DOES_NOT_EXIST)
         {
-            return;
+            return cue::Result<void>::success();
         }
 
-        cue::Error error = make_native_error(a_context, k_classUnregistrationFailed,
-                                             "Windows Window Class unregistration failed", nativeCode);
-        [[maybe_unused]] cue::LogResult logResult = a_context.logger().log(
-            cue::LogLevel::Warning, "Windows Window Class could not be unregistered", std::move(error));
+        return cue::Result<void>::failure(make_native_error(
+            a_context, k_classUnregistrationFailed, "Windows Window Class unregistration failed", nativeCode));
     }
 
   private:
@@ -320,7 +319,7 @@ void WindowsWindowSystem::publish_window(WindowsWindow &a_window) noexcept
     m_window = &a_window;
 }
 
-void WindowsWindowSystem::release_window(WindowsWindow &a_window) noexcept
+Result<void> WindowsWindowSystem::release_window(WindowsWindow &a_window) noexcept
 {
     CUE_ASSERT(*m_assertContext, GetCurrentThreadId() == m_threadId,
                "Window must release its System reference on the Window thread");
@@ -332,7 +331,7 @@ void WindowsWindowSystem::release_window(WindowsWindow &a_window) noexcept
         m_window = nullptr;
     }
 
-    unregister_window_class();
+    return unregister_window_class();
 }
 
 Result<void> WindowsWindowSystem::register_window_class() noexcept
@@ -340,9 +339,9 @@ Result<void> WindowsWindowSystem::register_window_class() noexcept
     return window_class_registry().acquire(*m_assertContext, m_instance);
 }
 
-void WindowsWindowSystem::unregister_window_class() noexcept
+Result<void> WindowsWindowSystem::unregister_window_class() noexcept
 {
-    window_class_registry().release(*m_assertContext, m_instance);
+    return window_class_registry().release(*m_assertContext, m_instance);
 }
 
 WindowsWindow::WindowsWindow(WindowsWindowSystem &a_system) noexcept : m_system(&a_system)
@@ -359,7 +358,12 @@ WindowsWindow::~WindowsWindow() noexcept
         static_cast<void>(DestroyWindow(m_window));
     }
 
-    release_system_reference();
+    Result<void> released = release_system_reference();
+    if (!released)
+    {
+        static_cast<void>(m_system->assert_context().logger().log(
+            LogLevel::Warning, "Windows Window Class could not be unregistered", std::move(*released.try_error())));
+    }
 }
 
 Result<void> WindowsWindow::show() noexcept
@@ -392,8 +396,7 @@ Result<void> WindowsWindow::destroy() noexcept
     // DestroyWindow は同期的に WM_NCDESTROY まで配送し、そこで所有者との関連を切る契約とする
     CUE_ASSERT(m_system->assert_context(), m_window == nullptr,
                "DestroyWindow must synchronously detach the Window owner");
-    release_system_reference();
-    return Result<void>::success();
+    return release_system_reference();
 }
 
 WindowState WindowsWindow::state() const noexcept
@@ -546,6 +549,7 @@ LRESULT WindowsWindow::process_message(UINT a_message, WPARAM a_wParam, LPARAM a
         // 公開済み Window だけ破棄を Event 化し、Runtime Loop の終了要求を Thread Message Queue へ送る
         // 公開前の生成 Rollback では通知先が存在しないため Event 追加と PostQuitMessage を行わない
         m_state = WindowState::Destroyed;
+        m_messageSink = nullptr;
 
         if (m_isPublished)
         {
@@ -600,6 +604,24 @@ LRESULT WindowsWindow::process_message(UINT a_message, WPARAM a_wParam, LPARAM a
         return result;
     }
 
+    if (m_messageSink != nullptr)
+    {
+        WindowsMessageView message = {
+            m_window,
+            static_cast<std::uint32_t>(a_message),
+            static_cast<std::uintptr_t>(a_wParam),
+            static_cast<std::intptr_t>(a_lParam),
+        };
+        m_isDispatchingMessageSink = true;
+        WindowsMessageResult result = m_messageSink->process_message(message);
+        m_isDispatchingMessageSink = false;
+
+        if (result.isHandled)
+        {
+            return static_cast<LRESULT>(result.nativeResult);
+        }
+    }
+
     return DefWindowProcW(m_window, a_message, a_wParam, a_lParam);
 }
 
@@ -623,17 +645,17 @@ void WindowsWindow::push_event(WindowEvent a_event) noexcept
     }
 }
 
-void WindowsWindow::release_system_reference() noexcept
+Result<void> WindowsWindow::release_system_reference() noexcept
 {
     if (!m_hasClassReference)
     {
-        return;
+        return Result<void>::success();
     }
 
     // WindowSystem の Main Window 参照と共有 Window Class 参照を同じ一回の解放へまとめる
     m_hasClassReference = false;
     m_isPublished = false;
-    m_system->release_window(*this);
+    return m_system->release_window(*this);
 }
 
 void WindowsWindow::verify_thread() const noexcept
