@@ -95,6 +95,9 @@ namespace
         case static_cast<unsigned char>('\\'):
             label.append("\\\\");
             break;
+        case static_cast<unsigned char>('#'):
+            label.append("\\#");
+            break;
         default:
             if (byte < 0x20U || byte == 0x7FU)
             {
