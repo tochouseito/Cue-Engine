@@ -3,6 +3,7 @@
 #include <Cue/IO/Filesystem.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace cue
@@ -86,5 +87,27 @@ class RecoveryMetadata final
     SceneFileFingerprint m_baseFingerprint;
     std::uint64_t m_sourceStateValue;
     std::uint64_t m_sceneDigest;
+};
+
+/// @brief 一つのRegistry Entryに対する検証済み候補または隔離診断
+class RecoveryCandidateInspection final
+{
+  public:
+    /// @brief 完全検証済みRecovery候補を所有する
+    RecoveryCandidateInspection(std::string a_sceneId, RecoveryMetadata a_metadata) noexcept;
+    /// @brief 他候補の列挙を妨げないEntry単位Errorを所有する
+    RecoveryCandidateInspection(std::string a_sceneId, Error a_error) noexcept;
+
+    /// @brief Registryが保持するScene Identityを返す
+    [[nodiscard]] const std::string &scene_id() const noexcept;
+    /// @brief 検証済みMetadataがあればPointerを返す
+    [[nodiscard]] const RecoveryMetadata *try_metadata() const noexcept;
+    /// @brief 隔離されたEntry単位ErrorがあればPointerを返す
+    [[nodiscard]] const Error *try_error() const noexcept;
+
+  private:
+    std::string m_sceneId;
+    std::optional<RecoveryMetadata> m_metadata;
+    std::optional<Error> m_error;
 };
 } // namespace cue::editor_core

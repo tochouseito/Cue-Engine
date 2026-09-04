@@ -92,6 +92,12 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
         m_failedPath = a_fail ? std::string(a_path) : std::string{};
     }
 
+    /// @brief 指定PathのRead失敗注入を切り替える
+    void fail_read(std::string_view a_path, bool a_fail)
+    {
+        m_failedReadPath = a_fail ? std::string(a_path) : std::string{};
+    }
+
     /// @brief 指定PathのWrite Lease取得失敗注入を切り替える
     void fail_lease(std::string_view a_path, bool a_fail)
     {
@@ -162,6 +168,11 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
     [[nodiscard]] cue::Result<std::vector<std::byte>> read_file(const cue::RelativePath &a_path,
                                                                 std::size_t a_maxBytes) noexcept override
     {
+        if (a_path.text() == m_failedReadPath)
+        {
+            return cue::Result<std::vector<std::byte>>::failure(
+                cue::make_io_error(*m_assertContext, cue::IoError::IoFailure, "Injected read failure"));
+        }
         if (a_path.text() == m_preReadMutationPath)
         {
             if (m_preReadMutationSkips == 0U)
@@ -358,6 +369,7 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
 
     std::map<std::string, std::vector<std::byte>> m_files;
     std::string m_failedPath;
+    std::string m_failedReadPath;
     std::string m_failedLeasePath;
     std::string m_uncertainPath;
     std::string m_uncertainRecoveryBackupPath;
@@ -1456,16 +1468,22 @@ void test_scene_persistence_workflow() noexcept
                                                                      unsavedRestartServices, assertContext);
     const auto recoveryCandidates = take_value(unsavedRestart->list_recovery_candidates());
     bool foundUnsavedRecovery = false;
-    for (const cue::editor_core::RecoveryMetadata &candidate : recoveryCandidates)
+    for (const cue::editor_core::RecoveryCandidateInspection &candidate : recoveryCandidates)
     {
-        foundUnsavedRecovery = foundUnsavedRecovery || candidate.scene_id() == "00000000-0000-4000-8000-000000000703";
+        foundUnsavedRecovery =
+            foundUnsavedRecovery || (candidate.scene_id() == "00000000-0000-4000-8000-000000000703" &&
+                                     candidate.try_metadata() != nullptr && candidate.try_error() == nullptr);
     }
     require(foundUnsavedRecovery);
+    sourceAssets.set("Scenes/Unsaved-Recovery.cuescene", "unreadable source");
+    sourceAssets.fail_read("Scenes/Unsaved-Recovery.cuescene", true);
     const auto restartedUnsavedId =
         take_value(unsavedRestart->open_document_from_recovery("00000000-0000-4000-8000-000000000703"));
+    sourceAssets.fail_read("Scenes/Unsaved-Recovery.cuescene", false);
     const auto *restartedUnsavedDocument = unsavedRestart->session().find_document(restartedUnsavedId);
     require(restartedUnsavedDocument != nullptr && restartedUnsavedDocument->is_dirty() &&
             !restartedUnsavedDocument->has_saved_destination() && restartedUnsavedDocument->has_recovery_candidate());
+    require(restartedUnsavedDocument->external_change_state() == cue::editor_core::ExternalChangeState::Unknown);
     require(restartedUnsavedDocument->scene_document().find_object(unsavedRecoveryRoot) != nullptr);
     require(restartedUnsavedDocument->scene_document().find_object(unsavedRecoveryRoot)->name() == "Unsaved Recovery");
 
@@ -1487,11 +1505,25 @@ void test_scene_persistence_workflow() noexcept
     require(document->is_dirty() && document->has_recovery_candidate());
     require(sourceAssets.text("Scenes/Renamed.cuescene") == canonicalBeforeRecovery);
     require(!savedRoot.text("Editor/Recovery/00000000-0000-4000-8000-000000000701.cuerecovery").empty());
+    savedRoot.set("Editor/Recovery/00000000-0000-4000-8000-000000000703.cuerecovery", "invalid recovery");
 
     cue::editor_core::ScenePersistenceServices restartServices(sourceAssets, savedRoot, *registry, valueRegistry,
                                                                sceneMigrations, componentMigrations);
     auto restarted = cue::editor_core::EditorController::create(make_project_descriptor(assertContext), restartServices,
                                                                 assertContext);
+    const auto restartedCandidates = take_value(restarted->list_recovery_candidates());
+    bool foundValidRecovery = false;
+    bool foundInvalidRecovery = false;
+    for (const cue::editor_core::RecoveryCandidateInspection &candidate : restartedCandidates)
+    {
+        foundValidRecovery =
+            foundValidRecovery || (candidate.scene_id() == "00000000-0000-4000-8000-000000000701" &&
+                                   candidate.try_metadata() != nullptr && candidate.try_error() == nullptr);
+        foundInvalidRecovery =
+            foundInvalidRecovery || (candidate.scene_id() == "00000000-0000-4000-8000-000000000703" &&
+                                     candidate.try_metadata() == nullptr && candidate.try_error() != nullptr);
+    }
+    require(foundValidRecovery && foundInvalidRecovery);
     const auto restartedId = take_value(restarted->open_document_from_storage(
         take_value(cue::RelativePath::parse("Scenes/Renamed.cuescene", assertContext))));
     const auto *restartedDocument = restarted->session().find_document(restartedId);

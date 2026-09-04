@@ -94,7 +94,8 @@ enum class ExternalChangeState : std::uint8_t
 {
     None,
     Modified,
-    Removed
+    Removed,
+    Unknown
 };
 
 /// @brief Close 要求に対する Editor Core の進行状態

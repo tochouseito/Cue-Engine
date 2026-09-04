@@ -332,6 +332,9 @@ Version付きのAppend-only Registryとして保持する。AutosaveはEnvelope�
 対応するRegular Fileが存在し、Envelope、Project ID、Scene ID、Scene本文を完全検証できるEntryだけを候補として返す。
 `list_recovery_candidates`で起動時候補を列挙し、`open_document_from_recovery`は正本Fileの存在を前提にせずEnvelopeから直接
 Dirty Documentを開く。Recover後も正本は暗黙作成・置換しない。
+Registry本文自体の破損は列挙全体の失敗とするが、個別Entryの読込、Envelope、Identity、Scene検証失敗はそのEntryだけを隔離し、
+有効候補とEntry単位診断を同じ列挙結果で返す。Recovery直接Open時に正本Fingerprintを取得できない場合もEnvelopeからのOpenは
+継続し、`ExternalChangeState::Unknown`として通常Saveを拒否してSave As、Reload、Cancelの明示判断を要求する。
 
 Registry v1はMagic `CueRecoveryRegistry`、Registry Version、Project ID、Scene ID列を改行区切りで保持する。EntryはScene ID順に
 決定的に並べ、重複、未知Version、Project不一致、上限超過を`InvalidRecovery`または`UnsupportedRecovery`として拒否する。

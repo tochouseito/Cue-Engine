@@ -443,6 +443,31 @@ std::uint64_t RecoveryMetadata::scene_digest() const noexcept
     return m_sceneDigest;
 }
 
+RecoveryCandidateInspection::RecoveryCandidateInspection(std::string a_sceneId, RecoveryMetadata a_metadata) noexcept
+    : m_sceneId(std::move(a_sceneId)), m_metadata(std::move(a_metadata))
+{
+}
+
+RecoveryCandidateInspection::RecoveryCandidateInspection(std::string a_sceneId, Error a_error) noexcept
+    : m_sceneId(std::move(a_sceneId)), m_error(std::move(a_error))
+{
+}
+
+const std::string &RecoveryCandidateInspection::scene_id() const noexcept
+{
+    return m_sceneId;
+}
+
+const RecoveryMetadata *RecoveryCandidateInspection::try_metadata() const noexcept
+{
+    return m_metadata.has_value() ? &*m_metadata : nullptr;
+}
+
+const Error *RecoveryCandidateInspection::try_error() const noexcept
+{
+    return m_error.has_value() ? &*m_error : nullptr;
+}
+
 Result<void> EditorController::require_persistence_services() const noexcept
 {
     if (m_sourceAssetsRoot == nullptr || m_savedRoot == nullptr || m_schemaRegistry == nullptr ||
@@ -1270,38 +1295,38 @@ Result<void> EditorController::autosave_recovery(EditorDocumentId a_documentId) 
     }
 }
 
-Result<std::vector<RecoveryMetadata>> EditorController::list_recovery_candidates() noexcept
+Result<std::vector<RecoveryCandidateInspection>> EditorController::list_recovery_candidates() noexcept
 {
     assert_owner_thread();
     auto services = require_persistence_services();
     if (!services)
     {
-        return Result<std::vector<RecoveryMetadata>>::failure(std::move(*services.try_error()));
+        return Result<std::vector<RecoveryCandidateInspection>>::failure(std::move(*services.try_error()));
     }
     auto registryPath = make_recovery_registry_path(*m_assertContext);
     if (!registryPath)
     {
-        return Result<std::vector<RecoveryMetadata>>::failure(std::move(*registryPath.try_error()));
+        return Result<std::vector<RecoveryCandidateInspection>>::failure(std::move(*registryPath.try_error()));
     }
     auto registryEntry = m_savedRoot->query_entry(*registryPath.try_value());
     if (!registryEntry)
     {
-        return Result<std::vector<RecoveryMetadata>>::failure(std::move(*registryEntry.try_error()));
+        return Result<std::vector<RecoveryCandidateInspection>>::failure(std::move(*registryEntry.try_error()));
     }
     if (*registryEntry.try_value() == EntryType::Missing)
     {
-        return Result<std::vector<RecoveryMetadata>>::success({});
+        return Result<std::vector<RecoveryCandidateInspection>>::success({});
     }
     if (*registryEntry.try_value() != EntryType::RegularFile)
     {
-        return Result<std::vector<RecoveryMetadata>>::failure(make_editor_core_error(
+        return Result<std::vector<RecoveryCandidateInspection>>::failure(make_editor_core_error(
             *m_assertContext, EditorCoreError::InvalidRecovery, "Recovery registry is not a regular file"));
     }
 
     auto registryBytes = m_savedRoot->read_file(*registryPath.try_value(), k_maximumRecoveryRegistryBytes);
     if (!registryBytes)
     {
-        return Result<std::vector<RecoveryMetadata>>::failure(std::move(*registryBytes.try_error()));
+        return Result<std::vector<RecoveryCandidateInspection>>::failure(std::move(*registryBytes.try_error()));
     }
     const auto &registryStorage = *registryBytes.try_value();
     auto sceneIds = parse_recovery_registry(
@@ -1309,24 +1334,28 @@ Result<std::vector<RecoveryMetadata>> EditorController::list_recovery_candidates
         m_session.m_descriptor, *m_assertContext);
     if (!sceneIds)
     {
-        return Result<std::vector<RecoveryMetadata>>::failure(std::move(*sceneIds.try_error()));
+        return Result<std::vector<RecoveryCandidateInspection>>::failure(std::move(*sceneIds.try_error()));
     }
 
     try
     {
-        std::vector<RecoveryMetadata> candidates;
-        candidates.reserve(sceneIds.try_value()->size());
+        std::vector<RecoveryCandidateInspection> inspections;
+        inspections.reserve(sceneIds.try_value()->size());
         for (const scene::SceneAssetId &sceneId : *sceneIds.try_value())
         {
+            const scene::IdentityText sceneText = sceneId.canonical_text();
+            std::string sceneIdText(sceneText.data(), sceneText.size());
             auto recoveryPath = make_recovery_path(sceneId, *m_assertContext);
             if (!recoveryPath)
             {
-                return Result<std::vector<RecoveryMetadata>>::failure(std::move(*recoveryPath.try_error()));
+                inspections.emplace_back(std::move(sceneIdText), std::move(*recoveryPath.try_error()));
+                continue;
             }
             auto recoveryEntry = m_savedRoot->query_entry(*recoveryPath.try_value());
             if (!recoveryEntry)
             {
-                return Result<std::vector<RecoveryMetadata>>::failure(std::move(*recoveryEntry.try_error()));
+                inspections.emplace_back(std::move(sceneIdText), std::move(*recoveryEntry.try_error()));
+                continue;
             }
             if (*recoveryEntry.try_value() == EntryType::Missing)
             {
@@ -1334,45 +1363,53 @@ Result<std::vector<RecoveryMetadata>> EditorController::list_recovery_candidates
             }
             if (*recoveryEntry.try_value() != EntryType::RegularFile)
             {
-                return Result<std::vector<RecoveryMetadata>>::failure(
+                inspections.emplace_back(
+                    std::move(sceneIdText),
                     make_editor_core_error(*m_assertContext, EditorCoreError::InvalidRecovery,
                                            "Recovery registry entry does not refer to a regular file"));
+                continue;
             }
             auto bytes = m_savedRoot->read_file(*recoveryPath.try_value(),
                                                 scene::k_maximumSceneBytes + k_maximumRecoveryHeaderBytes);
             if (!bytes)
             {
-                return Result<std::vector<RecoveryMetadata>>::failure(std::move(*bytes.try_error()));
+                inspections.emplace_back(std::move(sceneIdText), std::move(*bytes.try_error()));
+                continue;
             }
             const auto &storage = *bytes.try_value();
             auto parsed = parse_recovery_envelope(
                 std::string_view(reinterpret_cast<const char *>(storage.data()), storage.size()), *m_assertContext);
             if (!parsed)
             {
-                return Result<std::vector<RecoveryMetadata>>::failure(std::move(*parsed.try_error()));
+                inspections.emplace_back(std::move(sceneIdText), std::move(*parsed.try_error()));
+                continue;
             }
             auto identity = validate_recovery_candidate(parsed.try_value()->metadata, m_session.m_descriptor, sceneId,
                                                         *m_assertContext);
             if (!identity)
             {
-                return Result<std::vector<RecoveryMetadata>>::failure(std::move(*identity.try_error()));
+                inspections.emplace_back(std::move(sceneIdText), std::move(*identity.try_error()));
+                continue;
             }
             auto recovered =
                 scene::parse_scene_document(parsed.try_value()->sceneJson, *m_schemaRegistry, *m_valueSchemaRegistry,
                                             *m_sceneMigrations, *m_componentMigrations, *m_assertContext);
             if (!recovered)
             {
-                return Result<std::vector<RecoveryMetadata>>::failure(std::move(*recovered.try_error()));
+                inspections.emplace_back(std::move(sceneIdText), std::move(*recovered.try_error()));
+                continue;
             }
             if (recovered.try_value()->document().scene_asset_id() != sceneId)
             {
-                return Result<std::vector<RecoveryMetadata>>::failure(
+                inspections.emplace_back(
+                    std::move(sceneIdText),
                     make_editor_core_error(*m_assertContext, EditorCoreError::SceneMismatch,
                                            "Recovery scene identity does not match its registry entry"));
+                continue;
             }
-            candidates.push_back(std::move(parsed.try_value()->metadata));
+            inspections.emplace_back(std::move(sceneIdText), std::move(parsed.try_value()->metadata));
         }
-        return Result<std::vector<RecoveryMetadata>>::success(std::move(candidates));
+        return Result<std::vector<RecoveryCandidateInspection>>::success(std::move(inspections));
     }
     catch (const std::bad_alloc &)
     {
@@ -1438,10 +1475,12 @@ Result<EditorDocumentId> EditorController::open_document_from_recovery(std::stri
     const SceneFileFingerprint recoveryBase = parsed.try_value()->metadata.base_fingerprint();
     RelativePath locator = parsed.try_value()->metadata.source_locator();
     auto currentBase = fingerprint_scene_file(*m_sourceAssetsRoot, locator, *m_assertContext);
-    if (!currentBase)
-    {
-        return Result<EditorDocumentId>::failure(std::move(*currentBase.try_error()));
-    }
+    const ExternalChangeState observedState =
+        !currentBase
+            ? ExternalChangeState::Unknown
+            : (recoveryBase == *currentBase.try_value()
+                   ? ExternalChangeState::None
+                   : (currentBase.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed));
     auto opened = open_document(std::move(recovered.try_value()->document()), std::move(locator), recoveryBase.exists);
     if (!opened)
     {
@@ -1454,10 +1493,7 @@ Result<EditorDocumentId> EditorController::open_document_from_recovery(std::stri
         return Result<EditorDocumentId>::failure(std::move(*state.try_error()));
     }
     document->m_baseFingerprint = recoveryBase;
-    document->m_externalChangeState =
-        recoveryBase == *currentBase.try_value()
-            ? ExternalChangeState::None
-            : (currentBase.try_value()->exists ? ExternalChangeState::Modified : ExternalChangeState::Removed);
+    document->m_externalChangeState = observedState;
     document->m_persistenceState = DocumentPersistenceState::Idle;
     document->m_closeState = DocumentCloseState::Open;
     document->m_hasRecoveryCandidate = true;
