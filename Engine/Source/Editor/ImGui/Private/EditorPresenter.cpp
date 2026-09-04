@@ -248,7 +248,7 @@ void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyCh
                                                 std::find(nextSelection.begin(), nextSelection.end(),
                                                           *a_primarySelection) != nextSelection.end();
                     primary = canKeepPrimary ? std::optional<cue::scene::ObjectId>(*a_primarySelection)
-                                             : std::optional<cue::scene::ObjectId>(nextSelection.back());
+                                             : std::optional<cue::scene::ObjectId>(nextSelection.front());
                 }
             }
         }
