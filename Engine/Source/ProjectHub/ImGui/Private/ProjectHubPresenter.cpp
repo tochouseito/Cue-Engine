@@ -126,6 +126,8 @@ struct StringInputContext final
 
 /// @brief FontにないUnicode ScalarをEscapeした識別可能な表示文字列へ変換する
 [[nodiscard]] std::string make_renderable_text(std::string_view a_text, bool *a_usedUnicodeEscape = nullptr);
+/// @brief 入力値を変更せずFont非対応Unicode ScalarのEscape Previewだけを併記する
+void draw_unicode_escape_preview(std::string_view a_text, const cue::AssertContext &a_context) noexcept;
 
 /// @brief ImGuiが要求した容量へProject Locator文字列を拡張する
 int resize_string_input(ImGuiInputTextCallbackData *a_data) noexcept
@@ -153,20 +155,7 @@ bool input_locator(const char *a_label, std::string &a_value, const cue::AssertC
     StringInputContext context{&a_value, &a_context};
     const bool changed = ImGui::InputText(a_label, a_value.data(), a_value.capacity() + 1U,
                                           ImGuiInputTextFlags_CallbackResize, resize_string_input, &context);
-    try
-    {
-        bool usedUnicodeEscape = false;
-        const std::string renderedLocator = make_renderable_text(a_value, &usedUnicodeEscape);
-        if (usedUnicodeEscape)
-        {
-            ImGui::TextDisabled("識別表示（Font非対応文字はUnicode Escape）");
-            ImGui::TextWrapped("%s", renderedLocator.c_str());
-        }
-    }
-    catch (...)
-    {
-        terminate_allocation(a_context);
-    }
+    draw_unicode_escape_preview(a_value, a_context);
     return changed;
 }
 
@@ -241,6 +230,24 @@ bool input_locator(const char *a_label, std::string &a_value, const cue::AssertC
         cursor += byteCount;
     }
     return rendered;
+}
+
+void draw_unicode_escape_preview(std::string_view a_text, const cue::AssertContext &a_context) noexcept
+{
+    try
+    {
+        bool usedUnicodeEscape = false;
+        const std::string renderedText = make_renderable_text(a_text, &usedUnicodeEscape);
+        if (usedUnicodeEscape)
+        {
+            ImGui::TextDisabled("識別表示（Font非対応文字はUnicode Escape）");
+            ImGui::TextWrapped("%s", renderedText.c_str());
+        }
+    }
+    catch (...)
+    {
+        terminate_allocation(a_context);
+    }
 }
 } // namespace
 
@@ -337,7 +344,9 @@ void ProjectHubPresenter::draw(bool a_canLaunchEditor) noexcept
             const ImVec4 color = m_hasError     ? ImVec4(1.0F, 0.35F, 0.35F, 1.0F)
                                  : m_hasWarning ? ImVec4(1.0F, 0.75F, 0.25F, 1.0F)
                                                 : ImVec4(0.45F, 0.9F, 0.55F, 1.0F);
-            ImGui::TextColored(color, "%s", m_message.c_str());
+            ImGui::PushStyleColor(ImGuiCol_Text, color);
+            ImGui::TextWrapped("%s", m_message.c_str());
+            ImGui::PopStyleColor();
         }
     }
     ImGui::End();
@@ -486,6 +495,7 @@ void ProjectHubPresenter::draw_create_dialog() noexcept
     input_locator("作成先Folder", m_parentLocator, *m_assertContext);
     ImGui::InputText("Project名", m_projectName.data(), m_projectName.size());
     ImGui::InputText("表示名", m_displayName.data(), m_displayName.size());
+    draw_unicode_escape_preview(m_displayName.data(), *m_assertContext);
     const ProjectTemplateView *selectedTemplate = nullptr;
     for (const ProjectTemplateView &candidate : m_service->templates())
     {
