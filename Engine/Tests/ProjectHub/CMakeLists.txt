@@ -30,6 +30,44 @@ if(WIN32)
     )
     target_compile_features(CueProjectHubWindowsTests PRIVATE cxx_std_20)
     list(APPEND cueProjectHubTestTargets CueProjectHubWindowsTests)
+
+    add_executable(
+        CueProjectHubImGuiTests
+        ProjectHubImGuiTests.cpp
+    )
+    target_link_libraries(
+        CueProjectHubImGuiTests
+        PRIVATE
+            Cue.Foundation.Windows
+            Cue.IO.Windows
+            Cue.ImGui.Core
+            Cue.ProjectHub.ImGui
+            Cue.ProjectHub.Windows
+    )
+    target_compile_features(CueProjectHubImGuiTests PRIVATE cxx_std_20)
+    list(APPEND cueProjectHubTestTargets CueProjectHubImGuiTests)
+
+    add_executable(
+        CueProjectHubEditorProcessProbe
+        EditorProcessProbe.cpp
+    )
+    target_compile_features(CueProjectHubEditorProcessProbe PRIVATE cxx_std_20)
+    list(APPEND cueProjectHubTestTargets CueProjectHubEditorProcessProbe)
+
+    add_executable(
+        CueProjectHubEditorProcessTests
+        EditorProcessTests.cpp
+    )
+    target_link_libraries(
+        CueProjectHubEditorProcessTests
+        PRIVATE
+            Cue.Foundation.Windows
+            Cue.IO.Windows
+            Cue.ProjectHub.Windows
+    )
+    target_compile_features(CueProjectHubEditorProcessTests PRIVATE cxx_std_20)
+    add_dependencies(CueProjectHubEditorProcessTests CueProjectHubEditorProcessProbe)
+    list(APPEND cueProjectHubTestTargets CueProjectHubEditorProcessTests)
 endif()
 
 foreach(testTarget IN LISTS cueProjectHubTestTargets)
@@ -64,10 +102,14 @@ if(WIN32)
     add_test(NAME Cue.ProjectHub.Service COMMAND CueProjectHubTests)
     add_test(NAME Cue.ProjectHub.Windows.PublicHeaders COMMAND CueProjectHubWindowsPublicHeaderTest)
     add_test(NAME Cue.ProjectHub.Windows.Platform COMMAND CueProjectHubWindowsTests)
+    add_test(NAME Cue.ProjectHub.ImGui.KeyboardAndCancel COMMAND CueProjectHubImGuiTests)
+    add_test(NAME Cue.ProjectHub.Windows.EditorProcess COMMAND CueProjectHubEditorProcessTests)
     set_tests_properties(
         Cue.ProjectHub.Service
         Cue.ProjectHub.Windows.PublicHeaders
         Cue.ProjectHub.Windows.Platform
+        Cue.ProjectHub.ImGui.KeyboardAndCancel
+        Cue.ProjectHub.Windows.EditorProcess
         PROPERTIES
             LABELS ProjectHub
             TIMEOUT 30

@@ -24,7 +24,8 @@ enum class ProjectHubError : std::int64_t
     ProjectNotFound = 7,
     InvalidSceneLocator = 8,
     PersistenceFailure = 9,
-    InvalidTemplate = 10
+    InvalidTemplate = 10,
+    EditorLaunchFailed = 11
 };
 
 /// @brief Project Hub Error を診断 Summary と共に生成する

@@ -3,6 +3,7 @@ add_library(Cue.ProjectHub.Windows STATIC)
 target_sources(
     Cue.ProjectHub.Windows
     PRIVATE
+        Private/WindowsEditorProcess.cpp
         Private/WindowsProjectHubPlatform.cpp
     PUBLIC
         FILE_SET HEADERS

@@ -1,0 +1,1023 @@
+#include <Cue/ToolHost/WindowsD3D12/ToolHost.h>
+
+#include <Cue/Foundation/Assert.h>
+#include <Cue/Foundation/Error.h>
+#include <Cue/Platform/Window.h>
+#include <Cue/Platform/WindowSystem.h>
+#include <Cue/Platform/Windows/WindowsMessageSink.h>
+#include <Cue/Platform/Windows/WindowsPlatform.h>
+#include <Cue/Platform/Windows/WindowsWindowInterop.h>
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <limits>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <utility>
+
+#include <Windows.h>
+#include <d3d12.h>
+#include <dxgi1_6.h>
+#include <imgui.h>
+#include <imgui_impl_dx12.h>
+#include <imgui_impl_win32.h>
+#include <wrl/client.h>
+
+/// @brief Win32 MessageをDear ImGui公式Backendへ転送する外部Entry Point
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND a_window, UINT a_message, WPARAM a_wordParameter,
+                                                             LPARAM a_longParameter);
+
+namespace
+{
+using Microsoft::WRL::ComPtr;
+
+constexpr std::uint32_t k_frameCount = 2;
+constexpr std::uint32_t k_srvDescriptorCount = 64;
+constexpr DWORD k_fenceTimeoutMilliseconds = 5000;
+constexpr DXGI_FORMAT k_backBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+/// @brief Windows標準日本語Fontが利用可能ならProject Hubの既定Fontへ設定する
+void configure_japanese_font(const cue::AssertContext &a_context) noexcept
+{
+    std::array<char, MAX_PATH> windowsDirectory{};
+    const UINT length = GetWindowsDirectoryA(windowsDirectory.data(), static_cast<UINT>(windowsDirectory.size()));
+    if (length == 0 || length >= static_cast<UINT>(windowsDirectory.size()))
+    {
+        return;
+    }
+    constexpr std::array<std::string_view, 2> k_fontNames = {"meiryo.ttc", "YuGothR.ttc"};
+    for (const std::string_view fontName : k_fontNames)
+    {
+        std::string locator;
+        try
+        {
+            locator.assign(windowsDirectory.data(), length);
+            locator.append("\\Fonts\\");
+            locator.append(fontName);
+        }
+        catch (...)
+        {
+            a_context.fatal_handler().terminate("Tool Host font locator allocation failed");
+        }
+        if (GetFileAttributesA(locator.c_str()) == INVALID_FILE_ATTRIBUTES)
+        {
+            continue;
+        }
+        ImFont *font = ImGui::GetIO().Fonts->AddFontFromFileTTF(locator.c_str(), 18.0F, nullptr,
+                                                                ImGui::GetIO().Fonts->GetGlyphRangesJapanese());
+        if (font != nullptr)
+        {
+            ImGui::GetIO().FontDefault = font;
+            return;
+        }
+    }
+}
+
+/// @brief Tool Host ErrorをNative診断なしで生成する
+[[nodiscard]] cue::Error make_error(const cue::AssertContext &a_context, cue::tool_host::ToolHostError a_code,
+                                    std::string_view a_summary) noexcept
+{
+    cue::ErrorCode code =
+        cue::ErrorCode::create(a_context.fatal_handler(), "Cue.ToolHost", static_cast<std::int64_t>(a_code));
+    return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary);
+}
+
+/// @brief Tool Host ErrorをNative診断と共に生成する
+[[nodiscard]] cue::Error make_native_error(const cue::AssertContext &a_context, cue::tool_host::ToolHostError a_code,
+                                           std::string_view a_summary, std::string_view a_nativeDomain,
+                                           std::int64_t a_nativeCode) noexcept
+{
+    cue::ErrorCode code =
+        cue::ErrorCode::create(a_context.fatal_handler(), "Cue.ToolHost", static_cast<std::int64_t>(a_code));
+    cue::NativeError native = cue::NativeError::create(a_context.fatal_handler(), a_nativeDomain, a_nativeCode);
+    return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(native));
+}
+
+/// @brief GPU完了もDevice Removalも証明できない状態をResource解放前にFatal終端する
+[[noreturn]] void terminate_unproven_completion(const cue::AssertContext &a_context) noexcept
+{
+    a_context.fatal_handler().terminate("Tool Host GPU completion could not be proven");
+    std::abort();
+}
+
+/// @brief Win32 HANDLEを一意所有してScope終了時に閉じる
+class UniqueHandle final
+{
+  public:
+    /// @brief 空のHANDLE所有者を生成する
+    UniqueHandle() noexcept = default;
+    /// @brief 有効なHANDLEの所有権を取得する
+    explicit UniqueHandle(HANDLE a_handle) noexcept : m_handle(a_handle)
+    {
+    }
+    /// @brief HANDLE所有権の複製を禁止する
+    UniqueHandle(const UniqueHandle &) = delete;
+    /// @brief HANDLE所有権の複製を禁止する
+    UniqueHandle &operator=(const UniqueHandle &) = delete;
+
+    /// @brief 所有HANDLEを閉じる
+    ~UniqueHandle() noexcept
+    {
+        if (m_handle != nullptr)
+        {
+            CloseHandle(m_handle);
+        }
+    }
+
+    /// @brief 所有HANDLEを非所有で返す
+    [[nodiscard]] HANDLE get() const noexcept
+    {
+        return m_handle;
+    }
+
+  private:
+    HANDLE m_handle = nullptr;
+};
+
+/// @brief ImGui Texture用Shader-visible SRV Descriptorを固定Poolから管理する
+class DescriptorPool final
+{
+  public:
+    /// @brief 未初期化Poolを生成する
+    DescriptorPool() noexcept = default;
+
+    /// @brief Descriptor HeapとIncrementを非所有で関連付ける
+    void initialize(ID3D12DescriptorHeap &a_heap, std::uint32_t a_increment,
+                    const cue::AssertContext &a_context) noexcept
+    {
+        m_heap = &a_heap;
+        m_increment = a_increment;
+        m_assertContext = &a_context;
+        m_used.fill(false);
+    }
+
+    /// @brief 空きDescriptorを確保してCPU／GPU Handleを返す
+    void allocate(D3D12_CPU_DESCRIPTOR_HANDLE &a_cpu, D3D12_GPU_DESCRIPTOR_HANDLE &a_gpu) noexcept
+    {
+        for (std::size_t index = 0; index < m_used.size(); ++index)
+        {
+            if (!m_used[index])
+            {
+                m_used[index] = true;
+                a_cpu = m_heap->GetCPUDescriptorHandleForHeapStart();
+                a_gpu = m_heap->GetGPUDescriptorHandleForHeapStart();
+                a_cpu.ptr += index * m_increment;
+                a_gpu.ptr += index * m_increment;
+                return;
+            }
+        }
+        m_assertContext->fatal_handler().terminate("Tool Host ImGui SRV descriptor pool is exhausted");
+        std::abort();
+    }
+
+    /// @brief Poolが発行したDescriptorを再利用可能に戻す
+    void release(D3D12_CPU_DESCRIPTOR_HANDLE a_cpu) noexcept
+    {
+        const D3D12_CPU_DESCRIPTOR_HANDLE first = m_heap->GetCPUDescriptorHandleForHeapStart();
+        if (a_cpu.ptr < first.ptr || m_increment == 0)
+        {
+            m_assertContext->fatal_handler().terminate("Tool Host ImGui SRV descriptor is invalid");
+        }
+        const SIZE_T offset = a_cpu.ptr - first.ptr;
+        if (offset % m_increment != 0 || offset / m_increment >= m_used.size())
+        {
+            m_assertContext->fatal_handler().terminate("Tool Host ImGui SRV descriptor is outside the pool");
+        }
+        m_used[offset / m_increment] = false;
+    }
+
+  private:
+    ID3D12DescriptorHeap *m_heap = nullptr;
+    const cue::AssertContext *m_assertContext = nullptr;
+    std::uint32_t m_increment = 0;
+    std::array<bool, k_srvDescriptorCount> m_used{};
+};
+
+/// @brief ImGui DX12 BackendからDescriptor Poolへ確保要求を転送する
+void allocate_imgui_descriptor(ImGui_ImplDX12_InitInfo *a_info, D3D12_CPU_DESCRIPTOR_HANDLE *a_cpu,
+                               D3D12_GPU_DESCRIPTOR_HANDLE *a_gpu)
+{
+    auto *pool = static_cast<DescriptorPool *>(a_info->UserData);
+    pool->allocate(*a_cpu, *a_gpu);
+}
+
+/// @brief ImGui DX12 BackendからDescriptor Poolへ解放要求を転送する
+void release_imgui_descriptor(ImGui_ImplDX12_InitInfo *a_info, D3D12_CPU_DESCRIPTOR_HANDLE a_cpu,
+                              D3D12_GPU_DESCRIPTOR_HANDLE)
+{
+    auto *pool = static_cast<DescriptorPool *>(a_info->UserData);
+    pool->release(a_cpu);
+}
+
+/// @brief Platform Message Sinkを公式ImGui Win32 Backendへ接続する
+class ImGuiWindowsMessageSink final : public cue::WindowsMessageSink
+{
+  public:
+    /// @brief Win32 Messageを公式Backendへ変換してHandled結果を返す
+    [[nodiscard]] cue::WindowsMessageResult process_message(const cue::WindowsMessageView &a_message) noexcept override
+    {
+        HWND window = static_cast<HWND>(const_cast<void *>(a_message.nativeWindow));
+        const LRESULT result = ImGui_ImplWin32_WndProcHandler(window, static_cast<UINT>(a_message.message),
+                                                              static_cast<WPARAM>(a_message.wordParameter),
+                                                              static_cast<LPARAM>(a_message.longParameter));
+        return {result != 0, static_cast<std::intptr_t>(result)};
+    }
+};
+
+struct FrameResource final
+{
+    ComPtr<ID3D12CommandAllocator> allocator;
+    std::uint64_t reuseFenceValue = 0;
+};
+
+/// @brief Windows WindowとTool専用D3D12／ImGui Resourceの全寿命を所有する
+class WindowsD3d12ToolHost final
+{
+  public:
+    /// @brief 診断ContextをHost全寿命へ非所有で関連付ける
+    explicit WindowsD3d12ToolHost(const cue::AssertContext &a_context) noexcept : m_assertContext(&a_context)
+    {
+    }
+    /// @brief Native Resource所有権の複製を禁止する
+    WindowsD3d12ToolHost(const WindowsD3d12ToolHost &) = delete;
+    /// @brief Native Resource所有権の複製を禁止する
+    WindowsD3d12ToolHost &operator=(const WindowsD3d12ToolHost &) = delete;
+
+    /// @brief 初期化済みResourceを依存順序の逆順で解放する
+    ~WindowsD3d12ToolHost() noexcept
+    {
+        cleanup();
+    }
+
+    /// @brief Window、D3D12、ImGui Backendを描画開始前まで初期化する
+    [[nodiscard]] cue::Result<void> initialize(const cue::tool_host::ToolHostDescriptor &a_descriptor) noexcept;
+
+    /// @brief Message PumpとUI Frame提出を終了要求まで実行する
+    [[nodiscard]] cue::Result<void> run(cue::tool_host::ToolHostClient &a_client) noexcept;
+
+  private:
+    /// @brief DXGI Device、Queue、Swap Chain、Frame Resourceを生成する
+    [[nodiscard]] cue::Result<void> initialize_d3d12(HWND a_window, cue::WindowSize a_size) noexcept;
+    /// @brief ImGui Contextと公式Win32／DX12 Backendを生成する
+    [[nodiscard]] cue::Result<void> initialize_imgui(HWND a_window) noexcept;
+    /// @brief Swap Chain Back BufferとRTVを再取得する
+    [[nodiscard]] cue::Result<void> create_back_buffers() noexcept;
+    /// @brief Back Buffer参照を全て解放する
+    void release_back_buffers() noexcept;
+    /// @brief 一つのImGui Frameを記録、Execute、Present、Signalする
+    [[nodiscard]] cue::Result<void> render_frame(cue::tool_host::ToolHostClient &a_client) noexcept;
+    /// @brief 全提出WorkをDrainしてSwap Chain SizeとRTVを再構築する
+    [[nodiscard]] cue::Result<void> resize(cue::WindowSize a_size) noexcept;
+    /// @brief Fence値をWrapさせず一度だけ予約する
+    [[nodiscard]] cue::Result<std::uint64_t> reserve_fence_value() noexcept;
+    /// @brief 指定Fence値を有限Waitし、失敗後の完了／Removalを再検査する
+    [[nodiscard]] cue::Result<void> wait_for_fence(std::uint64_t a_value) noexcept;
+    /// @brief Device RemovalをNative Reason付きErrorへ変換する
+    [[nodiscard]] cue::Error make_device_removed_error() noexcept;
+    /// @brief ErrorがTool Host Device Removalを表すか判定する
+    [[nodiscard]] static bool is_device_removed_error(const cue::Error &a_error) noexcept;
+    /// @brief Wait失敗後に全提出WorkをDrainして安全に終了する
+    [[nodiscard]] cue::Result<void> finish_after_wait_error(cue::Error &&a_primary) noexcept;
+    /// @brief 最後のUI提出後へTerminal Signalを置いて正常終了可能にする
+    [[nodiscard]] cue::Result<void> drain_for_shutdown() noexcept;
+    /// @brief GPU完了確認後またはDevice Removal時にBackendとNative Resourceを逆順解放する
+    void cleanup() noexcept;
+
+    const cue::AssertContext *m_assertContext;
+    ImGuiWindowsMessageSink m_messageSink;
+    std::unique_ptr<cue::WindowSystem> m_windowSystem;
+    std::unique_ptr<cue::Window> m_window;
+    ComPtr<IDXGIFactory6> m_factory;
+    ComPtr<ID3D12Device> m_device;
+    ComPtr<ID3D12CommandQueue> m_queue;
+    ComPtr<IDXGISwapChain3> m_swapChain;
+    ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
+    ComPtr<ID3D12DescriptorHeap> m_srvHeap;
+    std::array<ComPtr<ID3D12Resource>, k_frameCount> m_backBuffers;
+    std::array<FrameResource, k_frameCount> m_frames;
+    ComPtr<ID3D12GraphicsCommandList> m_commandList;
+    ComPtr<ID3D12Fence> m_fence;
+    DescriptorPool m_descriptorPool;
+    std::uint32_t m_rtvIncrement = 0;
+    std::uint64_t m_nextFenceValue = 1;
+    std::uint64_t m_lastSignaledFence = 0;
+    std::uint64_t m_frameSequence = 0;
+    std::uint64_t m_maximumFrameCount = 0;
+    bool m_isMessageSinkAttached = false;
+    bool m_isImGuiContextInitialized = false;
+    bool m_isWin32BackendInitialized = false;
+    bool m_isDx12BackendInitialized = false;
+    bool m_isMinimized = false;
+};
+
+cue::Result<void> WindowsD3d12ToolHost::initialize(const cue::tool_host::ToolHostDescriptor &a_descriptor) noexcept
+{
+    if (a_descriptor.title.empty() || a_descriptor.clientSize.width == 0 || a_descriptor.clientSize.height == 0)
+    {
+        return cue::Result<void>::failure(make_error(*m_assertContext,
+                                                     cue::tool_host::ToolHostError::InvalidConfiguration,
+                                                     "Tool Host configuration is invalid"));
+    }
+    m_maximumFrameCount = a_descriptor.maximumFrameCount;
+
+    auto system = cue::create_windows_window_system(*m_assertContext);
+    if (!system)
+    {
+        return cue::Result<void>::failure(std::move(*system.try_error()));
+    }
+    m_windowSystem = std::move(*system.try_value());
+    cue::WindowDescriptor windowDescriptor = {a_descriptor.title, a_descriptor.clientSize};
+    auto window = m_windowSystem->create_window(windowDescriptor);
+    if (!window)
+    {
+        return cue::Result<void>::failure(std::move(*window.try_error()));
+    }
+    m_window = std::move(*window.try_value());
+    auto nativeView = cue::get_native_window_view(*m_window, *m_assertContext);
+    if (!nativeView)
+    {
+        return cue::Result<void>::failure(std::move(*nativeView.try_error()));
+    }
+    HWND nativeWindow = static_cast<HWND>(const_cast<void *>(nativeView.try_value()->value()));
+
+    cue::Result<void> d3d12 = initialize_d3d12(nativeWindow, a_descriptor.clientSize);
+    if (!d3d12)
+    {
+        return d3d12;
+    }
+    cue::Result<void> imgui = initialize_imgui(nativeWindow);
+    if (!imgui)
+    {
+        return imgui;
+    }
+    cue::Result<void> attached = cue::attach_windows_message_sink(*m_window, m_messageSink, *m_assertContext);
+    if (!attached)
+    {
+        return attached;
+    }
+    m_isMessageSinkAttached = true;
+    return m_window->show();
+}
+
+cue::Result<void> WindowsD3d12ToolHost::initialize_d3d12(HWND a_window, cue::WindowSize a_size) noexcept
+{
+    UINT factoryFlags = 0;
+#if CUE_ENABLE_ASSERTS
+    ComPtr<ID3D12Debug> debug;
+    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
+    {
+        debug->EnableDebugLayer();
+        factoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
+    }
+#endif
+    HRESULT result = CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&m_factory));
+    if (FAILED(result) && factoryFlags != 0)
+    {
+        result = CreateDXGIFactory2(0, IID_PPV_ARGS(&m_factory));
+    }
+    if (FAILED(result))
+    {
+        return cue::Result<void>::failure(make_native_error(*m_assertContext,
+                                                            cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                                            "DXGI Factory creation failed", "HRESULT", result));
+    }
+
+    for (UINT index = 0;; ++index)
+    {
+        ComPtr<IDXGIAdapter1> adapter;
+        result =
+            m_factory->EnumAdapterByGpuPreference(index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter));
+        if (result == DXGI_ERROR_NOT_FOUND)
+        {
+            break;
+        }
+        if (FAILED(result))
+        {
+            return cue::Result<void>::failure(
+                make_native_error(*m_assertContext, cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                  "DXGI Adapter enumeration failed", "HRESULT", result));
+        }
+        DXGI_ADAPTER_DESC1 description{};
+        if (SUCCEEDED(adapter->GetDesc1(&description)) && (description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0 &&
+            SUCCEEDED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&m_device))))
+        {
+            break;
+        }
+    }
+    if (m_device == nullptr)
+    {
+        ComPtr<IDXGIAdapter> warpAdapter;
+        result = m_factory->EnumWarpAdapter(IID_PPV_ARGS(&warpAdapter));
+        if (SUCCEEDED(result))
+        {
+            result = D3D12CreateDevice(warpAdapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&m_device));
+        }
+        if (FAILED(result) || m_device == nullptr)
+        {
+            return cue::Result<void>::failure(
+                make_native_error(*m_assertContext, cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                  "No D3D12 adapter satisfies the Tool Host requirements", "HRESULT", result));
+        }
+    }
+
+    D3D12_COMMAND_QUEUE_DESC queueDescription{};
+    queueDescription.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    result = m_device->CreateCommandQueue(&queueDescription, IID_PPV_ARGS(&m_queue));
+    if (FAILED(result))
+    {
+        return cue::Result<void>::failure(make_native_error(*m_assertContext,
+                                                            cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                                            "D3D12 command queue creation failed", "HRESULT", result));
+    }
+
+    DXGI_SWAP_CHAIN_DESC1 swapChainDescription{};
+    swapChainDescription.Width = a_size.width;
+    swapChainDescription.Height = a_size.height;
+    swapChainDescription.Format = k_backBufferFormat;
+    swapChainDescription.SampleDesc.Count = 1;
+    swapChainDescription.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swapChainDescription.BufferCount = k_frameCount;
+    swapChainDescription.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    ComPtr<IDXGISwapChain1> swapChain;
+    result =
+        m_factory->CreateSwapChainForHwnd(m_queue.Get(), a_window, &swapChainDescription, nullptr, nullptr, &swapChain);
+    if (SUCCEEDED(result))
+    {
+        result = swapChain.As(&m_swapChain);
+    }
+    if (FAILED(result))
+    {
+        return cue::Result<void>::failure(make_native_error(*m_assertContext,
+                                                            cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                                            "Tool Host Swap Chain creation failed", "HRESULT", result));
+    }
+    static_cast<void>(m_factory->MakeWindowAssociation(a_window, DXGI_MWA_NO_ALT_ENTER));
+
+    D3D12_DESCRIPTOR_HEAP_DESC rtvDescription{};
+    rtvDescription.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    rtvDescription.NumDescriptors = k_frameCount;
+    result = m_device->CreateDescriptorHeap(&rtvDescription, IID_PPV_ARGS(&m_rtvHeap));
+    if (FAILED(result))
+    {
+        return cue::Result<void>::failure(make_native_error(*m_assertContext,
+                                                            cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                                            "Tool Host RTV Heap creation failed", "HRESULT", result));
+    }
+    m_rtvIncrement = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+    D3D12_DESCRIPTOR_HEAP_DESC srvDescription{};
+    srvDescription.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    srvDescription.NumDescriptors = k_srvDescriptorCount;
+    srvDescription.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    result = m_device->CreateDescriptorHeap(&srvDescription, IID_PPV_ARGS(&m_srvHeap));
+    if (FAILED(result))
+    {
+        return cue::Result<void>::failure(make_native_error(*m_assertContext,
+                                                            cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                                            "Tool Host SRV Heap creation failed", "HRESULT", result));
+    }
+    m_descriptorPool.initialize(*m_srvHeap.Get(),
+                                m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV),
+                                *m_assertContext);
+
+    for (FrameResource &frame : m_frames)
+    {
+        result = m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&frame.allocator));
+        if (FAILED(result))
+        {
+            return cue::Result<void>::failure(
+                make_native_error(*m_assertContext, cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                  "Tool Host command allocator creation failed", "HRESULT", result));
+        }
+    }
+    result = m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_frames[0].allocator.Get(), nullptr,
+                                         IID_PPV_ARGS(&m_commandList));
+    if (SUCCEEDED(result))
+    {
+        result = m_commandList->Close();
+    }
+    if (FAILED(result))
+    {
+        return cue::Result<void>::failure(
+            make_native_error(*m_assertContext, cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                              "Tool Host command list creation failed", "HRESULT", result));
+    }
+    result = m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence));
+    if (FAILED(result))
+    {
+        return cue::Result<void>::failure(make_native_error(*m_assertContext,
+                                                            cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                                            "Tool Host Fence creation failed", "HRESULT", result));
+    }
+    return create_back_buffers();
+}
+
+cue::Result<void> WindowsD3d12ToolHost::initialize_imgui(HWND a_window) noexcept
+{
+    IMGUI_CHECKVERSION();
+    if (ImGui::CreateContext() == nullptr)
+    {
+        return cue::Result<void>::failure(make_error(*m_assertContext,
+                                                     cue::tool_host::ToolHostError::ImGuiInitializationFailed,
+                                                     "ImGui Context creation failed"));
+    }
+    m_isImGuiContextInitialized = true;
+    ImGui::GetIO().IniFilename = nullptr;
+    configure_japanese_font(*m_assertContext);
+    ImGui::StyleColorsDark();
+
+    if (!ImGui_ImplWin32_Init(a_window))
+    {
+        return cue::Result<void>::failure(make_error(*m_assertContext,
+                                                     cue::tool_host::ToolHostError::ImGuiInitializationFailed,
+                                                     "ImGui Win32 Backend initialization failed"));
+    }
+    m_isWin32BackendInitialized = true;
+
+    ImGui_ImplDX12_InitInfo information{};
+    information.Device = m_device.Get();
+    information.CommandQueue = m_queue.Get();
+    information.NumFramesInFlight = static_cast<int>(k_frameCount);
+    information.RTVFormat = k_backBufferFormat;
+    information.DSVFormat = DXGI_FORMAT_UNKNOWN;
+    information.UserData = &m_descriptorPool;
+    information.SrvDescriptorHeap = m_srvHeap.Get();
+    information.SrvDescriptorAllocFn = allocate_imgui_descriptor;
+    information.SrvDescriptorFreeFn = release_imgui_descriptor;
+    if (!ImGui_ImplDX12_Init(&information))
+    {
+        return cue::Result<void>::failure(make_error(*m_assertContext,
+                                                     cue::tool_host::ToolHostError::ImGuiInitializationFailed,
+                                                     "ImGui DX12 Backend initialization failed"));
+    }
+    m_isDx12BackendInitialized = true;
+    return cue::Result<void>::success();
+}
+
+cue::Result<void> WindowsD3d12ToolHost::create_back_buffers() noexcept
+{
+    D3D12_CPU_DESCRIPTOR_HANDLE descriptor = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+    for (std::uint32_t index = 0; index < k_frameCount; ++index)
+    {
+        const HRESULT result = m_swapChain->GetBuffer(index, IID_PPV_ARGS(&m_backBuffers[index]));
+        if (FAILED(result))
+        {
+            return cue::Result<void>::failure(
+                make_native_error(*m_assertContext, cue::tool_host::ToolHostError::SwapChainResizeFailed,
+                                  "Tool Host Back Buffer acquisition failed", "HRESULT", result));
+        }
+        m_device->CreateRenderTargetView(m_backBuffers[index].Get(), nullptr, descriptor);
+        descriptor.ptr += m_rtvIncrement;
+    }
+    return cue::Result<void>::success();
+}
+
+void WindowsD3d12ToolHost::release_back_buffers() noexcept
+{
+    for (ComPtr<ID3D12Resource> &buffer : m_backBuffers)
+    {
+        buffer.Reset();
+    }
+}
+
+cue::Result<std::uint64_t> WindowsD3d12ToolHost::reserve_fence_value() noexcept
+{
+    if (m_nextFenceValue == std::numeric_limits<std::uint64_t>::max())
+    {
+        return cue::Result<std::uint64_t>::failure(make_error(*m_assertContext,
+                                                              cue::tool_host::ToolHostError::FenceValueExhausted,
+                                                              "Tool Host Fence value is exhausted"));
+    }
+    std::uint64_t value = m_nextFenceValue;
+    ++m_nextFenceValue;
+    return cue::Result<std::uint64_t>::success(std::move(value));
+}
+
+cue::Error WindowsD3d12ToolHost::make_device_removed_error() noexcept
+{
+    const HRESULT reason = m_device != nullptr ? m_device->GetDeviceRemovedReason() : DXGI_ERROR_DEVICE_REMOVED;
+    return make_native_error(*m_assertContext, cue::tool_host::ToolHostError::DeviceRemoved,
+                             "Tool Host D3D12 Device was removed", "HRESULT", reason);
+}
+
+bool WindowsD3d12ToolHost::is_device_removed_error(const cue::Error &a_error) noexcept
+{
+    return a_error.code().domain() == "Cue.ToolHost" &&
+           a_error.code().value() == static_cast<std::int64_t>(cue::tool_host::ToolHostError::DeviceRemoved);
+}
+
+cue::Result<void> WindowsD3d12ToolHost::wait_for_fence(std::uint64_t a_value) noexcept
+{
+    if (a_value == 0)
+    {
+        return cue::Result<void>::success();
+    }
+    std::uint64_t completed = m_fence->GetCompletedValue();
+    if (completed == std::numeric_limits<std::uint64_t>::max())
+    {
+        return cue::Result<void>::failure(make_device_removed_error());
+    }
+    if (completed >= a_value)
+    {
+        return cue::Result<void>::success();
+    }
+
+    UniqueHandle event(CreateEventW(nullptr, FALSE, FALSE, nullptr));
+    DWORD waitCode = ERROR_SUCCESS;
+    HRESULT registrationCode = S_OK;
+    if (event.get() == nullptr)
+    {
+        waitCode = GetLastError();
+    }
+    else
+    {
+        const HRESULT registered = m_fence->SetEventOnCompletion(a_value, event.get());
+        if (FAILED(registered))
+        {
+            registrationCode = registered;
+        }
+        else
+        {
+            const DWORD waited = WaitForSingleObject(event.get(), k_fenceTimeoutMilliseconds);
+            if (waited != WAIT_OBJECT_0)
+            {
+                waitCode = waited == WAIT_FAILED ? GetLastError() : waited;
+            }
+        }
+    }
+
+    completed = m_fence->GetCompletedValue();
+    if (completed == std::numeric_limits<std::uint64_t>::max() || FAILED(m_device->GetDeviceRemovedReason()))
+    {
+        return cue::Result<void>::failure(make_device_removed_error());
+    }
+    if (completed >= a_value)
+    {
+        if (FAILED(registrationCode))
+        {
+            return cue::Result<void>::failure(make_native_error(
+                *m_assertContext, cue::tool_host::ToolHostError::FenceWaitFailed,
+                "Tool Host Fence completion event registration failed after completion", "HRESULT", registrationCode));
+        }
+        if (waitCode == ERROR_SUCCESS)
+        {
+            return cue::Result<void>::success();
+        }
+        return cue::Result<void>::failure(
+            make_native_error(*m_assertContext, cue::tool_host::ToolHostError::FenceWaitFailed,
+                              "Tool Host Fence wait failed after completion", "Win32", waitCode));
+    }
+    terminate_unproven_completion(*m_assertContext);
+}
+
+cue::Result<void> WindowsD3d12ToolHost::finish_after_wait_error(cue::Error &&a_primary) noexcept
+{
+    cue::Result<void> drained = wait_for_fence(m_lastSignaledFence);
+    if (!drained)
+    {
+        if (is_device_removed_error(*drained.try_error()))
+        {
+            cue::Error removed = std::move(*drained.try_error());
+            cleanup();
+            return cue::Result<void>::failure(std::move(removed));
+        }
+        a_primary.append_secondary_diagnostics(*m_assertContext, *drained.try_error(),
+                                               "Tool Host final drain wait failed", "Drain");
+    }
+    cleanup();
+    return cue::Result<void>::failure(std::move(a_primary));
+}
+
+cue::Result<void> WindowsD3d12ToolHost::render_frame(cue::tool_host::ToolHostClient &a_client) noexcept
+{
+    const std::size_t frameIndex = static_cast<std::size_t>(m_frameSequence % k_frameCount);
+    FrameResource &frame = m_frames[frameIndex];
+    cue::Result<void> reusable = wait_for_fence(frame.reuseFenceValue);
+    if (!reusable)
+    {
+        return finish_after_wait_error(std::move(*reusable.try_error()));
+    }
+
+    cue::Result<std::uint64_t> reserved = reserve_fence_value();
+    if (!reserved)
+    {
+        cue::Result<void> drained = wait_for_fence(m_lastSignaledFence);
+        if (!drained)
+        {
+            return finish_after_wait_error(std::move(*reserved.try_error()));
+        }
+        cue::Error exhausted = std::move(*reserved.try_error());
+        cleanup();
+        return cue::Result<void>::failure(std::move(exhausted));
+    }
+    const std::uint64_t fenceValue = *reserved.try_value();
+
+    HRESULT result = frame.allocator->Reset();
+    if (SUCCEEDED(result))
+    {
+        result = m_commandList->Reset(frame.allocator.Get(), nullptr);
+    }
+    if (FAILED(result))
+    {
+        return cue::Result<void>::failure(
+            make_native_error(*m_assertContext, cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                              "Tool Host command recording reset failed", "HRESULT", result));
+    }
+
+    ImGui_ImplDX12_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+    a_client.draw_frame();
+    ImGui::Render();
+
+    const UINT backBufferIndex = m_swapChain->GetCurrentBackBufferIndex();
+    D3D12_RESOURCE_BARRIER toRenderTarget{};
+    toRenderTarget.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    toRenderTarget.Transition.pResource = m_backBuffers[backBufferIndex].Get();
+    toRenderTarget.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+    toRenderTarget.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    toRenderTarget.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    m_commandList->ResourceBarrier(1, &toRenderTarget);
+
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+    rtv.ptr += static_cast<SIZE_T>(backBufferIndex) * m_rtvIncrement;
+    constexpr float k_clearColor[] = {0.055F, 0.065F, 0.085F, 1.0F};
+    m_commandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+    m_commandList->ClearRenderTargetView(rtv, k_clearColor, 0, nullptr);
+    ID3D12DescriptorHeap *heaps[] = {m_srvHeap.Get()};
+    m_commandList->SetDescriptorHeaps(1, heaps);
+    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), m_commandList.Get());
+
+    D3D12_RESOURCE_BARRIER toPresent = toRenderTarget;
+    toPresent.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    toPresent.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+    m_commandList->ResourceBarrier(1, &toPresent);
+    result = m_commandList->Close();
+    if (FAILED(result))
+    {
+        return cue::Result<void>::failure(make_native_error(*m_assertContext,
+                                                            cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                                            "Tool Host command list close failed", "HRESULT", result));
+    }
+
+    ID3D12CommandList *lists[] = {m_commandList.Get()};
+    m_queue->ExecuteCommandLists(1, lists);
+    result = m_swapChain->Present(1, 0);
+    if (FAILED(result))
+    {
+        if (FAILED(m_device->GetDeviceRemovedReason()))
+        {
+            cue::Error removed = make_device_removed_error();
+            cleanup();
+            return cue::Result<void>::failure(std::move(removed));
+        }
+        cue::Error present = make_native_error(*m_assertContext, cue::tool_host::ToolHostError::PresentFailed,
+                                               "Tool Host Present failed", "HRESULT", result);
+        const HRESULT signaled = m_queue->Signal(m_fence.Get(), fenceValue);
+        if (SUCCEEDED(signaled))
+        {
+            frame.reuseFenceValue = fenceValue;
+            m_lastSignaledFence = fenceValue;
+            cue::Result<void> drained = wait_for_fence(fenceValue);
+            if (!drained)
+            {
+                if (is_device_removed_error(*drained.try_error()))
+                {
+                    cue::Error removed = std::move(*drained.try_error());
+                    cleanup();
+                    return cue::Result<void>::failure(std::move(removed));
+                }
+                return finish_after_wait_error(std::move(present));
+            }
+            cleanup();
+            return cue::Result<void>::failure(std::move(present));
+        }
+        cue::Result<void> uncertain = wait_for_fence(fenceValue);
+        if (!uncertain)
+        {
+            if (is_device_removed_error(*uncertain.try_error()))
+            {
+                cue::Error removed = std::move(*uncertain.try_error());
+                cleanup();
+                return cue::Result<void>::failure(std::move(removed));
+            }
+            present.append_secondary_diagnostics(*m_assertContext, *uncertain.try_error(),
+                                                 "Present compensation Signal failed", "Signal");
+        }
+        cleanup();
+        return cue::Result<void>::failure(std::move(present));
+    }
+
+    result = m_queue->Signal(m_fence.Get(), fenceValue);
+    if (FAILED(result))
+    {
+        cue::Error signal = make_native_error(*m_assertContext, cue::tool_host::ToolHostError::FenceSignalFailed,
+                                              "Tool Host frame Fence Signal failed", "HRESULT", result);
+        cue::Result<void> proven = wait_for_fence(fenceValue);
+        if (!proven)
+        {
+            if (is_device_removed_error(*proven.try_error()))
+            {
+                cue::Error removed = std::move(*proven.try_error());
+                cleanup();
+                return cue::Result<void>::failure(std::move(removed));
+            }
+            signal.append_secondary_diagnostics(*m_assertContext, *proven.try_error(),
+                                                "Failed frame Signal completion check failed", "Wait");
+        }
+        cleanup();
+        return cue::Result<void>::failure(std::move(signal));
+    }
+    frame.reuseFenceValue = fenceValue;
+    m_lastSignaledFence = fenceValue;
+    ++m_frameSequence;
+    return cue::Result<void>::success();
+}
+
+cue::Result<void> WindowsD3d12ToolHost::resize(cue::WindowSize a_size) noexcept
+{
+    cue::Result<void> drained = wait_for_fence(m_lastSignaledFence);
+    if (!drained)
+    {
+        return finish_after_wait_error(std::move(*drained.try_error()));
+    }
+    release_back_buffers();
+    const HRESULT result = m_swapChain->ResizeBuffers(k_frameCount, a_size.width, a_size.height, k_backBufferFormat, 0);
+    if (FAILED(result))
+    {
+        cue::Error error =
+            FAILED(m_device->GetDeviceRemovedReason())
+                ? make_device_removed_error()
+                : make_native_error(*m_assertContext, cue::tool_host::ToolHostError::SwapChainResizeFailed,
+                                    "Tool Host Swap Chain resize failed", "HRESULT", result);
+        cleanup();
+        return cue::Result<void>::failure(std::move(error));
+    }
+    cue::Result<void> buffers = create_back_buffers();
+    if (!buffers)
+    {
+        cleanup();
+        return buffers;
+    }
+    for (FrameResource &frame : m_frames)
+    {
+        frame.reuseFenceValue = 0;
+    }
+    return cue::Result<void>::success();
+}
+
+cue::Result<void> WindowsD3d12ToolHost::drain_for_shutdown() noexcept
+{
+    cue::Result<std::uint64_t> reserved = reserve_fence_value();
+    if (!reserved)
+    {
+        cue::Result<void> drained = wait_for_fence(m_lastSignaledFence);
+        if (!drained)
+        {
+            return finish_after_wait_error(std::move(*reserved.try_error()));
+        }
+        cue::Error exhausted = std::move(*reserved.try_error());
+        cleanup();
+        return cue::Result<void>::failure(std::move(exhausted));
+    }
+    const std::uint64_t terminalValue = *reserved.try_value();
+    const HRESULT result = m_queue->Signal(m_fence.Get(), terminalValue);
+    if (FAILED(result))
+    {
+        cue::Error signal = make_native_error(*m_assertContext, cue::tool_host::ToolHostError::FenceSignalFailed,
+                                              "Tool Host terminal Fence Signal failed", "HRESULT", result);
+        return finish_after_wait_error(std::move(signal));
+    }
+    m_lastSignaledFence = terminalValue;
+    cue::Result<void> waited = wait_for_fence(terminalValue);
+    if (!waited)
+    {
+        return finish_after_wait_error(std::move(*waited.try_error()));
+    }
+    cleanup();
+    return cue::Result<void>::success();
+}
+
+cue::Result<void> WindowsD3d12ToolHost::run(cue::tool_host::ToolHostClient &a_client) noexcept
+{
+    while (true)
+    {
+        cue::Result<cue::PumpStatus> pumped = m_windowSystem->pump_events();
+        if (!pumped)
+        {
+            return finish_after_wait_error(std::move(*pumped.try_error()));
+        }
+        if (*pumped.try_value() == cue::PumpStatus::QuitRequested)
+        {
+            break;
+        }
+
+        cue::WindowEvent event{};
+        while (m_window->try_pop_event(event))
+        {
+            if (event.type == cue::WindowEventType::CloseRequested || event.type == cue::WindowEventType::Destroyed)
+            {
+                return drain_for_shutdown();
+            }
+            if (event.type == cue::WindowEventType::Minimized)
+            {
+                m_isMinimized = true;
+            }
+            else if (event.type == cue::WindowEventType::Resized || event.type == cue::WindowEventType::Restored)
+            {
+                m_isMinimized = false;
+                cue::Result<void> resized = resize(event.clientSize);
+                if (!resized)
+                {
+                    return resized;
+                }
+            }
+        }
+
+        if (a_client.should_close())
+        {
+            return drain_for_shutdown();
+        }
+        if (m_isMinimized)
+        {
+            Sleep(16);
+            continue;
+        }
+
+        cue::Result<void> rendered = render_frame(a_client);
+        if (!rendered)
+        {
+            return rendered;
+        }
+        if (m_maximumFrameCount != 0 && m_frameSequence >= m_maximumFrameCount)
+        {
+            return drain_for_shutdown();
+        }
+    }
+    return drain_for_shutdown();
+}
+
+void WindowsD3d12ToolHost::cleanup() noexcept
+{
+    if (m_isMessageSinkAttached && m_window != nullptr && m_window->state() != cue::WindowState::Destroyed)
+    {
+        static_cast<void>(cue::detach_windows_message_sink(*m_window, m_messageSink, *m_assertContext));
+    }
+    m_isMessageSinkAttached = false;
+    if (m_isDx12BackendInitialized)
+    {
+        ImGui_ImplDX12_Shutdown();
+        m_isDx12BackendInitialized = false;
+    }
+    if (m_isWin32BackendInitialized)
+    {
+        ImGui_ImplWin32_Shutdown();
+        m_isWin32BackendInitialized = false;
+    }
+    if (m_isImGuiContextInitialized)
+    {
+        ImGui::DestroyContext();
+        m_isImGuiContextInitialized = false;
+    }
+
+    m_commandList.Reset();
+    for (FrameResource &frame : m_frames)
+    {
+        frame.allocator.Reset();
+        frame.reuseFenceValue = 0;
+    }
+    release_back_buffers();
+    m_rtvHeap.Reset();
+    m_srvHeap.Reset();
+    m_swapChain.Reset();
+    m_fence.Reset();
+    m_queue.Reset();
+    m_device.Reset();
+    m_factory.Reset();
+
+    if (m_window != nullptr && m_window->state() != cue::WindowState::Destroyed)
+    {
+        static_cast<void>(m_window->destroy());
+    }
+    m_window.reset();
+    m_windowSystem.reset();
+}
+} // namespace
+
+namespace cue::tool_host
+{
+Result<void> run_windows_d3d12_tool_host(const ToolHostDescriptor &a_descriptor, ToolHostClient &a_client,
+                                         const AssertContext &a_assertContext) noexcept
+{
+    WindowsD3d12ToolHost host(a_assertContext);
+    Result<void> initialized = host.initialize(a_descriptor);
+    if (!initialized)
+    {
+        return initialized;
+    }
+    return host.run(a_client);
+}
+} // namespace cue::tool_host
