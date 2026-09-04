@@ -123,7 +123,8 @@ namespace
     case cue::project_hub::ProjectEntryProblem::DescriptorInvalid:
         return "Project Folder内のCueProject.jsonが存在し、正しいJSONと必須項目を保持しているか確認してください。";
     case cue::project_hub::ProjectEntryProblem::IdentityMismatch:
-        return "別Projectでないか確認してください。移動した同一Projectなら一覧から除外し、再関連付けを有効にして登録してください。";
+        return "同一Projectの移動先を登録する場合は、このEntryを残したまま移動先Folderを指定し、再関連付けを有効にしてください。"
+               "現在のFolder内Projectを別Projectとして登録する場合だけ、このEntryを一覧から除外して通常登録してください。";
     case cue::project_hub::ProjectEntryProblem::CompatibilityInvalid:
         return "CueProject.jsonのFormat VersionとEngine互換性情報を確認し、対応するCueEngineで開いてください。";
     }
