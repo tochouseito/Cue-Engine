@@ -84,7 +84,8 @@ enum class WindowsRootOpenMode
 - `LocalApplicationData`は`FOLDERID_LocalAppData`から解決し、Environment VariableやCurrent Directoryへ依存しない
 - Project Hubは検証済み`RelativePath`の`CueEngine/Workspace`と`CreateOrOpen`を指定する
 - `CreateOrOpen`はKnown Folder自体を作成せず、Relative Rootの各Segmentだけを順に作成または検証する
-- 既存Entryが通常Directoryなら再利用し、FileまたはReparse Pointなら`Cue.IO`のEntry Type Errorを返して先へ進まない
+- 既存Entryが通常Directoryなら再利用し、Fileなら`IoError::TypeMismatch`、Reparse Pointなら
+  `IoError::UnsupportedEntry`を返して先へ進まない
 - Known Folder解決、Directory作成、Open失敗はNative Errorを保持したRecoverable Errorとして返す
 - 作成後は既存のRoot Identity、Directory、Reparse Point検査を通してから`FilesystemRoot`を公開する
 - APIはRoot DirectoryだけをCreate-or-openし、`CueWorkspace.json`の作成とAtomic保存は`Cue.ProjectHub`が行う

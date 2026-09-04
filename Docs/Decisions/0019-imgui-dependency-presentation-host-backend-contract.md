@@ -142,7 +142,8 @@ Cue.ProjectHub.Windows ---> Cue.ProjectHub
 
 Cue.Editor.Tool ----------> Cue.ToolHost.WindowsD3D12
           |----------------> Cue.Editor.ImGui
-          `----------------> Cue.EditorCore
+          |----------------> Cue.EditorCore
+          `----------------> Cue.IO.Windows
 
 Cue.ImGui.Backend.Win32D3D12 -> Cue.ImGui.Core
 
@@ -159,6 +160,10 @@ Tool Host の Native ObjectをPresentation AdapterまたはApplication Service�
 `Cue.ProjectHub.Tool`と`Cue.Editor.Tool`を最終Executable Composition Rootとする。各Rootは
 `Cue.ToolHost.WindowsD3D12`、対応するApplication Service、Presentation Adapter、Presentation Stateを一意所有し、
 HostのFrame Callback内でAdapterを駆動する。共通Host TargetはProject HubまたはEditor固有型へ依存しない。
+
+`Cue.Editor.Tool`は`Cue.IO.Windows`を介して、起動要求から再検証したProject Descriptorが示すSource Assets RootとSaved Rootを
+Windows Filesystem Rootとして生成する。両Rootと`ScenePersistenceServices`は`EditorController`および
+`ProjectWorkspaceSession`より長く一意所有し、Presentation AdapterへFilesystemまたはNative Handleを公開しない。
 
 `Cue.ProjectHub.Windows`は`ProjectHubPlatform`の本番Windows Adapter Factoryを提供し、Locator正規化、Project Locator合成、
 Windows Filesystem Root生成、UUID発行を実装する。`Cue.ProjectHub.Tool`はこのAdapterと`Cue.IO.Windows`からWorkspace

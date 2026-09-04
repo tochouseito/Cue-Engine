@@ -102,7 +102,7 @@ Cue.ProjectHub.Windows --> Cue.ProjectHub / Cue.IO.Windows / Cue.Foundation.Wind
 Cue.ProjectHub.Tool -----> Cue.ToolHost.WindowsD3D12 / Cue.ProjectHub.ImGui
           `--------------> Cue.ProjectHub.Windows / Cue.IO.Windows
 
-Cue.Editor.Tool ---------> Cue.ToolHost.WindowsD3D12 / Cue.Editor.ImGui / Cue.EditorCore
+Cue.Editor.Tool ---------> Cue.ToolHost.WindowsD3D12 / Cue.Editor.ImGui / Cue.EditorCore / Cue.IO.Windows
 
 Cue.RuntimeHost ---------> Cue.GameCore / Cue.Scene
 ```
@@ -116,6 +116,10 @@ Platform接続はPresentation Hostが所有し、`Cue.EditorCore`の公開APIへ
 ADR-0019で決定した`Cue.ToolHost.WindowsD3D12`が提供する。各最終Executable RootがHost、Application Service、
 Presentation Adapter、Platform Adapter、Filesystem Rootを組み合わせて所有する。本修正はPresentation／Hostの依存辺だけを更新し、
 本ADRのEditorDocument、Command、Transaction、Save、Process契約を変更しない。
+
+`Cue.Editor.Tool`は起動後に再検証したProject DescriptorからSource Assets RootとSaved Rootを`Cue.IO.Windows`で生成し、
+`ScenePersistenceServices`へ注入する。これらのRootは`EditorController`と`ProjectWorkspaceSession`より長く一意所有する。
+Process境界からFilesystem ObjectやNative Handleを受け取らず、Presentation Adapterへも公開しない。
 
 ### EditorDocument Ownership
 
