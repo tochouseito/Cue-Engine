@@ -142,20 +142,64 @@ std::span<const ProjectRowView> ProjectHubService::projects() const noexcept
     return m_projects;
 }
 
+ProjectCreationOutcome::ProjectCreationOutcome(std::string &&a_projectLocator,
+                                               std::optional<Error> &&a_registrationError) noexcept
+    : m_projectLocator(std::move(a_projectLocator)), m_registrationError(std::move(a_registrationError))
+{
+}
+
+bool ProjectCreationOutcome::is_recent_registered() const noexcept
+{
+    return !m_registrationError.has_value();
+}
+
+std::string_view ProjectCreationOutcome::project_locator() const noexcept
+{
+    return m_projectLocator;
+}
+
+const Error *ProjectCreationOutcome::try_registration_error() const noexcept
+{
+    return m_registrationError ? &*m_registrationError : nullptr;
+}
+
 Result<void> ProjectHubService::refresh() noexcept
+{
+    auto candidateResult = clone_registry();
+    if (!candidateResult)
+    {
+        return Result<void>::failure(std::move(*candidateResult.try_error()));
+    }
+    RecentProjectRegistry candidate = std::move(*candidateResult.try_value());
+    auto prepared = prepare_registry_snapshot(candidate);
+    if (!prepared)
+    {
+        return Result<void>::failure(std::move(*prepared.try_error()));
+    }
+    if (prepared.try_value()->registryChanged)
+    {
+        auto saved = save_recent_project_registry(*m_workspaceFilesystem, candidate, *m_assertContext);
+        if (!saved)
+        {
+            return Result<void>::failure(reclassify_project_hub_error(
+                *m_assertContext, ProjectHubError::PersistenceFailure, "Project Hub registry state could not be saved",
+                std::move(*saved.try_error())));
+        }
+        m_registry = std::move(candidate);
+    }
+    m_projects = std::move(prepared.try_value()->projects);
+    return Result<void>::success();
+}
+
+Result<ProjectHubService::PreparedRegistrySnapshot> ProjectHubService::prepare_registry_snapshot(
+    RecentProjectRegistry &a_registry) noexcept
 {
     try
     {
-        auto candidateResult = clone_registry();
-        if (!candidateResult)
-        {
-            return Result<void>::failure(std::move(*candidateResult.try_error()));
-        }
-        RecentProjectRegistry candidate = std::move(*candidateResult.try_value());
         std::vector<ProjectRowView> projects;
-        projects.reserve(candidate.entries().size());
+        projects.reserve(a_registry.entries().size());
         bool registryChanged = false;
-        for (const RecentProject &entry : candidate.entries())
+        for (const RecentProject &entry : a_registry.entries())
         {
             ProjectRowView row{std::string(entry.project_id().text()),
                                std::string(entry.locator()),
@@ -182,10 +226,10 @@ Result<void> ProjectHubService::refresh() noexcept
                 row.state = ProjectEntryState::Missing;
                 if (entry.locator_state() != ProjectLocatorState::Missing)
                 {
-                    auto marked = candidate.mark_project_missing(entry.project_id(), *m_assertContext);
+                    auto marked = a_registry.mark_project_missing(entry.project_id(), *m_assertContext);
                     if (!marked)
                     {
-                        return marked;
+                        return Result<PreparedRegistrySnapshot>::failure(std::move(*marked.try_error()));
                     }
                     registryChanged = true;
                 }
@@ -213,10 +257,10 @@ Result<void> ProjectHubService::refresh() noexcept
             row.engineCompatibility = descriptor.try_value()->engine_compatibility();
             if (entry.locator_state() == ProjectLocatorState::Missing)
             {
-                auto marked = candidate.mark_project_available(entry.project_id(), *m_assertContext);
+                auto marked = a_registry.mark_project_available(entry.project_id(), *m_assertContext);
                 if (!marked)
                 {
-                    return marked;
+                    return Result<PreparedRegistrySnapshot>::failure(std::move(*marked.try_error()));
                 }
                 row.state = ProjectEntryState::Available;
                 registryChanged = true;
@@ -238,86 +282,90 @@ Result<void> ProjectHubService::refresh() noexcept
                                             compatibility.try_value()->reasons().end());
             projects.push_back(std::move(row));
         }
-        if (registryChanged)
-        {
-            auto saved = save_recent_project_registry(*m_workspaceFilesystem, candidate, *m_assertContext);
-            if (!saved)
-            {
-                return Result<void>::failure(reclassify_project_hub_error(
-                    *m_assertContext, ProjectHubError::PersistenceFailure,
-                    "Project Hub registry state could not be saved", std::move(*saved.try_error())));
-            }
-            m_registry = std::move(candidate);
-        }
-        m_projects = std::move(projects);
-        return Result<void>::success();
+        return Result<PreparedRegistrySnapshot>::success(
+            PreparedRegistrySnapshot{std::move(projects), registryChanged});
     }
     catch (...)
     {
-        m_assertContext->fatal_handler().terminate("Cue.ProjectHub refresh failed");
+        m_assertContext->fatal_handler().terminate("Cue.ProjectHub registry snapshot preparation failed");
     }
     std::terminate();
 }
 
-Result<void> ProjectHubService::create_blank_project(std::string_view a_parentLocator, std::string_view a_projectName,
-                                                     std::string_view a_displayName, std::string_view a_templateId,
-                                                     std::uint64_t a_openedMilliseconds) noexcept
+Result<ProjectCreationOutcome> ProjectHubService::create_blank_project(std::string_view a_parentLocator,
+                                                                       std::string_view a_projectName,
+                                                                       std::string_view a_displayName,
+                                                                       std::string_view a_templateId,
+                                                                       std::uint64_t a_openedMilliseconds) noexcept
 {
     if (a_templateId != k_blank3dTemplateId)
     {
-        return Result<void>::failure(make_project_hub_error(*m_assertContext, ProjectHubError::InvalidTemplate,
-                                                            "Project template is not registered"));
+        return Result<ProjectCreationOutcome>::failure(make_project_hub_error(
+            *m_assertContext, ProjectHubError::InvalidTemplate, "Project template is not registered"));
     }
     auto parentLocator = m_platform->normalize_project_locator(a_parentLocator);
     if (!parentLocator)
     {
-        return Result<void>::failure(reclassify_project_hub_error(*m_assertContext, ProjectHubError::InvalidLocator,
-                                                                  "Project parent locator is invalid",
-                                                                  std::move(*parentLocator.try_error())));
+        return Result<ProjectCreationOutcome>::failure(
+            reclassify_project_hub_error(*m_assertContext, ProjectHubError::InvalidLocator,
+                                         "Project parent locator is invalid", std::move(*parentLocator.try_error())));
     }
     auto parentRoot = m_platform->open_root(*parentLocator.try_value());
     if (!parentRoot)
     {
-        return Result<void>::failure(reclassify_project_hub_error(*m_assertContext, ProjectHubError::InvalidLocator,
-                                                                  "Project parent locator could not be opened",
-                                                                  std::move(*parentRoot.try_error())));
+        return Result<ProjectCreationOutcome>::failure(reclassify_project_hub_error(
+            *m_assertContext, ProjectHubError::InvalidLocator, "Project parent locator could not be opened",
+            std::move(*parentRoot.try_error())));
     }
     if (*parentRoot.try_value() == nullptr)
     {
-        return Result<void>::failure(make_project_hub_error(*m_assertContext, ProjectHubError::ProjectMissing,
-                                                            "Project parent locator does not exist"));
+        return Result<ProjectCreationOutcome>::failure(make_project_hub_error(
+            *m_assertContext, ProjectHubError::ProjectMissing, "Project parent locator does not exist"));
     }
     auto projectLocator = m_platform->compose_project_locator(*parentLocator.try_value(), a_projectName);
     if (!projectLocator)
     {
-        return Result<void>::failure(reclassify_project_hub_error(*m_assertContext, ProjectHubError::InvalidLocator,
-                                                                  "Project locator could not be composed",
-                                                                  std::move(*projectLocator.try_error())));
+        return Result<ProjectCreationOutcome>::failure(reclassify_project_hub_error(
+            *m_assertContext, ProjectHubError::InvalidLocator, "Project locator could not be composed",
+            std::move(*projectLocator.try_error())));
     }
     auto projectId = m_platform->next_project_id();
     if (!projectId)
     {
-        return Result<void>::failure(std::move(*projectId.try_error()));
+        return Result<ProjectCreationOutcome>::failure(std::move(*projectId.try_error()));
     }
     auto descriptor =
         generate_blank_project(**parentRoot.try_value(), a_projectName, a_displayName, *projectId.try_value(),
                                BlankProjectTemplate{m_configuration.blankProjectCompatibility}, *m_assertContext);
     if (!descriptor)
     {
-        return Result<void>::failure(std::move(*descriptor.try_error()));
+        return Result<ProjectCreationOutcome>::failure(std::move(*descriptor.try_error()));
     }
+    auto makeUnregisteredOutcome = [&projectLocator](Error &&a_error)
+    {
+        std::optional<Error> registrationError(std::in_place, std::move(a_error));
+        return Result<ProjectCreationOutcome>::success(
+            ProjectCreationOutcome(std::string(*projectLocator.try_value()), std::move(registrationError)));
+    };
     auto candidate = clone_registry();
     if (!candidate)
     {
-        return Result<void>::failure(std::move(*candidate.try_error()));
+        return makeUnregisteredOutcome(std::move(*candidate.try_error()));
     }
     auto registered = candidate.try_value()->register_project(*descriptor.try_value(), *projectLocator.try_value(),
                                                               a_openedMilliseconds, *m_assertContext);
     if (!registered)
     {
-        return registered;
+        return makeUnregisteredOutcome(std::move(*registered.try_error()));
     }
-    return commit_registry(std::move(*candidate.try_value()));
+    auto committed = commit_registry(std::move(*candidate.try_value()));
+    if (!committed)
+    {
+        return makeUnregisteredOutcome(std::move(*committed.try_error()));
+    }
+    std::optional<Error> registrationError;
+    return Result<ProjectCreationOutcome>::success(
+        ProjectCreationOutcome(std::string(*projectLocator.try_value()), std::move(registrationError)));
 }
 
 Result<void> ProjectHubService::register_project(std::string_view a_locator, std::uint64_t a_openedMilliseconds,
@@ -548,6 +596,11 @@ Result<RecentProjectRegistry> ProjectHubService::clone_registry() const noexcept
 
 Result<void> ProjectHubService::commit_registry(RecentProjectRegistry &&a_registry) noexcept
 {
+    auto prepared = prepare_registry_snapshot(a_registry);
+    if (!prepared)
+    {
+        return Result<void>::failure(std::move(*prepared.try_error()));
+    }
     auto saved = save_recent_project_registry(*m_workspaceFilesystem, a_registry, *m_assertContext);
     if (!saved)
     {
@@ -556,7 +609,8 @@ Result<void> ProjectHubService::commit_registry(RecentProjectRegistry &&a_regist
                                                                   std::move(*saved.try_error())));
     }
     m_registry = std::move(a_registry);
-    return refresh();
+    m_projects = std::move(prepared.try_value()->projects);
+    return Result<void>::success();
 }
 
 Result<ProjectId> ProjectHubService::parse_project_id(std::string_view a_projectId) const noexcept

@@ -103,6 +103,32 @@ struct ProjectRowView final
     std::vector<ProjectCompatibilityReason> compatibilityReasons;
 };
 
+/// @brief Blank Project生成後のRecent登録状態と復旧情報
+class ProjectCreationOutcome final
+{
+  public:
+    ProjectCreationOutcome() = delete;
+    ProjectCreationOutcome(const ProjectCreationOutcome &) = delete;
+    ProjectCreationOutcome &operator=(const ProjectCreationOutcome &) = delete;
+    ProjectCreationOutcome(ProjectCreationOutcome &&) noexcept = default;
+    ProjectCreationOutcome &operator=(ProjectCreationOutcome &&) noexcept = default;
+    ~ProjectCreationOutcome() = default;
+
+    /// @brief 生成ProjectがRecent Registryへ永続登録済みならtrueを返す
+    [[nodiscard]] bool is_recent_registered() const noexcept;
+    /// @brief 生成済みProjectの正規化Locatorを返す
+    [[nodiscard]] std::string_view project_locator() const noexcept;
+    /// @brief Project生成後のRecent登録失敗を返す。登録済みならnullptr
+    [[nodiscard]] const Error *try_registration_error() const noexcept;
+
+  private:
+    friend class ProjectHubService;
+    ProjectCreationOutcome(std::string &&a_projectLocator, std::optional<Error> &&a_registrationError) noexcept;
+
+    std::string m_projectLocator;
+    std::optional<Error> m_registrationError;
+};
+
 /// @brief Project HubからEditor Processへ値だけで渡すLaunch契約
 class EditorLaunchRequest final
 {
@@ -160,9 +186,14 @@ class ProjectHubService final
     /// @brief 全Recent Locatorを再検査し、欠損や破損をEntry単位で隔離してViewModelを更新する
     [[nodiscard]] Result<void> refresh() noexcept;
     /// @brief Blank TemplateでProjectをAtomic生成しRecentへ登録する
-    [[nodiscard]] Result<void> create_blank_project(std::string_view a_parentLocator, std::string_view a_projectName,
-                                                    std::string_view a_displayName, std::string_view a_templateId,
-                                                    std::uint64_t a_openedMilliseconds) noexcept;
+    ///
+    /// Result失敗時はProjectが公開されていない。成功OutcomeでRecent未登録の場合もProject Folderは生成済みであり、
+    /// project_locatorをregister_projectへ渡してRecent登録だけを再試行する
+    [[nodiscard]] Result<ProjectCreationOutcome> create_blank_project(std::string_view a_parentLocator,
+                                                                      std::string_view a_projectName,
+                                                                      std::string_view a_displayName,
+                                                                      std::string_view a_templateId,
+                                                                      std::uint64_t a_openedMilliseconds) noexcept;
     /// @brief 既存Projectを登録し、明示時だけ同一ProjectIdの移動を再関連付けする
     [[nodiscard]] Result<void> register_project(std::string_view a_locator, std::uint64_t a_openedMilliseconds,
                                                 bool a_confirmMovedProject) noexcept;
@@ -186,6 +217,14 @@ class ProjectHubService final
                       ProjectHubConfiguration &&a_configuration, RecentProjectRegistry &&a_registry,
                       const AssertContext &a_assertContext) noexcept;
 
+    struct PreparedRegistrySnapshot final
+    {
+        std::vector<ProjectRowView> projects;
+        bool registryChanged;
+    };
+
+    [[nodiscard]] Result<PreparedRegistrySnapshot> prepare_registry_snapshot(
+        RecentProjectRegistry &a_registry) noexcept;
     [[nodiscard]] Result<RecentProjectRegistry> clone_registry() const noexcept;
     [[nodiscard]] Result<void> commit_registry(RecentProjectRegistry &&a_registry) noexcept;
     [[nodiscard]] Result<ProjectId> parse_project_id(std::string_view a_projectId) const noexcept;

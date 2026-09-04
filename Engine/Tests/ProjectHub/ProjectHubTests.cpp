@@ -92,6 +92,16 @@ class FailingWorkspaceFilesystem final : public cue::FilesystemRoot
         m_shouldFail = a_shouldFail;
     }
 
+    void reset_write_count() noexcept
+    {
+        m_writeCount = 0U;
+    }
+
+    [[nodiscard]] std::size_t write_count() const noexcept
+    {
+        return m_writeCount;
+    }
+
     [[nodiscard]] cue::Result<cue::EntryType> query_entry(const cue::RelativePath &a_path) noexcept override
     {
         return m_inner->query_entry(a_path);
@@ -111,6 +121,7 @@ class FailingWorkspaceFilesystem final : public cue::FilesystemRoot
     [[nodiscard]] cue::Result<void> write_file_atomic(const cue::RelativePath &a_path,
                                                       std::span<const std::byte> a_bytes) noexcept override
     {
+        ++m_writeCount;
         if (m_shouldFail)
         {
             return cue::Result<void>::failure(cue::project_hub::make_project_hub_error(
@@ -168,6 +179,7 @@ class FailingWorkspaceFilesystem final : public cue::FilesystemRoot
     std::unique_ptr<cue::FilesystemRoot> m_inner;
     const cue::AssertContext *m_assertContext;
     bool m_shouldFail = false;
+    std::size_t m_writeCount = 0U;
 };
 
 class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
@@ -264,9 +276,9 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
 
     [[nodiscard]] cue::Result<cue::ProjectId> next_project_id() noexcept override
     {
-        constexpr std::string_view ids[] = {"00000000-0000-4000-8000-000000000001",
-                                            "00000000-0000-4000-8000-000000000002",
-                                            "00000000-0000-4000-8000-000000000003"};
+        constexpr std::string_view ids[] = {
+            "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002",
+            "00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000004"};
         if (m_nextIdentity >= std::size(ids))
         {
             return cue::Result<cue::ProjectId>::failure(cue::project_hub::make_project_hub_error(
@@ -359,6 +371,7 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
     constexpr std::string_view alphaId = "00000000-0000-4000-8000-000000000001";
     constexpr std::string_view bravoId = "00000000-0000-4000-8000-000000000002";
     constexpr std::string_view charlieId = "00000000-0000-4000-8000-000000000003";
+    constexpr std::string_view deltaId = "00000000-0000-4000-8000-000000000004";
     const auto *alpha = find_project(service.try_value()->get()->projects(), alphaId);
     if (alpha == nullptr || alpha->state != cue::project_hub::ProjectEntryState::Available || !alpha->canOpen ||
         alpha->compatibilityStatus != cue::ProjectCompatibilityStatus::Compatible ||
@@ -372,6 +385,30 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
         !service.try_value()->get()->set_project_pinned(charlieId, true) ||
         !service.try_value()->get()->move_pinned_project(charlieId, 0U) ||
         service.try_value()->get()->projects()[0].projectId != charlieId)
+    {
+        return false;
+    }
+
+    std::error_code error;
+    std::filesystem::rename(directory.path() / "Projects" / "Alpha",
+                            directory.path() / "Projects" / "AlphaTemporarilyMissing", error);
+    workspaceFilesystem.reset_write_count();
+    if (error || !service.try_value()->get()->set_project_pinned(charlieId, false) ||
+        workspaceFilesystem.write_count() != 1U)
+    {
+        return false;
+    }
+    const auto *temporarilyMissingAlpha = find_project(service.try_value()->get()->projects(), alphaId);
+    const auto *unpinnedCharlie = find_project(service.try_value()->get()->projects(), charlieId);
+    if (temporarilyMissingAlpha == nullptr ||
+        temporarilyMissingAlpha->state != cue::project_hub::ProjectEntryState::Missing || unpinnedCharlie == nullptr ||
+        unpinnedCharlie->isPinned)
+    {
+        return false;
+    }
+    std::filesystem::rename(directory.path() / "Projects" / "AlphaTemporarilyMissing",
+                            directory.path() / "Projects" / "Alpha", error);
+    if (error || !service.try_value()->get()->refresh())
     {
         return false;
     }
@@ -393,7 +430,6 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
         return false;
     }
 
-    std::error_code error;
     std::filesystem::rename(directory.path() / "Projects" / "Bravo", directory.path() / "Projects" / "BravoMoved",
                             error);
     if (error)
@@ -426,6 +462,21 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
     const auto *brokenCharlie = find_project(service.try_value()->get()->projects(), charlieId);
     if (brokenCharlie == nullptr || brokenCharlie->state != cue::project_hub::ProjectEntryState::Broken ||
         brokenCharlie->problem != cue::project_hub::ProjectEntryProblem::DescriptorInvalid)
+    {
+        return false;
+    }
+
+    workspaceFilesystem.set_write_failure(true);
+    auto partiallyCreated = service.try_value()->get()->create_blank_project(
+        projectsLocator, "Delta", "Delta Project", cue::project_hub::k_blank3dTemplateId, 550U);
+    workspaceFilesystem.set_write_failure(false);
+    if (!partiallyCreated || partiallyCreated.try_value()->is_recent_registered() ||
+        partiallyCreated.try_value()->try_registration_error() == nullptr ||
+        !std::filesystem::exists(directory.path() / "Projects" / "Delta" / "CueProject.json") ||
+        find_project(service.try_value()->get()->projects(), deltaId) != nullptr ||
+        !service.try_value()->get()->register_project(partiallyCreated.try_value()->project_locator(), 550U, false) ||
+        find_project(service.try_value()->get()->projects(), deltaId) == nullptr ||
+        !service.try_value()->get()->remove_project(deltaId))
     {
         return false;
     }
