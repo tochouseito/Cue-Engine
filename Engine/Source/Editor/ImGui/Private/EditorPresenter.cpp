@@ -260,7 +260,7 @@ void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyCh
     cue::Result<const cue::schema::TypeDescriptor *> descriptor = a_registry.find(*typeId, a_assertContext);
     if (descriptor)
     {
-        return std::string((*descriptor.try_value())->name());
+        return object_name_label((*descriptor.try_value())->name());
     }
     return "Unknown Component [" + type_id_text(*typeId) + "]";
 }
@@ -765,14 +765,17 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     }
     else if (ImGui::BeginCombo("Componentを追加", "選択してください"))
     {
-        for (const EditorComponentTemplate &componentTemplate : m_componentTemplates)
+        for (std::size_t templateIndex = 0U; templateIndex < m_componentTemplates.size(); ++templateIndex)
         {
+            const EditorComponentTemplate &componentTemplate = m_componentTemplates[templateIndex];
             const std::optional<schema::TypeId> typeId = component_type_id(componentTemplate.prototype);
-            std::string typeIdText;
+            std::string templateIdentity;
             if (typeId.has_value())
             {
-                typeIdText = type_id_text(*typeId);
-                ImGui::PushID(typeIdText.data(), typeIdText.data() + typeIdText.size());
+                templateIdentity = type_id_text(*typeId);
+                templateIdentity.push_back(':');
+                templateIdentity.append(std::to_string(templateIndex));
+                ImGui::PushID(templateIdentity.data(), templateIdentity.data() + templateIdentity.size());
             }
             else
             {
@@ -782,12 +785,20 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
             const std::string componentName = object_name_label(componentTemplate.displayName);
             if (ImGui::Selectable(componentName.c_str()) && typeId.has_value() && !a_pendingIntent.has_value())
             {
-                a_pendingIntent.emplace(AddComponentIntent{object->id(), *typeId});
+                a_pendingIntent.emplace(AddComponentIntent{object->id(), *typeId, templateIndex});
             }
             ImGui::EndDisabled();
             ImGui::PopID();
         }
         ImGui::EndCombo();
+    }
+
+    if (a_pendingIntent.has_value() && !std::holds_alternative<RenameObjectIntent>(*a_pendingIntent) &&
+        m_name.find('\0') == std::string::npos && m_name != object->name())
+    {
+        // 後続Inspector操作よりName確定を優先し、成功後の次Frameまで元の操作を遅延する
+        m_deferredIntent.emplace(std::move(*a_pendingIntent));
+        a_pendingIntent.emplace(RenameObjectIntent{object->id(), m_name});
     }
     ImGui::EndChild();
 }

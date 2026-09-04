@@ -4,6 +4,7 @@
 #include <Cue/Scene/ComponentData.h>
 #include <Cue/Scene/Identity.h>
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <variant>
@@ -65,11 +66,12 @@ struct EditTransformIntent final
     math::Transform transform;
 };
 
-/// @brief Template Type Identityから新しいComponent Instanceを追加するIntent
+/// @brief Template Type Identityと候補Indexから新しいComponent Instanceを追加するIntent
 struct AddComponentIntent final
 {
     scene::ObjectId objectId;
     schema::TypeId componentTypeId;
+    std::size_t componentTemplateIndex;
 };
 
 /// @brief Stable Object／Component IdentityのComponentを削除するIntent

@@ -143,13 +143,14 @@ template <typename T> T take_value(cue::Result<T> a_result) noexcept
 /// @brief 固定Identityと初期値からAdd Component用Prototypeを生成する
 [[nodiscard]] cue::scene::SceneComponent make_component(const cue::schema::SchemaRegistry &a_registry,
                                                         const cue::scene::ComponentValueSchemaRegistry &a_valueRegistry,
-                                                        const cue::AssertContext &a_assertContext) noexcept
+                                                        const cue::AssertContext &a_assertContext,
+                                                        std::int64_t a_value = 10) noexcept
 {
     cue::scene::ComponentInstanceId componentId =
         take_value(cue::scene::ComponentInstanceId::parse("20000000-0000-4000-8000-000000000001", a_assertContext));
     std::vector<cue::scene::KnownFieldData> fields;
     fields.push_back(take_value(
-        cue::scene::create_known_field(make_field_id(a_assertContext), cue::scene::FieldValue::signed_integer(10),
+        cue::scene::create_known_field(make_field_id(a_assertContext), cue::scene::FieldValue::signed_integer(a_value),
                                        cue::scene::FieldValueKind::SignedInteger, a_assertContext)));
     std::vector<cue::scene::OpaqueFieldData> unknownFields;
     cue::scene::KnownComponentData component = take_value(cue::scene::create_known_component(
@@ -201,6 +202,8 @@ void test_hierarchy_inspector_intents() noexcept
     std::vector<cue::editor_core::EditorComponentTemplate> templates;
     templates.push_back(cue::editor_core::EditorComponentTemplate{
         "Test Component", make_component(*registry, valueRegistry, assertContext)});
+    templates.push_back(cue::editor_core::EditorComponentTemplate{
+        "Test Component Alternative", make_component(*registry, valueRegistry, assertContext, 20)});
     std::unique_ptr<cue::editor::EditorPresenter> presenter = cue::editor::EditorPresenter::create(
         *controller, documentId, sceneIdentitySource, *registry, std::move(templates), assertContext);
 
@@ -233,11 +236,14 @@ void test_hierarchy_inspector_intents() noexcept
     require(document->scene_document().find_object(rootId)->transform().translation() ==
             cue::math::Vector3{1.0F, 2.0F, 3.0F});
 
-    require(presenter->submit(cue::editor_core::AddComponentIntent{rootId, make_component_type_id(assertContext)})
+    require(presenter->submit(cue::editor_core::AddComponentIntent{rootId, make_component_type_id(assertContext), 1U})
                 .has_value());
     document = controller->session().find_document(documentId);
     const cue::scene::SceneObject *root = document->scene_document().find_object(rootId);
     require(root != nullptr && root->components().size() == 1U);
+    const cue::scene::KnownComponentData *addedComponent = root->components()[0].try_known();
+    require(addedComponent != nullptr && addedComponent->known_fields().size() == 1U);
+    require(*addedComponent->known_fields()[0].value().try_signed_integer() == 20);
     const cue::scene::ComponentInstanceId addedComponentId = root->components()[0].instance_id();
     require(presenter->submit(cue::editor_core::RemoveComponentIntent{rootId, addedComponentId}).has_value());
     document = controller->session().find_document(documentId);

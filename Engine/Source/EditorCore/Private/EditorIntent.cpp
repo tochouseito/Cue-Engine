@@ -255,20 +255,19 @@ Result<void> EditorController::execute_intent(EditorDocumentId a_documentId, Edi
             }
             else if constexpr (std::is_same_v<Intent, AddComponentIntent>)
             {
-                const EditorComponentTemplate *componentTemplate = nullptr;
-                for (const EditorComponentTemplate &candidate : a_componentTemplates)
-                {
-                    if (template_matches(candidate, a_typedIntent.componentTypeId))
-                    {
-                        componentTemplate = &candidate;
-                        break;
-                    }
-                }
-                if (componentTemplate == nullptr)
+                if (a_typedIntent.componentTemplateIndex >= a_componentTemplates.size())
                 {
                     return Result<void>::failure(scene::make_scene_error(*m_assertContext,
                                                                          scene::SceneError::UnknownSchemaType,
                                                                          "Editor component template was not found"));
+                }
+                const EditorComponentTemplate &componentTemplate =
+                    a_componentTemplates[a_typedIntent.componentTemplateIndex];
+                if (!template_matches(componentTemplate, a_typedIntent.componentTypeId))
+                {
+                    return Result<void>::failure(
+                        scene::make_scene_error(*m_assertContext, scene::SceneError::UnknownSchemaType,
+                                                "Editor component template identity did not match its type"));
                 }
                 Result<scene::ComponentInstanceId> generated =
                     scene::ComponentInstanceId::generate(a_identitySource, *m_assertContext);
@@ -276,7 +275,7 @@ Result<void> EditorController::execute_intent(EditorDocumentId a_documentId, Edi
                 {
                     return Result<void>::failure(std::move(*generated.try_error()));
                 }
-                Result<scene::SceneComponent> component = componentTemplate->prototype.duplicate_with_identity(
+                Result<scene::SceneComponent> component = componentTemplate.prototype.duplicate_with_identity(
                     std::move(*generated.try_value()), *m_assertContext);
                 if (!component)
                 {
