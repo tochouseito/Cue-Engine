@@ -511,9 +511,20 @@ void ProjectHubPresenter::draw_project_list(bool a_canLaunchEditor) noexcept
                     {
                         if (reason.capability.has_value())
                         {
-                            ImGui::TextWrapped("互換性 [%s / %s]: %s", capability_text(*reason.capability),
-                                               requirement_kind_text(reason.requirementKind),
-                                               compatibility_reason_text(reason.code));
+                            if (reason.minimumVersion.has_value())
+                            {
+                                ImGui::TextWrapped("互換性 [%s / %s / 必要Version %u.%u以上]: %s",
+                                                   capability_text(*reason.capability),
+                                                   requirement_kind_text(reason.requirementKind),
+                                                   reason.minimumVersion->major, reason.minimumVersion->minor,
+                                                   compatibility_reason_text(reason.code));
+                            }
+                            else
+                            {
+                                ImGui::TextWrapped("互換性 [%s / %s]: %s", capability_text(*reason.capability),
+                                                   requirement_kind_text(reason.requirementKind),
+                                                   compatibility_reason_text(reason.code));
+                            }
                         }
                         else if ((reason.code == ProjectCompatibilityReasonCode::EngineVersionTooOld ||
                                   reason.code == ProjectCompatibilityReasonCode::EngineVersionTooNew) &&

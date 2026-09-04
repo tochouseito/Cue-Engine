@@ -79,7 +79,8 @@ void append_capability_reason(std::vector<cue::ProjectCompatibilityReason> &a_re
                               cue::ProjectCompatibilityReasonCode a_code,
                               const cue::ProjectCapabilityRequirement &a_requirement)
 {
-    a_reasons.push_back({a_code, a_requirement.capability, a_requirement.kind});
+    a_reasons.push_back(
+        {a_code, a_requirement.capability, a_requirement.kind, a_requirement.minimumVersion});
 }
 
 /// @brief 一つのProject要件について診断とRuntime有効状態を独立して評価する
