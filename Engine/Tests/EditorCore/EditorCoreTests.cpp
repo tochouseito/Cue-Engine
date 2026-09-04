@@ -1,4 +1,5 @@
 #include <Cue/EditorCore/EditorController.h>
+#include <Cue/EditorCore/EditorIntent.h>
 #include <Cue/EditorCore/Error.h>
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Fatal.h>
@@ -39,6 +40,28 @@ class TestFatalHandler final : public cue::FatalHandler
     {
         std::abort();
     }
+};
+
+/// @brief Editor IntentのObject／Component生成へ重複しないUUID Version 4候補を返す
+class TestSceneIdentitySource final : public cue::scene::SceneIdentitySource
+{
+  public:
+    /// @brief Counterを埋め込んだRFC 4122 UUID Version 4候補を返す
+    [[nodiscard]] cue::scene::IdentityBytes next_identity() noexcept override
+    {
+        cue::scene::IdentityBytes bytes{};
+        for (std::size_t index = 0U; index < sizeof(m_next); ++index)
+        {
+            bytes[bytes.size() - 1U - index] = static_cast<std::uint8_t>((m_next >> (index * 8U)) & 0xFFU);
+        }
+        bytes[6] = static_cast<std::uint8_t>((bytes[6] & 0x0FU) | 0x40U);
+        bytes[8] = static_cast<std::uint8_t>((bytes[8] & 0x3FU) | 0x80U);
+        ++m_next;
+        return bytes;
+    }
+
+  private:
+    std::uint64_t m_next = 0x900U;
 };
 
 /// @brief Editor Persistence Test用のRoot境界付きMemory Filesystem
@@ -251,12 +274,11 @@ class MemoryFilesystemRoot final : public cue::FilesystemRoot
     }
 
     /// @brief Recovery Backup公開後の本文競合をTest注入できるようにする
-    [[nodiscard]] cue::Result<void> write_recovery_backup_atomic(
-        const cue::RelativePath &a_destination, std::span<const std::byte> a_bytes,
-        const cue::AssertContext &) noexcept override
+    [[nodiscard]] cue::Result<void> write_recovery_backup_atomic(const cue::RelativePath &a_destination,
+                                                                 std::span<const std::byte> a_bytes,
+                                                                 const cue::AssertContext &) noexcept override
     {
-        m_files[recovery_backup_key(a_destination.text())] =
-            std::vector<std::byte>(a_bytes.begin(), a_bytes.end());
+        m_files[recovery_backup_key(a_destination.text())] = std::vector<std::byte>(a_bytes.begin(), a_bytes.end());
         if (a_destination.text() == m_backupWriteMutationPath)
         {
             set(m_backupWriteMutationPath, m_backupWriteMutationText);
@@ -728,6 +750,49 @@ void test_selection_reconciliation() noexcept
     require(document != nullptr);
     require(document->selection().empty());
     require(document->try_primary_selection() == nullptr);
+}
+
+/// @brief Semantic IntentがPresentation非依存でControllerのCommand／Workflowへ変換されることを検証する
+void test_editor_intents() noexcept
+{
+    TestFatalHandler fatalHandler;
+    std::vector<std::unique_ptr<cue::LogSink>> sinks;
+    cue::Logger logger(fatalHandler, std::move(sinks));
+    cue::AssertContext assertContext(logger, fatalHandler);
+    TestSceneIdentitySource identitySource;
+    auto controller = cue::editor_core::EditorController::create(make_project_descriptor(assertContext), assertContext);
+
+    auto scene = make_scene_document("00000000-0000-4000-8000-000000000321", assertContext);
+    auto locator = take_value(cue::RelativePath::parse("Scenes/Intent.cuescene", assertContext));
+    const auto documentId = take_value(controller->open_document(std::move(scene), std::move(locator), true));
+
+    require(
+        controller
+            ->execute_intent(documentId, cue::editor_core::AddObjectIntent{std::nullopt, "Root"}, identitySource, {})
+            .has_value());
+    const auto *document = controller->session().find_document(documentId);
+    require(document != nullptr && document->scene_document().object_count() == 1U);
+    require(document->selection().size() == 1U && document->try_primary_selection() != nullptr);
+    const cue::scene::ObjectId rootId = *document->try_primary_selection();
+
+    require(
+        controller
+            ->execute_intent(documentId, cue::editor_core::RenameObjectIntent{rootId, "Renamed"}, identitySource, {})
+            .has_value());
+    document = controller->session().find_document(documentId);
+    require(document->scene_document().find_object(rootId)->name() == "Renamed");
+    require(controller->execute_intent(documentId, cue::editor_core::UndoIntent{}, identitySource, {}).has_value());
+    document = controller->session().find_document(documentId);
+    require(document->scene_document().find_object(rootId)->name() == "Root");
+    require(controller->execute_intent(documentId, cue::editor_core::RedoIntent{}, identitySource, {}).has_value());
+    document = controller->session().find_document(documentId);
+    require(document->scene_document().find_object(rootId)->name() == "Renamed");
+
+    const auto missing = controller->execute_intent(cue::editor_core::EditorDocumentId(documentId.value() + 1U),
+                                                    cue::editor_core::UndoIntent{}, identitySource, {});
+    require(!missing.has_value());
+    require(missing.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::DocumentNotFound));
 }
 
 /// @brief Scene 編集 Command の Stable ID、完全 Rollback、Subtree 操作を検証する
@@ -1723,6 +1788,7 @@ int main()
     test_workspace_and_open();
     test_revision_and_dirty();
     test_selection_reconciliation();
+    test_editor_intents();
     test_scene_commands();
     test_transaction_history();
     test_scene_persistence_workflow();

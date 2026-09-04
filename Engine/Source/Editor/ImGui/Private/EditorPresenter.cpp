@@ -40,16 +40,6 @@ namespace
     std::terminate();
 }
 
-/// @brief Value付きResultを診断を保持したResult<void>へ変換する
-template <typename T> [[nodiscard]] cue::Result<void> discard_value(cue::Result<T> a_result) noexcept
-{
-    if (!a_result)
-    {
-        return cue::Result<void>::failure(std::move(*a_result.try_error()));
-    }
-    return cue::Result<void>::success();
-}
-
 /// @brief SceneComponentが保持するStable Type Identityを返す
 [[nodiscard]] std::optional<cue::schema::TypeId> component_type_id(
     const cue::scene::SceneComponent &a_component) noexcept
@@ -78,6 +68,45 @@ template <typename T> [[nodiscard]] cue::Result<void> discard_value(cue::Result<
         text[index++] = k_hexDigits[byte & 0x0FU];
     }
     return text;
+}
+
+/// @brief Object名の制御Byteを可視表現へEscapeしてImGuiのNUL終端Labelへ渡せるようにする
+[[nodiscard]] std::string object_name_label(std::string_view a_name)
+{
+    constexpr char k_hexDigits[] = "0123456789abcdef";
+    std::string label;
+    label.reserve(a_name.size());
+    for (const unsigned char byte : a_name)
+    {
+        switch (byte)
+        {
+        case 0U:
+            label.append("\\0");
+            break;
+        case static_cast<unsigned char>('\n'):
+            label.append("\\n");
+            break;
+        case static_cast<unsigned char>('\r'):
+            label.append("\\r");
+            break;
+        case static_cast<unsigned char>('\t'):
+            label.append("\\t");
+            break;
+        default:
+            if (byte < 0x20U || byte == 0x7FU)
+            {
+                label.append("\\x");
+                label.push_back(k_hexDigits[(byte >> 4U) & 0x0FU]);
+                label.push_back(k_hexDigits[byte & 0x0FU]);
+            }
+            else
+            {
+                label.push_back(static_cast<char>(byte));
+            }
+            break;
+        }
+    }
+    return label;
 }
 
 /// @brief Stable Component IdentityをImGui ID用のCanonical文字列へ変換する
@@ -153,7 +182,7 @@ using HierarchySelectionIndex = std::unordered_set<cue::scene::ObjectId, ObjectI
 void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyChildIndex &a_childrenByParent,
                       const HierarchySelectionIndex &a_selectionIndex,
                       std::span<const cue::scene::ObjectId> a_selection,
-                      std::optional<cue::editor::EditorIntent> &a_pendingIntent)
+                      std::optional<cue::editor_core::EditorIntent> &a_pendingIntent)
 {
     const auto children = a_childrenByParent.find(a_object.id());
     const bool hasChildren = children != a_childrenByParent.end() && !children->second.empty();
@@ -169,7 +198,7 @@ void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyCh
     {
         flags |= ImGuiTreeNodeFlags_Selected;
     }
-    const std::string name(a_object.name());
+    const std::string name = object_name_label(a_object.name());
     const bool isOpen = ImGui::TreeNodeEx("##Object", flags, "%s", name.c_str());
     if (!a_pendingIntent.has_value() && ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
     {
@@ -198,7 +227,7 @@ void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyCh
             nextSelection.push_back(a_object.id());
             primary = a_object.id();
         }
-        a_pendingIntent.emplace(cue::editor::SelectObjectsIntent{std::move(nextSelection), std::move(primary)});
+        a_pendingIntent.emplace(cue::editor_core::SelectObjectsIntent{std::move(nextSelection), std::move(primary)});
     }
 
     if (hasChildren && isOpen)
@@ -210,118 +239,6 @@ void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyCh
         ImGui::TreePop();
     }
     ImGui::PopID();
-}
-
-/// @brief CandidateがSource Root自身またはそのDescendantかRead-only Parent Chainで判定する
-[[nodiscard]] bool is_in_subtree(const cue::scene::SceneDocument &a_document, const cue::scene::ObjectId &a_candidateId,
-                                 const cue::scene::ObjectId &a_sourceRootId) noexcept
-{
-    const cue::scene::SceneObject *candidate = a_document.find_object(a_candidateId);
-    while (candidate != nullptr)
-    {
-        if (candidate->id() == a_sourceRootId)
-        {
-            return true;
-        }
-        const cue::scene::ObjectId *parentId = candidate->try_parent_id();
-        candidate = parentId != nullptr ? a_document.find_object(*parentId) : nullptr;
-    }
-    return false;
-}
-
-/// @brief Subtree Duplicate Commandと複製後に選択するRoot Identityを所有する
-struct GeneratedDuplicate final
-{
-    cue::editor_core::DuplicateObjectCommand command;
-    cue::scene::ObjectId duplicateRootId;
-};
-
-/// @brief Scene名上限内でUTF-8境界を保ちつつ複製Suffixを付加する
-[[nodiscard]] std::string make_duplicate_name(std::string_view a_sourceName)
-{
-    constexpr std::string_view k_suffix = " Copy";
-    const std::size_t maximumPrefixBytes = cue::scene::k_maximumSceneStringBytes - k_suffix.size();
-    std::size_t prefixBytes = (std::min)(a_sourceName.size(), maximumPrefixBytes);
-    while (prefixBytes < a_sourceName.size() && prefixBytes > 0U &&
-           (static_cast<unsigned char>(a_sourceName[prefixBytes]) & 0xC0U) == 0x80U)
-    {
-        --prefixBytes;
-    }
-
-    std::string result(a_sourceName.substr(0U, prefixBytes));
-    result.append(k_suffix);
-    return result;
-}
-
-/// @brief Read-only Scene ViewからSubtree全体の新しいObject／Component Identity対応を生成する
-[[nodiscard]] cue::Result<GeneratedDuplicate> generate_duplicate(const cue::scene::SceneDocument &a_document,
-                                                                 const cue::scene::ObjectId &a_sourceRootId,
-                                                                 cue::scene::SceneIdentitySource &a_identitySource,
-                                                                 const cue::AssertContext &a_assertContext)
-{
-    const cue::scene::SceneObject *sourceRoot = a_document.find_object(a_sourceRootId);
-    if (sourceRoot == nullptr)
-    {
-        return cue::Result<GeneratedDuplicate>::failure(cue::scene::make_scene_error(
-            a_assertContext, cue::scene::SceneError::ObjectNotFound, "Duplicate source object was not found"));
-    }
-
-    std::vector<cue::editor_core::DuplicateObjectTarget> targets;
-    targets.reserve(a_document.object_count());
-    std::optional<cue::scene::ObjectId> duplicateRootId;
-    for (const cue::scene::SceneObject &object : a_document.objects())
-    {
-        if (!is_in_subtree(a_document, object.id(), a_sourceRootId))
-        {
-            continue;
-        }
-
-        cue::Result<cue::scene::ObjectId> generatedObjectId =
-            cue::scene::ObjectId::generate(a_identitySource, a_assertContext);
-        if (!generatedObjectId)
-        {
-            return cue::Result<GeneratedDuplicate>::failure(std::move(*generatedObjectId.try_error()));
-        }
-        cue::scene::ObjectId objectId = std::move(*generatedObjectId.try_value());
-        if (object.id() == a_sourceRootId)
-        {
-            duplicateRootId = objectId;
-        }
-
-        std::vector<cue::scene::ComponentInstanceId> componentIds;
-        componentIds.reserve(object.components().size());
-        for (const cue::scene::SceneComponent &component : object.components())
-        {
-            static_cast<void>(component);
-            cue::Result<cue::scene::ComponentInstanceId> generatedComponentId =
-                cue::scene::ComponentInstanceId::generate(a_identitySource, a_assertContext);
-            if (!generatedComponentId)
-            {
-                return cue::Result<GeneratedDuplicate>::failure(std::move(*generatedComponentId.try_error()));
-            }
-            componentIds.push_back(std::move(*generatedComponentId.try_value()));
-        }
-
-        std::string duplicateName =
-            object.id() == a_sourceRootId ? make_duplicate_name(object.name()) : std::string(object.name());
-        targets.push_back(cue::editor_core::DuplicateObjectTarget{object.id(), std::move(objectId),
-                                                                  std::move(duplicateName), std::move(componentIds)});
-    }
-
-    return cue::Result<GeneratedDuplicate>::success(GeneratedDuplicate{
-        cue::editor_core::DuplicateObjectCommand{a_sourceRootId, std::move(targets)}, std::move(*duplicateRootId)});
-}
-
-/// @brief 一つのSceneCommandを意味Label付きTransactionとしてControllerへ渡す
-[[nodiscard]] cue::Result<cue::editor_core::DocumentStateId> execute_command(
-    cue::editor_core::EditorController &a_controller, cue::editor_core::EditorDocumentId a_documentId,
-    const cue::scene::SceneAssetId &a_sceneAssetId, cue::editor_core::SceneEditCommand a_command,
-    std::string_view a_label)
-{
-    cue::editor_core::EditorTransaction transaction{std::string(a_label), {}};
-    transaction.commands.push_back(
-        cue::editor_core::SceneCommandRequest{a_documentId, a_sceneAssetId, std::move(a_command)});
-    return a_controller.execute_transaction(std::move(transaction));
 }
 
 /// @brief Schema RegistryからComponent表示名を取得し、未知TypeはStable Identity表示へ退避する
@@ -389,22 +306,85 @@ void draw_field_value(const cue::scene::FieldValue &a_value)
     }
 }
 
-/// @brief Component Type IdentityがTemplateのPrototypeと一致するか判定する
-[[nodiscard]] bool template_matches(const cue::editor::EditorComponentTemplate &a_template,
-                                    cue::schema::TypeId a_typeId) noexcept
+/// @brief 成功したSemantic Intentを利用者向けStatusへ変換する
+[[nodiscard]] std::string_view intent_status(const cue::editor_core::EditorIntent &a_intent) noexcept
 {
-    const std::optional<cue::schema::TypeId> templateTypeId = component_type_id(a_template.prototype);
-    return templateTypeId.has_value() && *templateTypeId == a_typeId;
+    return std::visit(
+        /// @brief Intent AlternativeごとにPresentationだけが所有する成功Messageを返す
+        [](const auto &a_typedIntent) noexcept -> std::string_view
+        {
+            using Intent = std::remove_cvref_t<decltype(a_typedIntent)>;
+            if constexpr (std::is_same_v<Intent, cue::editor_core::SelectObjectsIntent>)
+            {
+                return "選択を更新しました。";
+            }
+            else if constexpr (std::is_same_v<Intent, cue::editor_core::AddObjectIntent>)
+            {
+                return "Objectを追加しました。";
+            }
+            else if constexpr (std::is_same_v<Intent, cue::editor_core::DeleteObjectIntent>)
+            {
+                return "ObjectとChildを削除しました。";
+            }
+            else if constexpr (std::is_same_v<Intent, cue::editor_core::DuplicateObjectIntent>)
+            {
+                return "ObjectとChildを複製しました。";
+            }
+            else if constexpr (std::is_same_v<Intent, cue::editor_core::RenameObjectIntent>)
+            {
+                return "Object名を変更しました。";
+            }
+            else if constexpr (std::is_same_v<Intent, cue::editor_core::ReparentObjectIntent>)
+            {
+                return a_typedIntent.parentId.has_value() ? "Parentを変更しました。" : "ObjectをRootへ移動しました。";
+            }
+            else if constexpr (std::is_same_v<Intent, cue::editor_core::EditTransformIntent>)
+            {
+                return "Transformを変更しました。";
+            }
+            else if constexpr (std::is_same_v<Intent, cue::editor_core::AddComponentIntent>)
+            {
+                return "Componentを追加しました。";
+            }
+            else if constexpr (std::is_same_v<Intent, cue::editor_core::RemoveComponentIntent>)
+            {
+                return "Componentを削除しました。";
+            }
+            else if constexpr (std::is_same_v<Intent, cue::editor_core::UndoIntent>)
+            {
+                return "直前の編集を元に戻しました。";
+            }
+            else
+            {
+                return "取り消した編集を再適用しました。";
+            }
+        },
+        a_intent);
 }
+
 } // namespace
 
 namespace cue::editor
 {
+using editor_core::AddComponentIntent;
+using editor_core::AddObjectIntent;
+using editor_core::DeleteObjectIntent;
+using editor_core::DuplicateObjectIntent;
+using editor_core::EditorComponentTemplate;
+using editor_core::EditorIntent;
+using editor_core::EditTransformIntent;
+using editor_core::RedoIntent;
+using editor_core::RemoveComponentIntent;
+using editor_core::RenameObjectIntent;
+using editor_core::ReparentObjectIntent;
+using editor_core::SelectObjectsIntent;
+using editor_core::UndoIntent;
+
 EditorPresenter::EditorPresenter(editor_core::EditorController &a_controller,
                                  editor_core::EditorDocumentId a_documentId,
                                  scene::SceneIdentitySource &a_identitySource,
                                  const schema::SchemaRegistry &a_schemaRegistry,
-                                 std::vector<EditorComponentTemplate> a_componentTemplates,
+                                 std::vector<editor_core::EditorComponentTemplate> a_componentTemplates,
                                  const AssertContext &a_assertContext) noexcept
     : m_controller(&a_controller), m_identitySource(&a_identitySource), m_schemaRegistry(&a_schemaRegistry),
       m_assertContext(&a_assertContext), m_componentTemplates(std::move(a_componentTemplates)),
@@ -412,12 +392,11 @@ EditorPresenter::EditorPresenter(editor_core::EditorController &a_controller,
 {
 }
 
-std::unique_ptr<EditorPresenter> EditorPresenter::create(editor_core::EditorController &a_controller,
-                                                         editor_core::EditorDocumentId a_documentId,
-                                                         scene::SceneIdentitySource &a_identitySource,
-                                                         const schema::SchemaRegistry &a_schemaRegistry,
-                                                         std::vector<EditorComponentTemplate> a_componentTemplates,
-                                                         const AssertContext &a_assertContext) noexcept
+std::unique_ptr<EditorPresenter> EditorPresenter::create(
+    editor_core::EditorController &a_controller, editor_core::EditorDocumentId a_documentId,
+    scene::SceneIdentitySource &a_identitySource, const schema::SchemaRegistry &a_schemaRegistry,
+    std::vector<editor_core::EditorComponentTemplate> a_componentTemplates,
+    const AssertContext &a_assertContext) noexcept
 {
     try
     {
@@ -487,165 +466,13 @@ void EditorPresenter::draw() noexcept
     }
 }
 
-Result<void> EditorPresenter::submit(EditorIntent a_intent) noexcept
+Result<void> EditorPresenter::submit(editor_core::EditorIntent a_intent) noexcept
 {
     try
     {
-        const editor_core::EditorDocument *document = m_controller->session().find_document(m_documentId);
-        if (document == nullptr)
-        {
-            Result<void> missing = Result<void>::failure(editor_core::make_editor_document_error(
-                *m_assertContext, editor_core::EditorCoreError::DocumentNotFound,
-                "Editor presentation document was not found", m_documentId.value()));
-            set_error(*missing.try_error());
-            return missing;
-        }
-        const scene::SceneAssetId sceneAssetId = document->scene_document().scene_asset_id();
-        std::string_view status = "編集操作を適用しました。";
-
-        /// @brief Intent AlternativeごとにStable IdentityだけをController操作へ渡す
-        auto dispatch = [this, document, &sceneAssetId, &status](auto &&a_typedIntent) -> Result<void>
-        {
-            using Intent = std::remove_cvref_t<decltype(a_typedIntent)>;
-            if constexpr (std::is_same_v<Intent, SelectObjectsIntent>)
-            {
-                status = "選択を更新しました。";
-                const scene::ObjectId *primary =
-                    a_typedIntent.primaryObjectId.has_value() ? &*a_typedIntent.primaryObjectId : nullptr;
-                return m_controller->set_selection(m_documentId, a_typedIntent.objectIds, primary);
-            }
-            else if constexpr (std::is_same_v<Intent, AddObjectIntent>)
-            {
-                Result<scene::ObjectId> generated = scene::ObjectId::generate(*m_identitySource, *m_assertContext);
-                if (!generated)
-                {
-                    return Result<void>::failure(std::move(*generated.try_error()));
-                }
-                scene::ObjectId objectId = std::move(*generated.try_value());
-                Result<editor_core::DocumentStateId> applied =
-                    execute_command(*m_controller, m_documentId, sceneAssetId,
-                                    editor_core::AddObjectCommand{objectId, std::move(a_typedIntent.name), true,
-                                                                  std::move(a_typedIntent.parentId), math::Transform{}},
-                                    "Objectを追加");
-                if (!applied)
-                {
-                    return Result<void>::failure(std::move(*applied.try_error()));
-                }
-                const std::array<scene::ObjectId, 1> selection{objectId};
-                status = "Objectを追加しました。";
-                return m_controller->set_selection(m_documentId, selection, &selection[0]);
-            }
-            else if constexpr (std::is_same_v<Intent, DeleteObjectIntent>)
-            {
-                status = "ObjectとChildを削除しました。";
-                return discard_value(execute_command(
-                    *m_controller, m_documentId, sceneAssetId,
-                    editor_core::DeleteObjectCommand{std::move(a_typedIntent.objectId)}, "Objectを削除"));
-            }
-            else if constexpr (std::is_same_v<Intent, DuplicateObjectIntent>)
-            {
-                Result<GeneratedDuplicate> generated = generate_duplicate(
-                    document->scene_document(), a_typedIntent.objectId, *m_identitySource, *m_assertContext);
-                if (!generated)
-                {
-                    return Result<void>::failure(std::move(*generated.try_error()));
-                }
-                const scene::ObjectId duplicateRootId = generated.try_value()->duplicateRootId;
-                Result<editor_core::DocumentStateId> applied =
-                    execute_command(*m_controller, m_documentId, sceneAssetId,
-                                    std::move(generated.try_value()->command), "Objectを複製");
-                if (!applied)
-                {
-                    return Result<void>::failure(std::move(*applied.try_error()));
-                }
-                const std::array<scene::ObjectId, 1> selection{duplicateRootId};
-                status = "ObjectとChildを複製しました。";
-                return m_controller->set_selection(m_documentId, selection, &selection[0]);
-            }
-            else if constexpr (std::is_same_v<Intent, RenameObjectIntent>)
-            {
-                status = "Object名を変更しました。";
-                return discard_value(execute_command(
-                    *m_controller, m_documentId, sceneAssetId,
-                    editor_core::RenameObjectCommand{std::move(a_typedIntent.objectId), std::move(a_typedIntent.name)},
-                    "Object名を変更"));
-            }
-            else if constexpr (std::is_same_v<Intent, ReparentObjectIntent>)
-            {
-                status = a_typedIntent.parentId.has_value() ? "Parentを変更しました。" : "ObjectをRootへ移動しました。";
-                return discard_value(
-                    execute_command(*m_controller, m_documentId, sceneAssetId,
-                                    editor_core::ReparentObjectCommand{std::move(a_typedIntent.objectId),
-                                                                       std::move(a_typedIntent.parentId)},
-                                    "Hierarchyを変更"));
-            }
-            else if constexpr (std::is_same_v<Intent, EditTransformIntent>)
-            {
-                status = "Transformを変更しました。";
-                return discard_value(
-                    execute_command(*m_controller, m_documentId, sceneAssetId,
-                                    editor_core::EditTransformCommand{std::move(a_typedIntent.objectId),
-                                                                      std::move(a_typedIntent.transform)},
-                                    "Transformを変更"));
-            }
-            else if constexpr (std::is_same_v<Intent, AddComponentIntent>)
-            {
-                const EditorComponentTemplate *componentTemplate = nullptr;
-                for (const EditorComponentTemplate &candidate : m_componentTemplates)
-                {
-                    if (template_matches(candidate, a_typedIntent.componentTypeId))
-                    {
-                        componentTemplate = &candidate;
-                        break;
-                    }
-                }
-                if (componentTemplate == nullptr)
-                {
-                    return Result<void>::failure(scene::make_scene_error(*m_assertContext,
-                                                                         scene::SceneError::UnknownSchemaType,
-                                                                         "Editor component template was not found"));
-                }
-                Result<scene::ComponentInstanceId> generated =
-                    scene::ComponentInstanceId::generate(*m_identitySource, *m_assertContext);
-                if (!generated)
-                {
-                    return Result<void>::failure(std::move(*generated.try_error()));
-                }
-                Result<scene::SceneComponent> component = componentTemplate->prototype.duplicate_with_identity(
-                    std::move(*generated.try_value()), *m_assertContext);
-                if (!component)
-                {
-                    return Result<void>::failure(std::move(*component.try_error()));
-                }
-                status = "Componentを追加しました。";
-                return discard_value(
-                    execute_command(*m_controller, m_documentId, sceneAssetId,
-                                    editor_core::AddComponentCommand{std::move(a_typedIntent.objectId),
-                                                                     std::move(*component.try_value())},
-                                    "Componentを追加"));
-            }
-            else if constexpr (std::is_same_v<Intent, RemoveComponentIntent>)
-            {
-                status = "Componentを削除しました。";
-                return discard_value(
-                    execute_command(*m_controller, m_documentId, sceneAssetId,
-                                    editor_core::RemoveComponentCommand{std::move(a_typedIntent.objectId),
-                                                                        std::move(a_typedIntent.componentId)},
-                                    "Componentを削除"));
-            }
-            else if constexpr (std::is_same_v<Intent, UndoIntent>)
-            {
-                status = "直前の編集を元に戻しました。";
-                return discard_value(m_controller->undo(m_documentId));
-            }
-            else
-            {
-                status = "取り消した編集を再適用しました。";
-                return discard_value(m_controller->redo(m_documentId));
-            }
-        };
-
-        Result<void> result = std::visit(dispatch, std::move(a_intent));
+        const std::string_view status = intent_status(a_intent);
+        Result<void> result =
+            m_controller->execute_intent(m_documentId, std::move(a_intent), *m_identitySource, m_componentTemplates);
         if (!result)
         {
             set_error(*result.try_error());
@@ -806,7 +633,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     if (parentId != nullptr)
     {
         const scene::SceneObject *parent = sceneDocument.find_object(*parentId);
-        parentPreview = parent != nullptr ? std::string(parent->name()) : "Missing Parent";
+        parentPreview = parent != nullptr ? object_name_label(parent->name()) : "Missing Parent";
     }
     if (ImGui::BeginCombo("Parent", parentPreview.c_str()))
     {
@@ -823,7 +650,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
             const scene::IdentityText candidateId = candidate.id().canonical_text();
             ImGui::PushID(candidateId.data(), candidateId.data() + candidateId.size());
             const bool isCurrent = parentId != nullptr && *parentId == candidate.id();
-            const std::string candidateName(candidate.name());
+            const std::string candidateName = object_name_label(candidate.name());
             if (ImGui::Selectable(candidateName.c_str(), isCurrent) && !a_pendingIntent.has_value())
             {
                 a_pendingIntent.emplace(ReparentObjectIntent{object->id(), candidate.id()});
@@ -924,13 +751,24 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
         for (const EditorComponentTemplate &componentTemplate : m_componentTemplates)
         {
             const std::optional<schema::TypeId> typeId = component_type_id(componentTemplate.prototype);
+            std::string typeIdText;
+            if (typeId.has_value())
+            {
+                typeIdText = type_id_text(*typeId);
+                ImGui::PushID(typeIdText.data(), typeIdText.data() + typeIdText.size());
+            }
+            else
+            {
+                ImGui::PushID(&componentTemplate);
+            }
             ImGui::BeginDisabled(!typeId.has_value());
-            if (ImGui::Selectable(componentTemplate.displayName.c_str()) && typeId.has_value() &&
-                !a_pendingIntent.has_value())
+            const std::string componentName = object_name_label(componentTemplate.displayName);
+            if (ImGui::Selectable(componentName.c_str()) && typeId.has_value() && !a_pendingIntent.has_value())
             {
                 a_pendingIntent.emplace(AddComponentIntent{object->id(), *typeId});
             }
             ImGui::EndDisabled();
+            ImGui::PopID();
         }
         ImGui::EndCombo();
     }

@@ -5,6 +5,7 @@ target_sources(
     PRIVATE
         Private/EditorController.cpp
         Private/EditorDocument.cpp
+        Private/EditorIntent.cpp
         Private/Error.cpp
         Private/Persistence.cpp
         Private/SceneCommand.cpp
@@ -14,6 +15,7 @@ target_sources(
         FILES
             Public/Cue/EditorCore/EditorController.h
             Public/Cue/EditorCore/EditorDocument.h
+            Public/Cue/EditorCore/EditorIntent.h
             Public/Cue/EditorCore/Error.h
             Public/Cue/EditorCore/Persistence.h
             Public/Cue/EditorCore/SceneCommand.h

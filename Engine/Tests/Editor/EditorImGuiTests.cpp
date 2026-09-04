@@ -198,27 +198,27 @@ void test_hierarchy_inspector_intents() noexcept
     cue::RelativePath locator = take_value(cue::RelativePath::parse("Scenes/Test.cuescene", assertContext));
     const cue::editor_core::EditorDocumentId documentId =
         take_value(controller->open_document(std::move(scene), std::move(locator), true));
-    std::vector<cue::editor::EditorComponentTemplate> templates;
-    templates.push_back(cue::editor::EditorComponentTemplate{"Test Component",
-                                                             make_component(*registry, valueRegistry, assertContext)});
+    std::vector<cue::editor_core::EditorComponentTemplate> templates;
+    templates.push_back(cue::editor_core::EditorComponentTemplate{
+        "Test Component", make_component(*registry, valueRegistry, assertContext)});
     std::unique_ptr<cue::editor::EditorPresenter> presenter = cue::editor::EditorPresenter::create(
         *controller, documentId, sceneIdentitySource, *registry, std::move(templates), assertContext);
 
-    require(presenter->submit(cue::editor::SelectObjectsIntent{{rootId}, rootId}).has_value());
-    require(presenter->submit(cue::editor::RenameObjectIntent{rootId, "Renamed Root"}).has_value());
+    require(presenter->submit(cue::editor_core::SelectObjectsIntent{{rootId}, rootId}).has_value());
+    require(presenter->submit(cue::editor_core::RenameObjectIntent{rootId, "Renamed Root"}).has_value());
     const cue::editor_core::EditorDocument *document = controller->session().find_document(documentId);
     require(document != nullptr);
     require(document->scene_document().find_object(rootId)->name() == "Renamed Root");
 
-    const cue::Result<void> rejectedCycle = presenter->submit(cue::editor::ReparentObjectIntent{rootId, childId});
+    const cue::Result<void> rejectedCycle = presenter->submit(cue::editor_core::ReparentObjectIntent{rootId, childId});
     require(!rejectedCycle.has_value());
     require(presenter->has_error_message());
     require(!presenter->message().empty());
     document = controller->session().find_document(documentId);
     require(document->scene_document().find_object(rootId)->try_parent_id() == nullptr);
 
-    require(presenter->submit(cue::editor::ReparentObjectIntent{childId, std::nullopt}).has_value());
-    require(presenter->submit(cue::editor::ReparentObjectIntent{childId, rootId}).has_value());
+    require(presenter->submit(cue::editor_core::ReparentObjectIntent{childId, std::nullopt}).has_value());
+    require(presenter->submit(cue::editor_core::ReparentObjectIntent{childId, rootId}).has_value());
 
     cue::Result<cue::math::Tolerance> tolerance =
         cue::math::Tolerance::create(assertContext.fatal_handler(), 0.00001F, 0.00001F);
@@ -227,22 +227,23 @@ void test_hierarchy_inspector_intents() noexcept
         assertContext.fatal_handler(), cue::math::Vector3{1.0F, 2.0F, 3.0F}, cue::math::Quaternion{},
         cue::math::Vector3{2.0F, 2.0F, 2.0F}, *tolerance.try_value());
     require(transform.has_value());
-    require(presenter->submit(cue::editor::EditTransformIntent{rootId, std::move(*transform.try_value())}).has_value());
+    require(presenter->submit(cue::editor_core::EditTransformIntent{rootId, std::move(*transform.try_value())})
+                .has_value());
     document = controller->session().find_document(documentId);
     require(document->scene_document().find_object(rootId)->transform().translation() ==
             cue::math::Vector3{1.0F, 2.0F, 3.0F});
 
-    require(
-        presenter->submit(cue::editor::AddComponentIntent{rootId, make_component_type_id(assertContext)}).has_value());
+    require(presenter->submit(cue::editor_core::AddComponentIntent{rootId, make_component_type_id(assertContext)})
+                .has_value());
     document = controller->session().find_document(documentId);
     const cue::scene::SceneObject *root = document->scene_document().find_object(rootId);
     require(root != nullptr && root->components().size() == 1U);
     const cue::scene::ComponentInstanceId addedComponentId = root->components()[0].instance_id();
-    require(presenter->submit(cue::editor::RemoveComponentIntent{rootId, addedComponentId}).has_value());
+    require(presenter->submit(cue::editor_core::RemoveComponentIntent{rootId, addedComponentId}).has_value());
     document = controller->session().find_document(documentId);
     require(document->scene_document().find_object(rootId)->components().empty());
 
-    require(presenter->submit(cue::editor::AddObjectIntent{rootId, "Added Child"}).has_value());
+    require(presenter->submit(cue::editor_core::AddObjectIntent{rootId, "Added Child"}).has_value());
     document = controller->session().find_document(documentId);
     require(document->scene_document().object_count() == 3U);
     require(document->selection().size() == 1U);
@@ -251,29 +252,29 @@ void test_hierarchy_inspector_intents() noexcept
     require(addedObject != nullptr && addedObject->try_parent_id() != nullptr &&
             *addedObject->try_parent_id() == rootId);
 
-    require(presenter->submit(cue::editor::DuplicateObjectIntent{rootId}).has_value());
+    require(presenter->submit(cue::editor_core::DuplicateObjectIntent{rootId}).has_value());
     document = controller->session().find_document(documentId);
     require(document->scene_document().object_count() == 6U);
     require(document->selection().size() == 1U);
     const cue::scene::ObjectId duplicateRootId = document->selection()[0];
     require(document->scene_document().find_object(duplicateRootId)->name() == "Renamed Root Copy");
 
-    require(presenter->submit(cue::editor::DeleteObjectIntent{duplicateRootId}).has_value());
+    require(presenter->submit(cue::editor_core::DeleteObjectIntent{duplicateRootId}).has_value());
     document = controller->session().find_document(documentId);
     require(document->scene_document().object_count() == 3U);
     require(document->selection().empty());
-    require(presenter->submit(cue::editor::UndoIntent{}).has_value());
+    require(presenter->submit(cue::editor_core::UndoIntent{}).has_value());
     document = controller->session().find_document(documentId);
     require(document->scene_document().object_count() == 6U);
     require(document->selection().empty());
-    require(presenter->submit(cue::editor::RedoIntent{}).has_value());
+    require(presenter->submit(cue::editor_core::RedoIntent{}).has_value());
     document = controller->session().find_document(documentId);
     require(document->scene_document().object_count() == 3U);
     require(document->selection().empty());
 
-    require(presenter->submit(cue::editor::SelectObjectsIntent{{rootId}, rootId}).has_value());
+    require(presenter->submit(cue::editor_core::SelectObjectsIntent{{rootId}, rootId}).has_value());
     const std::string longName(512U, 'N');
-    require(presenter->submit(cue::editor::RenameObjectIntent{rootId, longName}).has_value());
+    require(presenter->submit(cue::editor_core::RenameObjectIntent{rootId, longName}).has_value());
     require(ImGui::CreateContext() != nullptr);
     ImGuiIO &input = ImGui::GetIO();
     input.IniFilename = nullptr;
@@ -285,7 +286,7 @@ void test_hierarchy_inspector_intents() noexcept
     require(document->scene_document().find_object(rootId)->name() == longName);
 
     const std::string embeddedNullName("A\0B", 3U);
-    require(presenter->submit(cue::editor::RenameObjectIntent{rootId, embeddedNullName}).has_value());
+    require(presenter->submit(cue::editor_core::RenameObjectIntent{rootId, embeddedNullName}).has_value());
     draw_frame(*presenter);
     document = controller->session().find_document(documentId);
     require(document->scene_document().find_object(rootId)->name() == std::string_view(embeddedNullName));
@@ -295,8 +296,8 @@ void test_hierarchy_inspector_intents() noexcept
     std::string maximumName(cue::scene::k_maximumSceneStringBytes - duplicateSuffix.size() - 1U, 'A');
     maximumName.append("\xE3\x81\x82");
     maximumName.resize(cue::scene::k_maximumSceneStringBytes, 'B');
-    require(presenter->submit(cue::editor::RenameObjectIntent{rootId, maximumName}).has_value());
-    require(presenter->submit(cue::editor::DuplicateObjectIntent{rootId}).has_value());
+    require(presenter->submit(cue::editor_core::RenameObjectIntent{rootId, maximumName}).has_value());
+    require(presenter->submit(cue::editor_core::DuplicateObjectIntent{rootId}).has_value());
     document = controller->session().find_document(documentId);
     require(document->selection().size() == 1U);
     const cue::scene::SceneObject *maximumNameDuplicate =
