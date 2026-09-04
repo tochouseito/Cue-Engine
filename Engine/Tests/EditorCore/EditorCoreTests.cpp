@@ -1280,6 +1280,27 @@ void test_scene_persistence_workflow() noexcept
     require(controller
                 ->execute_command(cue::editor_core::SceneCommandRequest{
                     secondDocumentId, secondSceneAssetId,
+                    cue::editor_core::RenameObjectCommand{secondRootId, "Main Then Backup Durability Retry"}})
+                .has_value());
+    sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene", true);
+    auto mainUncertainSave = controller->save_document(secondDocumentId);
+    require(mainUncertainSave.has_value());
+    require(mainUncertainSave.try_value()->status() == cue::scene::SceneSaveStatus::PublishedButDurabilityUnknown);
+    sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene", false);
+    sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene.backup", true);
+    require(take_value(controller->retry_uncertain_save(secondDocumentId)) ==
+            cue::scene::SceneSaveStatus::PublishedButBackupDurabilityUnknown);
+    sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene.backup", false);
+    sourceAssets.fail_write("Scenes/Second-Renamed.cuescene", true);
+    require(take_value(controller->retry_uncertain_save(secondDocumentId)) == cue::scene::SceneSaveStatus::Committed);
+    sourceAssets.fail_write("Scenes/Second-Renamed.cuescene", false);
+    secondDocument = controller->session().find_document(secondDocumentId);
+    require(secondDocument != nullptr && !secondDocument->is_dirty());
+    require(secondDocument->persistence_state() == cue::editor_core::DocumentPersistenceState::Idle);
+
+    require(controller
+                ->execute_command(cue::editor_core::SceneCommandRequest{
+                    secondDocumentId, secondSceneAssetId,
                     cue::editor_core::RenameObjectCommand{secondRootId, "Discarded Uncertain Record"}})
                 .has_value());
     sourceAssets.make_write_uncertain("Scenes/Second-Renamed.cuescene", true);

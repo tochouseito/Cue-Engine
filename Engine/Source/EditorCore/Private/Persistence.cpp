@@ -762,6 +762,15 @@ Result<scene::SceneSaveStatus> EditorController::retry_uncertain_save(EditorDocu
             {
                 record.reason = EditorDocument::PendingSaveReason::VerificationFailed;
             }
+            else if (status == scene::SceneSaveStatus::PublishedButBackupDurabilityUnknown)
+            {
+                auto recoveryBackupBytes = retry.take_recovery_backup_bytes();
+                if (recoveryBackupBytes.has_value())
+                {
+                    record.recoveryBackupBytes = std::move(*recoveryBackupBytes);
+                }
+                record.reason = EditorDocument::PendingSaveReason::BackupDurabilityUnknown;
+            }
             return Result<scene::SceneSaveStatus>::success(std::move(status));
         }
         currentFingerprint = fingerprint_scene_file(*m_sourceAssetsRoot, record.destination, *m_assertContext);
