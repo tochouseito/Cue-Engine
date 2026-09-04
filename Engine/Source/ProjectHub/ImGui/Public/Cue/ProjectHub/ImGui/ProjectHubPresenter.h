@@ -61,6 +61,10 @@ class ProjectHubPresenter final
     void open_selected_project() noexcept;
     /// @brief Service Errorを日本語のUser Messageへ変換する
     void set_error(const Error &a_error) noexcept;
+    /// @brief Project作成後の部分成功を復旧情報付き警告Messageへ変換する
+    void set_creation_warning(const ProjectCreationOutcome &a_outcome) noexcept;
+    /// @brief 回復操作が必要な警告Messageを更新する
+    void set_warning(std::string_view a_warning) noexcept;
     /// @brief 同期操作の成功Messageを更新する
     void set_status(std::string_view a_status) noexcept;
 
@@ -80,6 +84,7 @@ class ProjectHubPresenter final
     bool m_openRemoveDialog = false;
     bool m_confirmMovedProject = false;
     bool m_hasError = false;
+    bool m_hasWarning = false;
     bool m_isExitRequested = false;
 };
 } // namespace cue::project_hub

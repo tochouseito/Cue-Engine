@@ -122,8 +122,13 @@ void ProjectHubPresenter::draw() noexcept
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
     if (ImGui::Begin("CueEngine Project Hub", nullptr, k_windowFlags))
     {
-        const bool createShortcut = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_N);
-        const bool registerShortcut = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O);
+        const bool canUseGlobalShortcuts =
+            ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+            !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
+        const bool createShortcut =
+            canUseGlobalShortcuts && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_N);
+        const bool registerShortcut =
+            canUseGlobalShortcuts && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O);
         if (ImGui::Button("新しいProject (Ctrl+N)") || createShortcut)
         {
             m_openCreateDialog = true;
@@ -151,7 +156,9 @@ void ProjectHubPresenter::draw() noexcept
         if (!m_message.empty())
         {
             ImGui::Separator();
-            const ImVec4 color = m_hasError ? ImVec4(1.0F, 0.35F, 0.35F, 1.0F) : ImVec4(0.45F, 0.9F, 0.55F, 1.0F);
+            const ImVec4 color = m_hasError     ? ImVec4(1.0F, 0.35F, 0.35F, 1.0F)
+                                 : m_hasWarning ? ImVec4(1.0F, 0.75F, 0.25F, 1.0F)
+                                                : ImVec4(0.45F, 0.9F, 0.55F, 1.0F);
             ImGui::TextColored(color, "%s", m_message.c_str());
         }
     }
@@ -319,10 +326,15 @@ void ProjectHubPresenter::draw_create_dialog() noexcept
                                             m_selectedTemplateId, current_milliseconds());
         if (created)
         {
-            const bool hasWarning = created.try_value()->try_creation_durability_error() != nullptr ||
-                                    created.try_value()->try_recent_persistence_error() != nullptr;
-            set_status(hasWarning ? "Projectを作成しましたが、保存状態を確認してください。"
-                                  : "Projectを作成しました。");
+            if (created.try_value()->try_creation_durability_error() != nullptr ||
+                created.try_value()->try_recent_persistence_error() != nullptr)
+            {
+                set_creation_warning(*created.try_value());
+            }
+            else
+            {
+                set_status("Projectを作成しました。");
+            }
             ImGui::CloseCurrentPopup();
         }
         else
@@ -481,6 +493,61 @@ void ProjectHubPresenter::set_error(const Error &a_error) noexcept
     m_hasError = true;
 }
 
+void ProjectHubPresenter::set_creation_warning(const ProjectCreationOutcome &a_outcome) noexcept
+{
+    const Error *creationError = a_outcome.try_creation_durability_error();
+    const Error *recentError = a_outcome.try_recent_persistence_error();
+    std::string warning;
+    try
+    {
+        warning = "Project Folder: ";
+        warning.append(a_outcome.project_locator());
+        warning.push_back('\n');
+        if (creationError != nullptr)
+        {
+            warning.append("Project作成: Fileは公開されましたが、Diskへの永続化を確認できませんでした。\n");
+            warning.append("再確認: 上記Folderを開き、CueProject.jsonを確認してください。\n");
+            warning.append("診断(Project作成): ");
+            warning.append(creationError->root_code().domain());
+            warning.push_back('/');
+            warning.append(std::to_string(creationError->root_code().value()));
+            warning.append(" - ");
+            warning.append(creationError->summary());
+            warning.push_back('\n');
+        }
+        if (recentError != nullptr)
+        {
+            if (a_outcome.is_recent_registered())
+            {
+                warning.append("Recent一覧: 登録は公開されましたが、Diskへの永続化を確認できませんでした。\n");
+                warning.append("再確認: 一覧を更新し、表示されない場合は上記Project Folderを再登録してください。\n");
+            }
+            else
+            {
+                warning.append("Recent一覧: 登録または保存に失敗しました。\n");
+                warning.append("再試行: 「既存Projectを登録」から上記Project Folderを再登録してください。\n");
+            }
+            warning.append("診断(Recent): ");
+            warning.append(recentError->root_code().domain());
+            warning.push_back('/');
+            warning.append(std::to_string(recentError->root_code().value()));
+            warning.append(" - ");
+            warning.append(recentError->summary());
+        }
+    }
+    catch (...)
+    {
+        terminate_allocation(*m_assertContext);
+    }
+    set_warning(warning);
+}
+
+void ProjectHubPresenter::set_warning(std::string_view a_warning) noexcept
+{
+    set_status(a_warning);
+    m_hasWarning = true;
+}
+
 void ProjectHubPresenter::set_status(std::string_view a_status) noexcept
 {
     try
@@ -492,6 +559,7 @@ void ProjectHubPresenter::set_status(std::string_view a_status) noexcept
         terminate_allocation(*m_assertContext);
     }
     m_hasError = false;
+    m_hasWarning = false;
 }
 
 std::optional<EditorLaunchRequest> ProjectHubPresenter::take_editor_launch_request() noexcept

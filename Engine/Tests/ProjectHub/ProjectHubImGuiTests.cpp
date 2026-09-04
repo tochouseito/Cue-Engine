@@ -196,9 +196,18 @@ void draw_frame(cue::project_hub::ProjectHubPresenter &a_presenter) noexcept
     input.AddKeyEvent(ImGuiMod_Ctrl, false);
     draw_frame(**presenter.try_value());
 
+    input.AddKeyEvent(ImGuiMod_Ctrl, true);
+    input.AddKeyEvent(ImGuiKey_O, true);
+    draw_frame(**presenter.try_value());
+    input.AddKeyEvent(ImGuiKey_O, false);
+    input.AddKeyEvent(ImGuiMod_Ctrl, false);
+    draw_frame(**presenter.try_value());
+
     input.AddKeyEvent(ImGuiKey_Escape, true);
     draw_frame(**presenter.try_value());
     const bool modalAbsorbedEscape = !presenter.try_value()->get()->is_exit_requested();
+    const bool modalClosedWithoutQueuedShortcut =
+        !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
     input.AddKeyEvent(ImGuiKey_Escape, false);
     draw_frame(**presenter.try_value());
     input.AddKeyEvent(ImGuiKey_Escape, true);
@@ -213,6 +222,10 @@ void draw_frame(cue::project_hub::ProjectHubPresenter &a_presenter) noexcept
     if (!modalAbsorbedEscape)
     {
         return 4;
+    }
+    if (!modalClosedWithoutQueuedShortcut)
+    {
+        return 7;
     }
     return toolAcceptedEscape ? 0 : 5;
 }

@@ -62,6 +62,10 @@ class TestDirectory final
     {
         if (m_isCreated)
         {
+            for (auto path = m_longDirectories.rbegin(); path != m_longDirectories.rend(); ++path)
+            {
+                RemoveDirectoryW(path->c_str());
+            }
             RemoveDirectoryW(m_project.c_str());
             RemoveDirectoryW(m_root.c_str());
         }
@@ -85,9 +89,36 @@ class TestDirectory final
         return m_project;
     }
 
+    /// @brief MAX_PATHを超える既存Project RootをExtended-length APIで作成する
+    [[nodiscard]] bool create_long_project()
+    {
+        std::wstring current = m_root;
+        while (current.size() <= static_cast<std::size_t>(280U))
+        {
+            current.append(L"\\LongProjectPathSegment0123456789");
+            std::wstring extended = L"\\\\?\\";
+            extended.append(current);
+            if (CreateDirectoryW(extended.c_str(), nullptr) == FALSE)
+            {
+                return false;
+            }
+            m_longDirectories.push_back(std::move(extended));
+        }
+        m_longProject = std::move(current);
+        return true;
+    }
+
+    /// @brief MAX_PATHを超えるProject Rootの通常絶対Pathを返す
+    [[nodiscard]] const std::wstring &long_project() const noexcept
+    {
+        return m_longProject;
+    }
+
   private:
     std::wstring m_root;
     std::wstring m_project;
+    std::wstring m_longProject;
+    std::vector<std::wstring> m_longDirectories;
     bool m_isCreated = false;
 };
 
@@ -154,6 +185,19 @@ class TestDirectory final
         return false;
     }
     opened.try_value()->reset();
+
+    if (!directory.create_long_project())
+    {
+        return false;
+    }
+    const std::string longProject = to_utf8(directory.long_project(), a_context);
+    auto longOpened = platform->open_root(longProject);
+    if (longProject.empty() || longProject.size() <= static_cast<std::size_t>(MAX_PATH) || !longOpened ||
+        *longOpened.try_value() == nullptr)
+    {
+        return false;
+    }
+    longOpened.try_value()->reset();
 
     const std::string_view descriptorText = *descriptor.try_value();
     const bool hasDescriptor = descriptorText.ends_with("\\CueProject.json");

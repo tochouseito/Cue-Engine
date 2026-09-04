@@ -63,6 +63,37 @@ constexpr std::size_t k_maxWindowsPathLength = 32767;
     return cue::Result<std::string>::success(std::move(converted));
 }
 
+/// @brief Absolute Windows Pathを長いPathにも対応するExtended-length表現へ変換する
+[[nodiscard]] cue::Result<std::wstring> make_extended_path(std::wstring a_path,
+                                                           const cue::AssertContext &a_context) noexcept
+{
+    try
+    {
+        if (!a_path.starts_with(L"\\\\?\\"))
+        {
+            if (a_path.starts_with(L"\\\\"))
+            {
+                a_path.erase(0, 2);
+                a_path.insert(0, L"\\\\?\\UNC\\");
+            }
+            else
+            {
+                a_path.insert(0, L"\\\\?\\");
+            }
+        }
+    }
+    catch (...)
+    {
+        terminate_allocation(a_context);
+    }
+    if (a_path.size() >= k_maxWindowsPathLength)
+    {
+        return cue::Result<std::wstring>::failure(
+            cue::make_io_error(a_context, cue::IoError::CapacityExceeded, "Project locator exceeds Windows limit"));
+    }
+    return cue::Result<std::wstring>::success(std::move(a_path));
+}
+
 /// @brief Win32 Path失敗をProject Hubが扱えるIO分類へ変換する
 [[nodiscard]] cue::Error make_path_error(const cue::AssertContext &a_context, DWORD a_nativeCode,
                                          std::string_view a_summary) noexcept
@@ -232,7 +263,12 @@ class WindowsProjectHubPlatform final : public cue::project_hub::ProjectHubPlatf
         {
             return cue::Result<std::unique_ptr<cue::FilesystemRoot>>::failure(std::move(*path.try_error()));
         }
-        const DWORD attributes = GetFileAttributesW(path.try_value()->c_str());
+        cue::Result<std::wstring> extended = make_extended_path(std::move(*path.try_value()), *m_assertContext);
+        if (!extended)
+        {
+            return cue::Result<std::unique_ptr<cue::FilesystemRoot>>::failure(std::move(*extended.try_error()));
+        }
+        const DWORD attributes = GetFileAttributesW(extended.try_value()->c_str());
         if (attributes == INVALID_FILE_ATTRIBUTES)
         {
             const DWORD code = GetLastError();
