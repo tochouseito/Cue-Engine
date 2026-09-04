@@ -498,7 +498,8 @@ void ProjectHubPresenter::open_selected_project() noexcept
 
 void ProjectHubPresenter::set_error(const Error &a_error) noexcept
 {
-    const ErrorCode &code = a_error.root_code();
+    const ErrorCode &code = a_error.code();
+    const ErrorCode &rootCode = a_error.root_code();
     const char *message = "処理に失敗しました。詳細はLogを確認してください。";
     if (code.domain() == "Cue.ProjectHub")
     {
@@ -532,16 +533,15 @@ void ProjectHubPresenter::set_error(const Error &a_error) noexcept
             break;
         }
     }
-    else if (code.domain() == "Cue.IO")
+    else if (rootCode.domain() == "Cue.IO" &&
+             rootCode.value() == static_cast<std::int64_t>(IoError::PermissionDenied))
     {
-        if (code.value() == static_cast<std::int64_t>(IoError::PermissionDenied))
-        {
-            message = "Folderへアクセスする権限がありません。";
-        }
-        else if (code.value() == static_cast<std::int64_t>(IoError::DurabilityUnknown))
-        {
-            message = "保存は完了しましたが、Diskへの永続化を確認できませんでした。";
-        }
+        message = "Folderへアクセスする権限がありません。";
+    }
+    if (rootCode.domain() == "Cue.IO" &&
+        rootCode.value() == static_cast<std::int64_t>(IoError::DurabilityUnknown))
+    {
+        message = "保存は完了しましたが、Diskへの永続化を確認できませんでした。";
     }
     set_status(message);
     m_hasError = true;

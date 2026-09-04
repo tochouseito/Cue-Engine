@@ -9,6 +9,7 @@
 #include <Cue/Platform/Windows/WindowsPlatform.h>
 #include <Cue/Platform/Windows/WindowsWindowInterop.h>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -37,6 +38,7 @@ using Microsoft::WRL::ComPtr;
 
 constexpr std::uint32_t k_frameCount = 2;
 constexpr std::uint32_t k_srvDescriptorCount = 64;
+constexpr std::uint32_t k_maxDredNodes = 4096;
 constexpr DWORD k_fenceTimeoutMilliseconds = 5000;
 constexpr DXGI_FORMAT k_backBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 
@@ -96,6 +98,144 @@ constexpr DXGI_FORMAT k_backBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
         cue::ErrorCode::create(a_context.fatal_handler(), "Cue.ToolHost", static_cast<std::int64_t>(a_code));
     cue::NativeError native = cue::NativeError::create(a_context.fatal_handler(), a_nativeDomain, a_nativeCode);
     return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary, std::move(native));
+}
+
+/// @brief DREDのUTF-16 Object名をUTF-8へ変換できたか返す
+[[nodiscard]] bool try_convert_dred_name(const wchar_t *a_name, std::string &a_storage,
+                                         const cue::AssertContext &a_context) noexcept
+{
+    if (a_name == nullptr)
+    {
+        return false;
+    }
+    const std::size_t length = std::char_traits<wchar_t>::length(a_name);
+    if (length == 0 || length > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
+    {
+        return false;
+    }
+    const int required = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, a_name, static_cast<int>(length), nullptr,
+                                             0, nullptr, nullptr);
+    if (required <= 0)
+    {
+        return false;
+    }
+    try
+    {
+        a_storage.resize(static_cast<std::size_t>(required));
+    }
+    catch (...)
+    {
+        a_context.fatal_handler().terminate("Tool Host DRED name allocation failed");
+    }
+    return WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, a_name, static_cast<int>(length), a_storage.data(),
+                               required, nullptr, nullptr) == required;
+}
+
+/// @brief DRED Object名を利用可能な表現から選択する
+[[nodiscard]] std::string_view select_dred_name(const char *a_utf8Name, const wchar_t *a_utf16Name,
+                                                std::string_view a_fallback, std::string &a_storage,
+                                                const cue::AssertContext &a_context) noexcept
+{
+    if (a_utf8Name != nullptr && a_utf8Name[0] != '\0')
+    {
+        return a_utf8Name;
+    }
+    if (try_convert_dred_name(a_utf16Name, a_storage, a_context))
+    {
+        return a_storage;
+    }
+    return a_fallback;
+}
+
+/// @brief DRED詳細のLogger失敗をPrimary Errorへ二次診断として保持する
+void retain_dred_log_failure(cue::Error &a_primary, cue::LogResult a_result, std::string_view a_context,
+                             const cue::AssertContext &a_assertContext) noexcept
+{
+    if (a_result == cue::LogResult::Success)
+    {
+        return;
+    }
+    cue::Error logging = make_error(a_assertContext, cue::tool_host::ToolHostError::D3d12InitializationFailed,
+                                    "Foundation Logger could not record Tool Host DRED diagnostics");
+    a_primary.append_secondary_diagnostics(a_assertContext, logging, a_context, "DRED");
+}
+
+/// @brief DRED Breadcrumb NodeをDevice解放前に診断へ転記する
+void log_dred_breadcrumbs(const D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 &a_breadcrumbs, cue::Error &a_primary,
+                          const cue::AssertContext &a_context) noexcept
+{
+    const D3D12_AUTO_BREADCRUMB_NODE1 *node = a_breadcrumbs.pHeadAutoBreadcrumbNode;
+    std::uint32_t nodeCount = 0;
+    while (node != nullptr && nodeCount < k_maxDredNodes)
+    {
+        const std::uint32_t lastBreadcrumb =
+            node->pLastBreadcrumbValue != nullptr ? *node->pLastBreadcrumbValue : 0;
+        std::int64_t operation = -1;
+        if (node->pCommandHistory != nullptr && node->BreadcrumbCount > 0)
+        {
+            const std::uint32_t operationIndex = (std::min)(lastBreadcrumb, node->BreadcrumbCount - 1);
+            operation = static_cast<std::int64_t>(node->pCommandHistory[operationIndex]);
+        }
+        std::string commandListNameStorage;
+        const std::string_view commandListName =
+            select_dred_name(node->pCommandListDebugNameA, node->pCommandListDebugNameW,
+                             "Unnamed Tool Host Command List", commandListNameStorage, a_context);
+        cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "D3D12.DRED.Breadcrumb",
+                                                     static_cast<std::int64_t>(lastBreadcrumb));
+        cue::NativeError native =
+            cue::NativeError::create(a_context.fatal_handler(), "D3D12.BreadcrumbOperation", operation);
+        cue::Error detail =
+            cue::Error::create(a_context.fatal_handler(), std::move(code), commandListName, std::move(native));
+        std::string commandQueueNameStorage;
+        const std::string_view commandQueueName =
+            select_dred_name(node->pCommandQueueDebugNameA, node->pCommandQueueDebugNameW, std::string_view(),
+                             commandQueueNameStorage, a_context);
+        if (!commandQueueName.empty())
+        {
+            detail.add_context(a_context.fatal_handler(), commandQueueName);
+        }
+        const cue::LogResult logResult = a_context.logger().log(
+            cue::LogLevel::Error, "Tool Host D3D12 Device RemovalのBreadcrumb詳細を取得しました", std::move(detail));
+        retain_dred_log_failure(a_primary, logResult, "Breadcrumb detail logging also failed", a_context);
+        node = node->pNext;
+        ++nodeCount;
+    }
+    if (node != nullptr)
+    {
+        const cue::LogResult logResult = a_context.logger().log(
+            cue::LogLevel::Warning, "Tool Host DRED Breadcrumb Node上限を超えたため列挙を停止します");
+        retain_dred_log_failure(a_primary, logResult, "Breadcrumb limit logging also failed", a_context);
+    }
+}
+
+/// @brief DRED Allocation NodeをDevice解放前に診断へ転記する
+void log_dred_allocations(const D3D12_DRED_ALLOCATION_NODE1 *a_head, std::string_view a_domain,
+                          std::string_view a_message, cue::Error &a_primary,
+                          const cue::AssertContext &a_context) noexcept
+{
+    const D3D12_DRED_ALLOCATION_NODE1 *node = a_head;
+    std::uint32_t nodeCount = 0;
+    while (node != nullptr && nodeCount < k_maxDredNodes)
+    {
+        std::string objectNameStorage;
+        const std::string_view objectName =
+            select_dred_name(node->ObjectNameA, node->ObjectNameW, "Unnamed Tool Host D3D12 allocation",
+                             objectNameStorage, a_context);
+        cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), a_domain,
+                                                     static_cast<std::int64_t>(node->AllocationType));
+        cue::Error detail = cue::Error::create(a_context.fatal_handler(), std::move(code), objectName);
+        const cue::LogResult logResult =
+            a_context.logger().log(cue::LogLevel::Error, a_message, std::move(detail));
+        retain_dred_log_failure(a_primary, logResult, "Allocation detail logging also failed", a_context);
+        node = node->pNext;
+        ++nodeCount;
+    }
+    if (node != nullptr)
+    {
+        const cue::LogResult logResult = a_context.logger().log(
+            cue::LogLevel::Warning, "Tool Host DRED Allocation Node上限を超えたため列挙を停止します");
+        retain_dred_log_failure(a_primary, logResult, "Allocation limit logging also failed", a_context);
+    }
 }
 
 /// @brief 下位ErrorをTool Hostの回復不能なGPU完了不能Errorへ再分類する
@@ -701,8 +841,7 @@ void WindowsD3d12ToolHost::collect_device_removed_diagnostics(cue::Error &a_prim
     }
     else if (breadcrumbs.pHeadAutoBreadcrumbNode != nullptr)
     {
-        static_cast<void>(m_assertContext->logger().log(
-            cue::LogLevel::Error, "Tool Host D3D12 Device RemovalのAuto Breadcrumbを取得しました"));
+        log_dred_breadcrumbs(breadcrumbs, a_primary, *m_assertContext);
     }
 
     D3D12_DRED_PAGE_FAULT_OUTPUT1 pageFault{};
@@ -721,8 +860,16 @@ void WindowsD3d12ToolHost::collect_device_removed_diagnostics(cue::Error &a_prim
                                                cue::tool_host::ToolHostError::DeviceRemoved,
                                                "Tool Host DRED page fault address", "D3D12.GpuVirtualAddress",
                                                static_cast<std::int64_t>(pageFault.PageFaultVA));
-        static_cast<void>(m_assertContext->logger().log(
-            cue::LogLevel::Error, "Tool Host D3D12 Device RemovalのPage Fault情報を取得しました", std::move(address)));
+        const cue::LogResult pageFaultLogResult = m_assertContext->logger().log(
+            cue::LogLevel::Error, "Tool Host D3D12 Device RemovalのPage Fault情報を取得しました", std::move(address));
+        retain_dred_log_failure(a_primary, pageFaultLogResult, "Page fault address logging also failed",
+                                *m_assertContext);
+        log_dred_allocations(pageFault.pHeadExistingAllocationNode, "D3D12.DRED.ExistingAllocation",
+                             "Tool Host D3D12 Device Removalの既存Allocation詳細を取得しました", a_primary,
+                             *m_assertContext);
+        log_dred_allocations(pageFault.pHeadRecentFreedAllocationNode, "D3D12.DRED.RecentFreedAllocation",
+                             "Tool Host D3D12 Device Removalの解放済みAllocation詳細を取得しました", a_primary,
+                             *m_assertContext);
     }
 }
 
