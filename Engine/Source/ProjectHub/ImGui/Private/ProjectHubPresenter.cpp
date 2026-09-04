@@ -73,6 +73,41 @@ template <std::size_t Size> void set_buffer(std::array<char, Size> &a_buffer, st
     std::memcpy(a_buffer.data(), a_text.data(), length);
     a_buffer[length] = '\0';
 }
+
+/// @brief ImGuiのResize Callbackへ可変長文字列とFatal境界を渡す
+struct StringInputContext final
+{
+    std::string *value;
+    const cue::AssertContext *assertContext;
+};
+
+/// @brief ImGuiが要求した容量へProject Locator文字列を拡張する
+int resize_string_input(ImGuiInputTextCallbackData *a_data) noexcept
+{
+    if (a_data->EventFlag != ImGuiInputTextFlags_CallbackResize || a_data->UserData == nullptr)
+    {
+        return 0;
+    }
+    StringInputContext &context = *static_cast<StringInputContext *>(a_data->UserData);
+    try
+    {
+        context.value->resize(static_cast<std::size_t>(a_data->BufTextLen));
+    }
+    catch (...)
+    {
+        terminate_allocation(*context.assertContext);
+    }
+    a_data->Buf = context.value->data();
+    return 0;
+}
+
+/// @brief Windows上限まで拡張できるProject Locator入力を描画する
+bool input_locator(const char *a_label, std::string &a_value, const cue::AssertContext &a_context) noexcept
+{
+    StringInputContext context{&a_value, &a_context};
+    return ImGui::InputText(a_label, a_value.data(), a_value.capacity() + 1U, ImGuiInputTextFlags_CallbackResize,
+                            resize_string_input, &context);
+}
 } // namespace
 
 namespace cue::project_hub
@@ -280,7 +315,7 @@ void ProjectHubPresenter::draw_create_dialog() noexcept
     {
         return;
     }
-    ImGui::InputText("作成先Folder", m_parentLocator.data(), m_parentLocator.size());
+    input_locator("作成先Folder", m_parentLocator, *m_assertContext);
     ImGui::InputText("Project名", m_projectName.data(), m_projectName.size());
     ImGui::InputText("表示名", m_displayName.data(), m_displayName.size());
     const ProjectTemplateView *selectedTemplate = nullptr;
@@ -316,13 +351,13 @@ void ProjectHubPresenter::draw_create_dialog() noexcept
         }
         ImGui::EndCombo();
     }
-    const bool canCreate = m_parentLocator[0] != '\0' && m_projectName[0] != '\0' && m_displayName[0] != '\0' &&
+    const bool canCreate = !m_parentLocator.empty() && m_projectName[0] != '\0' && m_displayName[0] != '\0' &&
                            !m_selectedTemplateId.empty();
     ImGui::BeginDisabled(!canCreate);
     if (ImGui::Button("作成"))
     {
         Result<ProjectCreationOutcome> created =
-            m_service->create_blank_project(m_parentLocator.data(), m_projectName.data(), m_displayName.data(),
+            m_service->create_blank_project(m_parentLocator, m_projectName.data(), m_displayName.data(),
                                             m_selectedTemplateId, current_milliseconds());
         if (created)
         {
@@ -363,13 +398,13 @@ void ProjectHubPresenter::draw_register_dialog() noexcept
     {
         return;
     }
-    ImGui::InputText("Project Folder", m_registerLocator.data(), m_registerLocator.size());
+    input_locator("Project Folder", m_registerLocator, *m_assertContext);
     ImGui::Checkbox("移動した同一Projectとして再関連付け", &m_confirmMovedProject);
-    ImGui::BeginDisabled(m_registerLocator[0] == '\0');
+    ImGui::BeginDisabled(m_registerLocator.empty());
     if (ImGui::Button("登録"))
     {
         Result<void> registered =
-            m_service->register_project(m_registerLocator.data(), current_milliseconds(), m_confirmMovedProject);
+            m_service->register_project(m_registerLocator, current_milliseconds(), m_confirmMovedProject);
         if (registered)
         {
             set_status("Projectを一覧へ登録しました。");

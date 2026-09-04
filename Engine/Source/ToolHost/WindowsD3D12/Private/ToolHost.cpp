@@ -862,12 +862,14 @@ cue::Result<void> WindowsD3d12ToolHost::render_frame(cue::tool_host::ToolHostCli
     cue::Result<std::uint64_t> reserved = reserve_fence_value();
     if (!reserved)
     {
+        cue::Error exhausted = std::move(*reserved.try_error());
         cue::Result<void> drained = wait_for_fence(m_lastSignaledFence);
         if (!drained)
         {
-            return finish_after_wait_error(std::move(*reserved.try_error()));
+            exhausted.append_secondary_diagnostics(*m_assertContext, *drained.try_error(),
+                                                   "Tool Host Fence exhaustion drain failed", "Drain");
+            return finish_after_wait_error(std::move(exhausted));
         }
-        cue::Error exhausted = std::move(*reserved.try_error());
         cleanup();
         return cue::Result<void>::failure(std::move(exhausted));
     }
@@ -1064,12 +1066,14 @@ cue::Result<void> WindowsD3d12ToolHost::drain_for_shutdown() noexcept
     cue::Result<std::uint64_t> reserved = reserve_fence_value();
     if (!reserved)
     {
+        cue::Error exhausted = std::move(*reserved.try_error());
         cue::Result<void> drained = wait_for_fence(m_lastSignaledFence);
         if (!drained)
         {
-            return finish_after_wait_error(std::move(*reserved.try_error()));
+            exhausted.append_secondary_diagnostics(*m_assertContext, *drained.try_error(),
+                                                   "Tool Host shutdown Fence exhaustion drain failed", "Drain");
+            return finish_after_wait_error(std::move(exhausted));
         }
-        cue::Error exhausted = std::move(*reserved.try_error());
         cleanup();
         return cue::Result<void>::failure(std::move(exhausted));
     }

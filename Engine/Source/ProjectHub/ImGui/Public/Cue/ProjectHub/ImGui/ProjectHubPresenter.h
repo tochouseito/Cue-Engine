@@ -75,8 +75,8 @@ class ProjectHubPresenter final
     std::string m_pendingRemoveProjectId;
     std::string m_message;
     std::optional<EditorLaunchRequest> m_launchRequest;
-    std::array<char, 1024> m_parentLocator{};
-    std::array<char, 1024> m_registerLocator{};
+    std::string m_parentLocator;
+    std::string m_registerLocator;
     std::array<char, 128> m_projectName{};
     std::array<char, 128> m_displayName{};
     bool m_openCreateDialog = false;
