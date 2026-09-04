@@ -787,8 +787,8 @@ void ProjectHubPresenter::set_creation_warning(const ProjectCreationOutcome &a_o
     std::string warning;
     try
     {
-        warning = "Project Folder: ";
-        warning.append(a_outcome.project_locator());
+        warning = "Project Folder（Unicode Escape表示）: ";
+        warning.append(make_renderable_text(a_outcome.project_locator()));
         warning.push_back('\n');
         if (creationError != nullptr)
         {
