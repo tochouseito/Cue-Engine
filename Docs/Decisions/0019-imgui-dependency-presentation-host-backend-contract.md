@@ -300,9 +300,10 @@ ImGui Adapterは表示用ViewとPresentation Stateだけを読み、User操作�
 - Device Removal確認後はFenceをSignalまたはWaitせず、Removal Reasonを記録してDREDを一度だけBest-effortで採取する。
   DRED採取失敗は制御解放を妨げず、Message Sink detach、DirectX 12 Renderer Backend、Win32 Platform Backend、ImGui Context、
   Command Resource、Back Buffer、RTV／SRV Heap、Swap Chain／Binding、Fence／Event、Queue、Device、Windowの順に待機なしで解放し、
-  `ToolHostError::DeviceRemoved`をPrimary、Removal ReasonをNative Errorとする。Device Removal検出前に複数Errorがある場合は、
-  最初のErrorをPrimaryに維持して後続Errorを`append_secondary_diagnostics()`で発生順に集約し、そのAggregate全体を
-  再分類時の一つのImmediate Causeとして保持する。独立してDevice Removal確認後に発生するDRED／Cleanup ErrorはCause Chainへ加えず、
+  `ToolHostError::DeviceRemoved`をPrimary、Removal ReasonをNative Errorとする。Device Removal検出前のErrorが0件ならCauseなし、
+  1件ならそのErrorをImmediate Causeとして保持する。複数ある場合は最初のErrorをPrimaryに維持して後続Errorを
+  `append_secondary_diagnostics()`で発生順に集約し、そのAggregate全体を再分類時の一つのImmediate Causeとして保持する。
+  独立してDevice Removal確認後に発生するDRED／Cleanup ErrorはCause Chainへ加えず、
   `append_secondary_diagnostics()`で発生順のSecondary Contextとして保持する。Device Removalでは先行Error維持より本規則を優先する
 - Fence Signal／Wait／待機Primitiveが失敗した場合は、Fence完了とDevice Removalの再検査結果を先に集める。
   Device Removalを確認できればFence完了も同時に観測していてもRemoval経路を最優先し、Removal未確認でFence完了だけを
@@ -331,9 +332,9 @@ Fence枯渇は`nextFenceValue`と`lastSignaledFence`を注入し、未提出0値
 Device Removal、非Wrap／非Sentinel Signal、Primary ErrorとProcess非0終了を個別に検証する。
 Signal／Wait／Present／Resize、`GetCompletedValue()`の`UINT64_MAX`、`GetDeviceRemovedReason()`直接確認の各Device Removal経路は、
 Fence完了との同時成立、先行Error、DRED失敗、複数Cleanup Errorを注入する。`ToolHostError::DeviceRemoved`が常にPrimary、
-Removal ReasonがNative Errorになることを検証する。複数の検出前Errorは最初のErrorをPrimaryとして後続を発生順のSecondary
-Diagnosticsへ集約した一つのAggregateがImmediate Causeとなり、DRED／Cleanup ErrorはDeviceRemoved Errorの発生順Secondary
-Contextになって、独立ErrorがCause Chainへ直接入らないことを検証する。
+Removal ReasonがNative Errorになることを検証する。検出前Error 0件ではCauseなし、1件ではそのError、複数では最初のErrorを
+Primaryとして後続を発生順のSecondary Diagnosticsへ集約した一つのAggregateがImmediate Causeとなることを個別に検証する。
+DRED／Cleanup ErrorはDeviceRemoved Errorの発生順Secondary Contextになり、独立ErrorがCause Chainへ直接入らないことも検証する。
 Manual TestはProject作成、既存Project登録、Pin、一覧除外、Keyboard操作、Cancel、Editor Launch要求、正常Closeを確認する。
 
 Pixel完全一致、Theme、Font Raster差分、Docking、Multi-ViewportはM12 Gateに含めない。
