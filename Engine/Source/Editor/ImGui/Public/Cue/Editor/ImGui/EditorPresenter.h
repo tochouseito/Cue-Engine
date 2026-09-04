@@ -154,9 +154,6 @@ class EditorPresenter final
     void draw_menu(const editor_core::EditorDocument &a_document, std::optional<EditorIntent> &a_pendingIntent);
     /// @brief Stable ObjectIdをImGui IDに使用してHierarchy TreeとObject操作を描画する
     void draw_hierarchy(const editor_core::EditorDocument &a_document, std::optional<EditorIntent> &a_pendingIntent);
-    /// @brief 一ObjectとChild群をRead-only Scene Viewから再帰描画する
-    void draw_object_node(const scene::SceneDocument &a_sceneDocument, const scene::SceneObject &a_object,
-                          std::span<const scene::ObjectId> a_selection, std::optional<EditorIntent> &a_pendingIntent);
     /// @brief Primary SelectionのName、Parent、Transform、Component操作を描画する
     void draw_inspector(const editor_core::EditorDocument &a_document, std::optional<EditorIntent> &a_pendingIntent);
     /// @brief SelectionまたはDocument State変更時に編集BufferをRead-only正本へ同期する

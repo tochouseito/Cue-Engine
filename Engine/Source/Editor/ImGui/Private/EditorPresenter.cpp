@@ -16,6 +16,8 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -122,11 +124,92 @@ int resize_string_input(ImGuiInputTextCallbackData *a_data) noexcept
     return submitted;
 }
 
-/// @brief Selection ViewにStable Object Identityが含まれるか判定する
-[[nodiscard]] bool is_selected(std::span<const cue::scene::ObjectId> a_selection,
+/// @brief Stable Object Identityの16 byteをHierarchy索引用Hashへ変換する
+struct ObjectIdHash final
+{
+    [[nodiscard]] std::size_t operator()(const cue::scene::ObjectId &a_objectId) const noexcept
+    {
+        std::size_t hash = 0U;
+        for (const std::uint8_t byte : a_objectId.bytes())
+        {
+            hash = (hash * 131U) ^ static_cast<std::size_t>(byte);
+        }
+        return hash;
+    }
+};
+
+using HierarchyChildIndex =
+    std::unordered_map<cue::scene::ObjectId, std::vector<const cue::scene::SceneObject *>, ObjectIdHash>;
+using HierarchySelectionIndex = std::unordered_set<cue::scene::ObjectId, ObjectIdHash>;
+
+/// @brief Frame単位Selection索引にStable Object Identityが含まれるか判定する
+[[nodiscard]] bool is_selected(const HierarchySelectionIndex &a_selection,
                                const cue::scene::ObjectId &a_objectId) noexcept
 {
-    return std::find(a_selection.begin(), a_selection.end(), a_objectId) != a_selection.end();
+    return a_selection.contains(a_objectId);
+}
+
+/// @brief Frame単位Child索引から一ObjectとChild群を再帰描画する
+void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyChildIndex &a_childrenByParent,
+                      const HierarchySelectionIndex &a_selectionIndex,
+                      std::span<const cue::scene::ObjectId> a_selection,
+                      std::optional<cue::editor::EditorIntent> &a_pendingIntent)
+{
+    const auto children = a_childrenByParent.find(a_object.id());
+    const bool hasChildren = children != a_childrenByParent.end() && !children->second.empty();
+
+    const cue::scene::IdentityText objectIdText = a_object.id().canonical_text();
+    ImGui::PushID(objectIdText.data(), objectIdText.data() + objectIdText.size());
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+    if (!hasChildren)
+    {
+        flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+    }
+    if (is_selected(a_selectionIndex, a_object.id()))
+    {
+        flags |= ImGuiTreeNodeFlags_Selected;
+    }
+    const std::string name(a_object.name());
+    const bool isOpen = ImGui::TreeNodeEx("##Object", flags, "%s", name.c_str());
+    if (!a_pendingIntent.has_value() && ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
+    {
+        std::vector<cue::scene::ObjectId> nextSelection;
+        std::optional<cue::scene::ObjectId> primary;
+        if (ImGui::GetIO().KeyCtrl)
+        {
+            nextSelection.assign(a_selection.begin(), a_selection.end());
+            const auto found = std::find(nextSelection.begin(), nextSelection.end(), a_object.id());
+            if (found == nextSelection.end())
+            {
+                nextSelection.push_back(a_object.id());
+                primary = a_object.id();
+            }
+            else
+            {
+                nextSelection.erase(found);
+                if (!nextSelection.empty())
+                {
+                    primary = nextSelection.back();
+                }
+            }
+        }
+        else
+        {
+            nextSelection.push_back(a_object.id());
+            primary = a_object.id();
+        }
+        a_pendingIntent.emplace(cue::editor::SelectObjectsIntent{std::move(nextSelection), std::move(primary)});
+    }
+
+    if (hasChildren && isOpen)
+    {
+        for (const cue::scene::SceneObject *child : children->second)
+        {
+            draw_object_node(*child, a_childrenByParent, a_selectionIndex, a_selection, a_pendingIntent);
+        }
+        ImGui::TreePop();
+    }
+    ImGui::PopID();
 }
 
 /// @brief CandidateがSource Root自身またはそのDescendantかRead-only Parent Chainで判定する
@@ -656,87 +739,28 @@ void EditorPresenter::draw_hierarchy(const editor_core::EditorDocument &a_docume
     ImGui::EndDisabled();
     ImGui::Separator();
 
+    HierarchyChildIndex childrenByParent;
+    childrenByParent.reserve(sceneDocument.object_count());
+    for (const scene::SceneObject &object : sceneDocument.objects())
+    {
+        const scene::ObjectId *parentId = object.try_parent_id();
+        if (parentId != nullptr)
+        {
+            childrenByParent[*parentId].push_back(&object);
+        }
+    }
+    HierarchySelectionIndex selectionIndex;
+    selectionIndex.reserve(a_document.selection().size());
+    selectionIndex.insert(a_document.selection().begin(), a_document.selection().end());
+
     for (const scene::SceneObject &object : sceneDocument.objects())
     {
         if (object.try_parent_id() == nullptr)
         {
-            draw_object_node(sceneDocument, object, a_document.selection(), a_pendingIntent);
+            draw_object_node(object, childrenByParent, selectionIndex, a_document.selection(), a_pendingIntent);
         }
     }
     ImGui::EndChild();
-}
-
-void EditorPresenter::draw_object_node(const scene::SceneDocument &a_sceneDocument, const scene::SceneObject &a_object,
-                                       std::span<const scene::ObjectId> a_selection,
-                                       std::optional<EditorIntent> &a_pendingIntent)
-{
-    bool hasChildren = false;
-    for (const scene::SceneObject &candidate : a_sceneDocument.objects())
-    {
-        const scene::ObjectId *parentId = candidate.try_parent_id();
-        if (parentId != nullptr && *parentId == a_object.id())
-        {
-            hasChildren = true;
-            break;
-        }
-    }
-
-    const scene::IdentityText objectIdText = a_object.id().canonical_text();
-    ImGui::PushID(objectIdText.data(), objectIdText.data() + objectIdText.size());
-    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-    if (!hasChildren)
-    {
-        flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-    }
-    if (is_selected(a_selection, a_object.id()))
-    {
-        flags |= ImGuiTreeNodeFlags_Selected;
-    }
-    const std::string name(a_object.name());
-    const bool isOpen = ImGui::TreeNodeEx("##Object", flags, "%s", name.c_str());
-    if (!a_pendingIntent.has_value() && ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
-    {
-        std::vector<scene::ObjectId> nextSelection;
-        std::optional<scene::ObjectId> primary;
-        if (ImGui::GetIO().KeyCtrl)
-        {
-            nextSelection.assign(a_selection.begin(), a_selection.end());
-            const auto found = std::find(nextSelection.begin(), nextSelection.end(), a_object.id());
-            if (found == nextSelection.end())
-            {
-                nextSelection.push_back(a_object.id());
-                primary = a_object.id();
-            }
-            else
-            {
-                nextSelection.erase(found);
-                if (!nextSelection.empty())
-                {
-                    primary = nextSelection.back();
-                }
-            }
-        }
-        else
-        {
-            nextSelection.push_back(a_object.id());
-            primary = a_object.id();
-        }
-        a_pendingIntent.emplace(SelectObjectsIntent{std::move(nextSelection), std::move(primary)});
-    }
-
-    if (hasChildren && isOpen)
-    {
-        for (const scene::SceneObject &candidate : a_sceneDocument.objects())
-        {
-            const scene::ObjectId *parentId = candidate.try_parent_id();
-            if (parentId != nullptr && *parentId == a_object.id())
-            {
-                draw_object_node(a_sceneDocument, candidate, a_selection, a_pendingIntent);
-            }
-        }
-        ImGui::TreePop();
-    }
-    ImGui::PopID();
 }
 
 void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_document,
@@ -762,8 +786,17 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     }
     sync_inspector(a_document, *object);
 
-    const bool submittedName = input_object_name(m_name, *m_assertContext);
-    if ((submittedName || ImGui::IsItemDeactivatedAfterEdit()) && !a_pendingIntent.has_value())
+    bool commitName = false;
+    if (m_name.find('\0') != std::string::npos)
+    {
+        ImGui::TextDisabled("NameにU+0000が含まれるためInspectorでは編集できません（%zu bytes）。", m_name.size());
+    }
+    else
+    {
+        commitName = input_object_name(m_name, *m_assertContext);
+        commitName = commitName || ImGui::IsItemDeactivatedAfterEdit();
+    }
+    if (commitName && !a_pendingIntent.has_value())
     {
         a_pendingIntent.emplace(RenameObjectIntent{object->id(), m_name});
     }

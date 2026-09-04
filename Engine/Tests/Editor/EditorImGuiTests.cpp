@@ -281,10 +281,15 @@ void test_hierarchy_inspector_intents() noexcept
     input.DeltaTime = 1.0F / 60.0F;
     static_cast<void>(input.Fonts->Build());
     draw_frame(*presenter);
-    ImGui::DestroyContext();
-
     document = controller->session().find_document(documentId);
     require(document->scene_document().find_object(rootId)->name() == longName);
+
+    const std::string embeddedNullName("A\0B", 3U);
+    require(presenter->submit(cue::editor::RenameObjectIntent{rootId, embeddedNullName}).has_value());
+    draw_frame(*presenter);
+    document = controller->session().find_document(documentId);
+    require(document->scene_document().find_object(rootId)->name() == std::string_view(embeddedNullName));
+    ImGui::DestroyContext();
 
     constexpr std::string_view duplicateSuffix = " Copy";
     std::string maximumName(cue::scene::k_maximumSceneStringBytes - duplicateSuffix.size() - 1U, 'A');
