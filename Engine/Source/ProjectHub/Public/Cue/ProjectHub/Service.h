@@ -190,6 +190,7 @@ class ProjectHubService final
     [[nodiscard]] std::span<const ProjectRowView> projects() const noexcept;
 
     /// @brief 全Recent Locatorを再検査し、欠損や破損をEntry単位で隔離してViewModelを更新する
+    /// @note ErrorのRoot CodeがCue.IO/IoError::DurabilityUnknownなら変更は公開済みでprojectsの旧Spanは無効
     [[nodiscard]] Result<void> refresh() noexcept;
     /// @brief Blank TemplateでProjectをAtomic生成しRecentへ登録する
     ///
@@ -202,17 +203,22 @@ class ProjectHubService final
                                                                       std::string_view a_templateId,
                                                                       std::uint64_t a_openedMilliseconds) noexcept;
     /// @brief 既存Projectを登録し、明示時だけ同一ProjectIdの移動を再関連付けする
+    /// @note ErrorのRoot CodeがCue.IO/IoError::DurabilityUnknownなら登録は公開済みでprojectsの旧Spanは無効
     [[nodiscard]] Result<void> register_project(std::string_view a_locator, std::uint64_t a_openedMilliseconds,
                                                 bool a_confirmMovedProject) noexcept;
     /// @brief Descriptorを再検証し、互換ProjectのEditor Launch Requestを生成する
+    /// @note ErrorのRoot CodeがCue.IO/IoError::DurabilityUnknownならOpen時刻は公開済みでprojectsの旧Spanは無効
     [[nodiscard]] Result<EditorLaunchRequest> open_project(
         std::string_view a_projectId, std::uint64_t a_openedMilliseconds,
         std::optional<std::string_view> a_initialSceneLocator = std::nullopt) noexcept;
     /// @brief Recent EntryのPin状態を変更する
+    /// @note ErrorのRoot CodeがCue.IO/IoError::DurabilityUnknownならPin変更は公開済みでprojectsの旧Spanは無効
     [[nodiscard]] Result<void> set_project_pinned(std::string_view a_projectId, bool a_isPinned) noexcept;
     /// @brief Pin EntryをPin一覧内の位置へ移動する
+    /// @note ErrorのRoot CodeがCue.IO/IoError::DurabilityUnknownなら並べ替えは公開済みでprojectsの旧Spanは無効
     [[nodiscard]] Result<void> move_pinned_project(std::string_view a_projectId, std::size_t a_targetIndex) noexcept;
     /// @brief Recent Entryだけを除外しProject Folderには触れない
+    /// @note ErrorのRoot CodeがCue.IO/IoError::DurabilityUnknownなら除外は公開済みでprojectsの旧Spanは無効
     [[nodiscard]] Result<void> remove_project(std::string_view a_projectId) noexcept;
 
   private:

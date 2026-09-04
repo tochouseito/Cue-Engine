@@ -229,6 +229,16 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
         m_nextProjectPublishDurabilityUnknown = true;
     }
 
+    void set_failed_locator(std::string_view a_locator)
+    {
+        m_failedLocator = std::string(a_locator);
+    }
+
+    void clear_failed_locator() noexcept
+    {
+        m_failedLocator.reset();
+    }
+
     [[nodiscard]] cue::Result<std::string> normalize_project_locator(std::string_view a_locator) noexcept override
     {
         try
@@ -289,6 +299,11 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
     {
         try
         {
+            if (m_failedLocator.has_value() && *m_failedLocator == a_locator)
+            {
+                return cue::Result<std::unique_ptr<cue::FilesystemRoot>>::failure(cue::make_io_error(
+                    *m_assertContext, cue::IoError::PermissionDenied, "Test locator access failure"));
+            }
             const std::filesystem::path path{std::string(a_locator)};
             std::error_code error;
             const bool exists = std::filesystem::exists(path, error);
@@ -342,6 +357,7 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
     const cue::AssertContext *m_assertContext;
     std::size_t m_nextIdentity = 0U;
     bool m_nextProjectPublishDurabilityUnknown = false;
+    std::optional<std::string> m_failedLocator;
 };
 
 [[nodiscard]] cue::Result<cue::project_hub::ProjectHubConfiguration> make_configuration(
@@ -478,6 +494,18 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
         launch.try_value()->engine_compatibility_id() != "cue-engine:[1.0.0,2.0.0)" ||
         !launch.try_value()->initial_scene_locator().has_value() ||
         launch.try_value()->project_descriptor_locator().find("CueProject.json") == std::string_view::npos)
+    {
+        return false;
+    }
+
+    platform.set_failed_locator(to_utf8(directory.path() / "Projects" / "Alpha"));
+    auto inaccessibleLaunch = service.try_value()->get()->open_project(alphaId, 425U);
+    const auto *inaccessibleAlpha = find_project(service.try_value()->get()->projects(), alphaId);
+    platform.clear_failed_locator();
+    if (inaccessibleLaunch || inaccessibleAlpha == nullptr ||
+        inaccessibleAlpha->state != cue::project_hub::ProjectEntryState::Broken ||
+        inaccessibleAlpha->problem != cue::project_hub::ProjectEntryProblem::LocatorAccessFailed ||
+        !service.try_value()->get()->refresh())
     {
         return false;
     }

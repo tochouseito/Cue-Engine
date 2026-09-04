@@ -509,9 +509,11 @@ Result<EditorLaunchRequest> ProjectHubService::open_project(
         auto root = m_platform->open_root(found->locator());
         if (!root)
         {
-            return Result<EditorLaunchRequest>::failure(
+            Error primary =
                 reclassify_project_hub_error(*m_assertContext, ProjectHubError::ProjectBroken,
-                                             "Project locator could not be opened", std::move(*root.try_error())));
+                                             "Project locator could not be opened", std::move(*root.try_error()));
+            refresh_after_open_failure(primary);
+            return Result<EditorLaunchRequest>::failure(std::move(primary));
         }
         if (*root.try_value() == nullptr)
         {
