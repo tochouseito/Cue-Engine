@@ -135,6 +135,7 @@ class EditorLaunchRequest final
 /// @brief Project Registry、Descriptor、Compatibilityを束ねるUI非依存Application Service
 ///
 /// 同一Instanceは作成Threadだけで使用し、返すViewは次のMutationまで有効とする
+/// createへ渡すWorkspace Filesystem、Platform、AssertContextは非所有で保持し、Serviceより長く生存させる
 class ProjectHubService final
 {
   public:
@@ -145,6 +146,10 @@ class ProjectHubService final
     ~ProjectHubService() = default;
 
     /// @brief Workspace Registryを読込み、初期ViewModelを構築する
+    /// @param a_workspaceFilesystem 返却Serviceより長く生存する非所有Workspace Root
+    /// @param a_platform 返却Serviceより長く生存する非所有Platform Composition
+    /// @param a_configuration Serviceが所有権を取得するEngine・Capability設定
+    /// @param a_assertContext 返却Serviceと注入Platformより長く生存する非所有診断Context
     [[nodiscard]] static Result<std::unique_ptr<ProjectHubService>> create(
         FilesystemRoot &a_workspaceFilesystem, ProjectHubPlatform &a_platform,
         ProjectHubConfiguration &&a_configuration, const AssertContext &a_assertContext) noexcept;
@@ -181,7 +186,8 @@ class ProjectHubService final
                       ProjectHubConfiguration &&a_configuration, RecentProjectRegistry &&a_registry,
                       const AssertContext &a_assertContext) noexcept;
 
-    [[nodiscard]] Result<void> save_and_refresh() noexcept;
+    [[nodiscard]] Result<RecentProjectRegistry> clone_registry() const noexcept;
+    [[nodiscard]] Result<void> commit_registry(RecentProjectRegistry &&a_registry) noexcept;
     [[nodiscard]] Result<ProjectId> parse_project_id(std::string_view a_projectId) const noexcept;
 
     FilesystemRoot *m_workspaceFilesystem;

@@ -78,6 +78,98 @@ class TestDirectory final
     bool m_valid = false;
 };
 
+class FailingWorkspaceFilesystem final : public cue::FilesystemRoot
+{
+  public:
+    explicit FailingWorkspaceFilesystem(std::unique_ptr<cue::FilesystemRoot> a_inner,
+                                        const cue::AssertContext &a_assertContext) noexcept
+        : m_inner(std::move(a_inner)), m_assertContext(&a_assertContext)
+    {
+    }
+
+    void set_write_failure(bool a_shouldFail) noexcept
+    {
+        m_shouldFail = a_shouldFail;
+    }
+
+    [[nodiscard]] cue::Result<cue::EntryType> query_entry(const cue::RelativePath &a_path) noexcept override
+    {
+        return m_inner->query_entry(a_path);
+    }
+
+    [[nodiscard]] cue::Result<std::vector<std::byte>> read_file(const cue::RelativePath &a_path,
+                                                                std::size_t a_maxBytes) noexcept override
+    {
+        return m_inner->read_file(a_path, a_maxBytes);
+    }
+
+    [[nodiscard]] cue::Result<void> create_directories(const cue::RelativePath &a_path) noexcept override
+    {
+        return m_inner->create_directories(a_path);
+    }
+
+    [[nodiscard]] cue::Result<void> write_file_atomic(const cue::RelativePath &a_path,
+                                                      std::span<const std::byte> a_bytes) noexcept override
+    {
+        if (m_shouldFail)
+        {
+            return cue::Result<void>::failure(cue::project_hub::make_project_hub_error(
+                *m_assertContext, cue::project_hub::ProjectHubError::PersistenceFailure,
+                "Test workspace write failure"));
+        }
+        return m_inner->write_file_atomic(a_path, a_bytes);
+    }
+
+    [[nodiscard]] cue::Result<void> write_recovery_backup_atomic(
+        const cue::RelativePath &a_destination, std::span<const std::byte> a_bytes,
+        const cue::AssertContext &a_assertContext) noexcept override
+    {
+        return m_inner->write_recovery_backup_atomic(a_destination, a_bytes, a_assertContext);
+    }
+
+    [[nodiscard]] cue::Result<cue::FileWriteLease> acquire_file_write_lease(
+        const cue::RelativePath &a_path) noexcept override
+    {
+        return m_inner->acquire_file_write_lease(a_path);
+    }
+
+    [[nodiscard]] cue::Result<void> write_file_atomic_if_unchanged(cue::FileWriteLease &a_lease,
+                                                                   const cue::RelativePath &a_path,
+                                                                   cue::FileFingerprint a_expected,
+                                                                   std::size_t a_maximumExpectedBytes,
+                                                                   std::span<const std::byte> a_bytes) noexcept override
+    {
+        return m_inner->write_file_atomic_if_unchanged(a_lease, a_path, a_expected, a_maximumExpectedBytes, a_bytes);
+    }
+
+    [[nodiscard]] cue::Result<void> remove_file(const cue::RelativePath &a_path) noexcept override
+    {
+        return m_inner->remove_file(a_path);
+    }
+
+    [[nodiscard]] cue::Result<cue::StagingArea> create_staging_area(
+        const cue::RelativePath &a_destination) noexcept override
+    {
+        return m_inner->create_staging_area(a_destination);
+    }
+
+    [[nodiscard]] cue::Result<void> publish_staging_area(cue::StagingArea &&a_staging,
+                                                         const cue::RelativePath &a_destination) noexcept override
+    {
+        return m_inner->publish_staging_area(std::move(a_staging), a_destination);
+    }
+
+    [[nodiscard]] cue::Result<void> rollback_staging_area(cue::StagingArea &&a_staging) noexcept override
+    {
+        return m_inner->rollback_staging_area(std::move(a_staging));
+    }
+
+  private:
+    std::unique_ptr<cue::FilesystemRoot> m_inner;
+    const cue::AssertContext *m_assertContext;
+    bool m_shouldFail = false;
+};
+
 class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
 {
   public:
@@ -242,7 +334,8 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
     {
         return false;
     }
-    auto service = cue::project_hub::ProjectHubService::create(**workspace.try_value(), platform,
+    FailingWorkspaceFilesystem workspaceFilesystem(std::move(*workspace.try_value()), a_assertContext);
+    auto service = cue::project_hub::ProjectHubService::create(workspaceFilesystem, platform,
                                                                std::move(*configuration.try_value()), a_assertContext);
     if (!service || service.try_value()->get()->templates().size() != 1U ||
         service.try_value()->get()->templates()[0].id != cue::project_hub::k_blank3dTemplateId ||
@@ -283,6 +376,13 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
         return false;
     }
 
+    auto invalidLaunch =
+        service.try_value()->get()->open_project(alphaId, 350U, std::string_view("../Outside.cuescene"));
+    const auto *alphaAfterInvalidLaunch = find_project(service.try_value()->get()->projects(), alphaId);
+    if (invalidLaunch || alphaAfterInvalidLaunch == nullptr || alphaAfterInvalidLaunch->lastOpenedMilliseconds != 100U)
+    {
+        return false;
+    }
     auto launch = service.try_value()->get()->open_project(alphaId, 400U, std::string_view("Scenes/Start.cuescene"));
     if (!launch || launch.try_value()->protocol_version() != cue::project_hub::k_editorLaunchProtocolVersion ||
         launch.try_value()->expected_project_id() != alphaId ||
@@ -296,7 +396,12 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
     std::error_code error;
     std::filesystem::rename(directory.path() / "Projects" / "Bravo", directory.path() / "Projects" / "BravoMoved",
                             error);
-    if (error || !service.try_value()->get()->refresh())
+    if (error)
+    {
+        return false;
+    }
+    auto missingLaunch = service.try_value()->get()->open_project(bravoId, 450U);
+    if (missingLaunch)
     {
         return false;
     }
@@ -325,6 +430,13 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
         return false;
     }
 
+    workspaceFilesystem.set_write_failure(true);
+    auto failedRemoval = service.try_value()->get()->remove_project(alphaId);
+    workspaceFilesystem.set_write_failure(false);
+    if (failedRemoval || find_project(service.try_value()->get()->projects(), alphaId) == nullptr)
+    {
+        return false;
+    }
     if (!service.try_value()->get()->remove_project(alphaId) ||
         find_project(service.try_value()->get()->projects(), alphaId) != nullptr ||
         !std::filesystem::exists(directory.path() / "Projects" / "Alpha" / "CueProject.json"))
@@ -338,7 +450,7 @@ class TestProjectHubPlatform final : public cue::project_hub::ProjectHubPlatform
         return false;
     }
     auto restarted = cue::project_hub::ProjectHubService::create(
-        **workspace.try_value(), platform, std::move(*restartedConfiguration.try_value()), a_assertContext);
+        workspaceFilesystem, platform, std::move(*restartedConfiguration.try_value()), a_assertContext);
     return restarted && restarted.try_value()->get()->projects().size() == 2U &&
            find_project(restarted.try_value()->get()->projects(), bravoId) != nullptr &&
            find_project(restarted.try_value()->get()->projects(), charlieId) != nullptr;
