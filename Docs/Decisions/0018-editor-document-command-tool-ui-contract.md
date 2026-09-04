@@ -126,7 +126,9 @@ Create-or-openとして扱う。Source Assetsの欠損は`NotFound`、通常File
 `UnsupportedEntry`で起動失敗とする。Savedが欠損している場合だけ、Binding済みProject Rootの`create_directories()`で
 Project相対Rootを作成し、File／Reparse Point衝突は同じ分類で失敗する。Root BindingまたはSession生成が途中で失敗した場合、
 部分Objectは逆順に破棄するが、作成済みSaved Directoryは削除しない。競合Processの利用や作成後の内容を判別せず削除する方が
-Data Loss Riskになるためであり、空Directoryの残留を許容して再試行時に冪等に再利用する。
+Data Loss Riskになるためであり、空Directoryの残留を許容して再試行時に冪等に再利用する。#162ではADR-0014に従い、
+Native Createが`AlreadyExists`相当になった競合経路もEntryを再検査し、Directoryは成功、Fileは`TypeMismatch`、
+Reparse Pointは`UnsupportedEntry`へ分類するようWindows `create_directories()`を適合させてからSaved Rootへ使用する。
 
 ### EditorDocument Ownership
 

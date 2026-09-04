@@ -147,6 +147,9 @@ M09の公開契約は次の最小操作に限定する。
 
 Directory作成はRoot配下だけで行い、途中で既存Regular FileまたはUnsupported Entryへ遭遇した場合は失敗する。既存Directoryは
 再利用できるが、Blank Projectの最終Destinationは既存なら空・非空に関係なく拒否する。
+不足DirectoryのNative Createが`AlreadyExists`相当になった場合はEntryを再検査し、Directoryなら競合成功として再利用する。
+Regular Fileなら`TypeMismatch`、Reparse Point等のUnsupported Entryなら`UnsupportedEntry`を返す。
+`AlreadyExists`はCreate-newまたはPublish先衝突の分類であり、Create-or-open Directoryの型衝突へ丸めない。
 
 ### Atomic File Replace
 
@@ -331,3 +334,4 @@ M09の必要範囲に対して新規Dependency、License管理、ABI面積が増
 - Issue #137: Project Descriptorの読取り／保存を本契約へ接続する
 - Issue #138: Blank ProjectをStaging DirectoryからAtomic Publishする
 - Issue #139: User Workspace RegistryをAtomic File Replaceで保存する
+- Issue #162: Windows `create_directories()`の競合後再検査を実Entry種別へ分類し、Editor Saved RootのCreate-or-openへ使用する
