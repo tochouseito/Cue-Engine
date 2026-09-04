@@ -156,6 +156,9 @@ Cue.ImGui.Core ------------> vcpkg imgui::imgui
 `Cue.ToolHost.WindowsD3D12` は M12 Tool UI 共通のHost Runtime Targetとする。Window、Message Pump、ImGui Context、
 Frame開始／終了、Tool用D3D12 Device、Queue、Swap Chain、Descriptor Heap、公式Backendの初期化／終了順を所有する。
 Tool Host の Native ObjectをPresentation AdapterまたはApplication Serviceの公開APIへ出さない。
+Tool用Swap Chain生成はADR-0006をAmendする専用Adapterで、短命な`NativeWindowView::value()`を
+`CreateSwapChainForHwnd`相当の呼出中だけ使用する。Move-onlyな`WindowsToolSwapChainBinding`はRaw Native値を保持または公開せず、
+Windowより先にSwap Chainと共に破棄する。Runtime RHIまたはGame Swap Chainへこの例外を拡張しない。
 
 `Cue.ProjectHub.Tool`と`Cue.Editor.Tool`を最終Executable Composition Rootとする。各Rootは
 `Cue.ToolHost.WindowsD3D12`、対応するApplication Service、Presentation Adapter、Presentation Stateを一意所有し、

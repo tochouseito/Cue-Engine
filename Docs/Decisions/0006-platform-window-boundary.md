@@ -276,11 +276,11 @@ public:
 - `NativeWindowView`はWindows固有の診断、Test、Platform Adapterに限定し、`Cue.RHI`または`Cue.RHI.D3D12`へ渡さない
 - RuntimeHostもViewまたは`value()`をRHI Backend Factoryへ転送しない
 - `Cue.RHI`と`Cue.RHI.D3D12`は`WindowsWindowInterop.h`をIncludeせず、`Cue.Platform.Windows`へLinkしない
-- PlatformとRHIの双方に依存できるAdapter TargetまたはPlatform非依存Surface契約は、M03以降のRHI Research Issueで決定する。Accepted ADRができるまでD3D12 Swap Chain連携を実装しない
+- PlatformとRHIの双方に依存できるAdapter TargetまたはPlatform非依存Surface契約は、M03以降のRHI Research Issueで決定する。Runtime／Game D3D12 Swap Chain連携へ本Viewを使用しない。ADR-0019のTool Host限定例外は後述する
 - RHIとD3D12 BackendはWindow Ownerにならず、Native Handleを永続的なWindow同一性として扱わない
 - `HWND`、`HINSTANCE`、`LRESULT`はPlatform非依存Header、RuntimeHost、RHI公開Headerへ出さない
 
-このInterop形状はM02でWindows Testが実WindowへResize／Minimize／Restore操作を行うためにも使用できるが、Test専用APIではない。Windows固有Toolや診断Adapterも同じ短命Viewを利用できる。D3D12 Swap Chainとの契約には使用せず、最終Interop境界をM03以降のRHI Research Issueで新規に決定する。
+このInterop形状はM02でWindows Testが実WindowへResize／Minimize／Restore操作を行うためにも使用できるが、Test専用APIではない。Windows固有Toolや診断Adapterも同じ短命Viewを利用できる。Runtime／Game D3D12 Swap Chainとの契約には使用せず、最終Interop境界をM03以降のRHI Research Issueで新規に決定する。M12 Tool UI用の限定例外はADR-0019で決定する。
 
 ADR-0019で決定した`Cue.ImGui.Backend.Win32D3D12`だけは、公式ImGui Win32 Backendが初期化時に受け取った
 `NativeWindowView::value()`をBackend内部へ非所有で保持することを許可する。First-party Codeは値を別途保存せず、
@@ -289,6 +289,15 @@ Move-onlyな`WindowsBackendWindowBinding`がBackend初期化済み状態と終�
 初期化RollbackでもBindingをWindowより先に解放する。Tool HostはBindingが残る間にWindowを破棄せず、Presentation Adapter、
 Application Service、Cue.RHIへ値またはBindingを公開しない。この例外は公式ImGui Win32 Backendの保持だけに限定し、
 Subclass化、別Thread利用、永続Identity利用、Runtime RHIへの転送を許可しない。
+
+ADR-0019で決定した`Cue.ToolHost.WindowsD3D12`だけは、Tool UI用DXGI Swap Chain生成Adapterが
+`NativeWindowView::value()`を`CreateSwapChainForHwnd`相当の一回のNative呼出へ渡すことを許可する。AdapterはWindow Owner
+Threadの`Created`または`Visible`状態でViewを取得し、Native呼出から戻る前に値の利用を終え、First-party Objectへ値を保存しない。
+生成済みSwap Chainとの非所有Window関連付けはMove-onlyな`WindowsToolSwapChainBinding`で表し、BindingはRaw Native Window値を
+公開しない。WindowはBindingより長命とし、Tool HostはGPU完了を待ってSwap ChainとBindingを破棄した後にだけWindowの
+`destroy()`を開始する。生成失敗では部分Swap Chainを解放してBindingを公開しない。
+この例外はTool UI用Composition Targetに限定し、`Cue.RHI`、`Cue.RHI.D3D12`、RuntimeHost、Presentation Adapter、
+Application ServiceへのView、値、Bindingの転送や、Game Swap Chainへの再利用を許可しない。
 
 ### Failure and Cleanup
 
