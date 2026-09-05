@@ -385,7 +385,7 @@ void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyCh
     {
         flags |= ImGuiTreeNodeFlags_Selected;
     }
-    const std::string name = display_text_label(a_object.name());
+    const std::string name = object_reference_label(a_object);
     const bool isOpen = ImGui::TreeNodeEx("##Object", flags, "%s", name.c_str());
     const bool mouseActivated = ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen();
     const bool keyboardActivated = ImGui::IsItemFocused() && (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
