@@ -302,6 +302,11 @@ Directory ManifestはRoot自身を含まず、全ての通常DirectoryとRegular
 `TraversalLimits`のDepth、Entry数、Metadata Byte数を適用し、重複Path、Case Collision、欠落Parent、Reparse Point、
 Unsupported Entry、上限超過を拒否する。ManifestはDelete後のPayload検証とRestore直前の内容照合に使用する。
 
+ManifestのDigest計算には、非ZeroのFile単位最大Content Byte数とOperation合計最大Content Byte数を持つ
+`ContentVerificationLimits`も必須とする。Adapter Hard LimitとCaller Limitの小さい方を適用し、列挙で得たLogical File Sizeを
+Digest読込み前に合計する。単一Fileまたは合計が上限を超える場合は`CapacityExceeded`とし、SourceまたはPayloadをMoveせず、
+部分Manifestを完全結果として保存しない。Sparse FileもLogical Sizeで判定する。
+
 `OperationId`はProject File操作ごとに新しく生成するlowercase UUID Version 4とし、Process再起動後もDirectory名とRecordを
 一意に対応させる。nil UUID、Version／Variant不正、Directory名とRecord値の不一致を拒否する。
 
@@ -311,6 +316,13 @@ Unsupported Entry、上限超過を拒否する。ManifestはDelete後のPayload
 Delete開始前に、単一FileではNative Link Countが1であることを要求する。DirectoryではManifest列挙対象の全Regular Fileについて
 Link Count 1を要求する。複数Hard Link、共有違反、列挙競合を`UnsupportedEntry`、`Busy`、または`RescanRequired`として拒否し、
 復元不能と判明しているEntryを回復可能Deleteとして受理しない。
+
+Directory DeleteとRestoreは、検証開始からNative Rename、移動先でのManifest再検証、最終Record Commitまで
+`DirectoryTreeMutationGuard`を保持する。Windows AdapterのGuardは全Regular FileをRead専用かつWrite／Delete非共有Handleで固定し、
+全Directory HandleへRまたはRH Directory Oplockを要求してBreakを監視する。既存Writer、Guard非対応Filesystem、Oplock取得失敗では
+`Busy`または`UnsupportedEntry`としてMoveを開始しない。Directory Oplockは内容変更を阻止しない通知契約であるため、Guard期間中の
+Breakを失敗として記録し、移動先でLink CountとManifestを再検証する。Move前のBreakは`NotCommitted`、Move後のBreakまたは不一致は
+RecordとPayloadを維持した`ReconciliationRequired`とする。黙って成功へFallbackしない。
 
 Delete順序を固定する。
 
@@ -328,9 +340,12 @@ Step 4より前の失敗ではSourceを維持し、Operation-owned Trash Directo
 | Source | Payload | Reconciliation |
 | --- | --- | --- |
 | Exists | Missing | Delete未CommitとしてRecordと空Operation DirectoryをCleanup可能にする |
-| Missing | Exists | Recoverable Deleteとして`trashed`へ昇格できる |
+| Missing | Exists | Type、Link Count、FingerprintまたはManifestをStep 5と同じ上限で再検証し、一致時だけ`trashed`へ昇格できる |
 | Exists | Exists | 外部競合として両方を維持し、User判断を要求する |
 | Missing | Missing | Data所在不明としてRecordを維持し、Errorを報告する |
+
+`Missing / Exists`でも再検証が失敗または上限超過した場合は`trashed`へ昇格せず、RecordとPayloadを維持して
+`ReconciliationRequired`を報告する。
 
 RestoreはRecordの`originalPath`を使用し、DestinationがMissingである場合だけ`Payload`を同一Volume Renameで戻す。必要な親Directoryは
 Mutation Area内の通常DirectoryだけをCreate-or-openできる。File／Unsupported Entry衝突、Area外、Root変更、Project ID不一致では
@@ -344,7 +359,10 @@ Bounded ManifestとPath、Type、Byte Size、Content Digestを完全一致させ
 追加・欠落・Fingerprint不一致、複数Hard Linkを含む場合はDestinationへMoveせず、RecordとPayloadを維持して
 `RecoveryRequired`を返す。
 
-上記検証後にRecordを`restoring`へ更新し、PayloadをMoveする。Move後にSource存在とPayload不存在を検証して`restored`へ更新する。
+Directory Payloadの検証は`DirectoryTreeMutationGuard`取得後に行い、Guardを保持したままRecordを`restoring`へ更新してPayloadを
+Moveする。Move後はOriginal Path側でLink CountとManifestを再検証し、Guard Breakがなく完全一致する場合だけ`restored`へ更新する。
+単一Fileも上記検証後にRecordを`restoring`へ更新し、排他的Accessを保持したままPayloadをMoveする。Move後にSource存在、
+Payload不存在、Fingerprint一致を検証して`restored`へ更新する。
 途中終了は同じ存在行列でReconciliationする。既存Destinationを上書きしない。
 
 M13はRecoverable Payloadの自動期限削除と永久削除UIを提供しない。成功済みRestoreの空Operation DirectoryとRecordだけを
