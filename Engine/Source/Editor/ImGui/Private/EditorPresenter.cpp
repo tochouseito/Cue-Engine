@@ -907,6 +907,10 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     {
         commitName = input_object_name(m_name, *m_assertContext);
         m_nameDirty = m_nameDirty || ImGui::IsItemEdited();
+        if (m_name == object->name())
+        {
+            m_nameDirty = false;
+        }
         commitName = commitName || ImGui::IsItemDeactivatedAfterEdit();
         bool usedUnicodeEscape = false;
         const std::string namePreview = display_text_label(m_name, &usedUnicodeEscape);
@@ -994,6 +998,17 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     const bool rotationEdited = ImGui::InputFloat4("Rotation (Quaternion)", m_rotation.data());
     const bool scaleEdited = ImGui::InputFloat3("Scale", m_scale.data());
     m_transformDirty = m_transformDirty || translationEdited || rotationEdited || scaleEdited;
+    const math::Vector3 authoritativeTranslation = object->transform().translation();
+    const math::Quaternion authoritativeRotation = object->transform().rotation();
+    const math::Vector3 authoritativeScale = object->transform().scale();
+    if (m_translation ==
+            std::array{authoritativeTranslation.x, authoritativeTranslation.y, authoritativeTranslation.z} &&
+        m_rotation == std::array{authoritativeRotation.x, authoritativeRotation.y, authoritativeRotation.z,
+                                 authoritativeRotation.w} &&
+        m_scale == std::array{authoritativeScale.x, authoritativeScale.y, authoritativeScale.z})
+    {
+        m_transformDirty = false;
+    }
     if (ImGui::Button("Transformを適用"))
     {
         Result<math::Tolerance> tolerance =
