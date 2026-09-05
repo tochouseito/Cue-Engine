@@ -420,7 +420,7 @@ void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyCh
         cue::Result<const cue::schema::FieldDescriptor *> field = a_descriptor->find_field(a_fieldId, a_assertContext);
         if (field)
         {
-            return std::string((*field.try_value())->name());
+            return object_name_label((*field.try_value())->name());
         }
     }
     return "Field " + std::to_string(a_fieldId.value());
