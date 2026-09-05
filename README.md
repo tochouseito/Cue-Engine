@@ -63,6 +63,17 @@ git branch --show-current
 
 最後のコマンドが`Rebuild`を出力することを確認してから、以下のConfigure、Build、Testを順に実行します。
 
+## Dependency Restore
+
+新規Checkoutでは、Configureより先にPin済みvcpkg Toolと承認済み第三者Libraryを復元します。
+
+```powershell
+pwsh -NoProfile -File Tools/Dependencies/RestoreVcpkg.ps1
+```
+
+このScriptは`ThirdParty/vcpkg-tool.json`と`ThirdParty/vcpkg-configuration.json`で固定したvcpkg Tool、Registry、
+Package Versionを検証し、Git管理対象外の`ThirdParty/.tools`と`ThirdParty/vcpkg_installed`へ生成物を配置します。
+
 ## Configure
 
 ```powershell

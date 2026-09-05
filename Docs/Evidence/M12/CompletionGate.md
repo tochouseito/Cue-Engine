@@ -8,8 +8,8 @@ M12の先行Issue #156から#164がGitHub上でClosedであり、本Gate Issue #
 | Acceptance Gate | Result | Evidence |
 |---|---|---|
 | M12配下の全Issue | Pass予定 | 先行9件Closed、本PRが最後の#165をCloseする |
-| Debug／Development／Release Build | Pass | 全Targetを3構成でBuild成功 |
-| CTestとHeadless／Process Test | Pass | 3構成とも204 Test、失敗0。Headless RuntimeWorldと8件のProcess Label Testを含む |
+| Debug／Development／Release Build | Pass | 既存CheckoutとFresh Cloneの両方で全Targetを3構成Build成功 |
+| CTestとHeadless／Process Test | Pass | 既存CheckoutとFresh Cloneの両方で3構成とも204 Test、失敗0。Headless RuntimeWorldと8件のProcess Label Testを含む |
 | 手動UI Workflow | Pass | 2026-09-06にUserが`ManualWorkflow.md`の実Window操作を実施し、問題なしと報告。Test Projectは確認後に削除済み |
 | Save失敗時の元File保全 | Pass | `Cue.EditorCore.DocumentState`と`Cue.IO.Storage`が書込失敗、競合、保存未確定時の元File保全を決定的に検証 |
 | Runtime Graphics機能の非追加 | Pass | M11完了CommitからM12 Headまで`Engine/Source/RHI`と`Engine/Source/RuntimeHost`に差分なし。追加D3D12 HostはTool UI表示境界のみ |
@@ -58,6 +58,8 @@ Sceneの作成、Hierarchy／Inspector編集、Undo／Redo、Save／Save As、Re
 
 ## Validation Commands
 
+- `git clone --branch codex/m12-165-completion-gate --single-branch https://github.com/tochouseito/CueEngine.git <clean-checkout>`
+- `pwsh -NoProfile -File Tools/Dependencies/RestoreVcpkg.ps1`
 - `cmake --preset windows-vs2026`
 - `cmake --build --preset windows-vs2026-debug --parallel`
 - `cmake --build --preset windows-vs2026-development --parallel`
@@ -71,6 +73,15 @@ Sceneの作成、Hierarchy／Inspector編集、Undo／Redo、Save／Save As、Re
 
 全TargetのBuildと全204 TestはGate開始時のSource Commit
 `1a68be63accf4e6c240b63e4550d8a022096f390`に対して実行した。
+
+Codex ReviewでADR-0019が求めるClean Checkout検証の不足が判明したため、PR Head
+`eea55559e9c13f79877d0dbd7d90799a010e4d5b`をGitHubから新しいDirectoryへCloneした。Pin済みvcpkg Toolと
+Dear ImGui `1.92.6`のRestore、CacheのないCMake Configure、全TargetのDebug／Development／Release Build、
+各構成204 Testを順に実行し、すべて成功した。その後の変更は本証跡とREADMEのDependency Restore手順だけであり、
+Build Inputは変更していない。Pull Requestの最終HeadはWindows CIで3構成を再検証する。
+
+Clean CheckoutはWindowsのTemp Directory配下で実行したため、MSBuildは中間／出力Directoryの配置に対して
+`MSB8029`を警告した。これはIncremental Buildへの注意であり、今回のCacheなしBuildは3構成ともCompile／Linkに成功した。
 
 最初の制限環境内Debug BuildはWindows SDK設定DirectoryへのAccess Deniedで停止したため、通常のLocal権限で3構成を再実行した。
 最初の制限環境内Debug CTestでは`Cue.IO.Storage`だけが失敗し、同Test単独と全204 Testを通常のLocal権限で再実行して成功した。
