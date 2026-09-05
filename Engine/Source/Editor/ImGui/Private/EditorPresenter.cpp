@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <new>
 #include <span>
@@ -70,33 +71,48 @@ namespace
     return text;
 }
 
-/// @brief Object名の制御Byteを可視表現へEscapeしてImGuiのNUL終端Labelへ渡せるようにする
-[[nodiscard]] std::string object_name_label(std::string_view a_name)
+/// @brief Object名の特殊ByteとFont非対応Unicode Scalarを一意な可視表現へ変換する
+[[nodiscard]] std::string object_name_label(std::string_view a_name, bool *a_usedUnicodeEscape = nullptr)
 {
     constexpr char k_hexDigits[] = "0123456789abcdef";
     std::string label;
     label.reserve(a_name.size());
-    for (const unsigned char byte : a_name)
+    if (a_usedUnicodeEscape != nullptr)
     {
+        *a_usedUnicodeEscape = false;
+    }
+
+    const char *cursor = a_name.data();
+    const char *const end = cursor + a_name.size();
+    ImFont *font = ImGui::GetFont();
+    while (cursor < end)
+    {
+        const auto byte = static_cast<unsigned char>(*cursor);
         switch (byte)
         {
         case 0U:
             label.append("\\0");
+            ++cursor;
             break;
         case static_cast<unsigned char>('\n'):
             label.append("\\n");
+            ++cursor;
             break;
         case static_cast<unsigned char>('\r'):
             label.append("\\r");
+            ++cursor;
             break;
         case static_cast<unsigned char>('\t'):
             label.append("\\t");
+            ++cursor;
             break;
         case static_cast<unsigned char>('\\'):
             label.append("\\\\");
+            ++cursor;
             break;
         case static_cast<unsigned char>('#'):
             label.append("\\#");
+            ++cursor;
             break;
         default:
             if (byte < 0x20U || byte == 0x7FU)
@@ -104,10 +120,76 @@ namespace
                 label.append("\\x");
                 label.push_back(k_hexDigits[(byte >> 4U) & 0x0FU]);
                 label.push_back(k_hexDigits[byte & 0x0FU]);
+                ++cursor;
+            }
+            else if (byte < 0x80U)
+            {
+                label.push_back(static_cast<char>(byte));
+                ++cursor;
             }
             else
             {
-                label.push_back(static_cast<char>(byte));
+                std::size_t byteCount = 0U;
+                std::uint32_t scalar = 0U;
+                if (byte >= 0xC2U && byte <= 0xDFU)
+                {
+                    byteCount = 2U;
+                    scalar = byte & 0x1FU;
+                }
+                else if (byte >= 0xE0U && byte <= 0xEFU)
+                {
+                    byteCount = 3U;
+                    scalar = byte & 0x0FU;
+                }
+                else if (byte >= 0xF0U && byte <= 0xF4U)
+                {
+                    byteCount = 4U;
+                    scalar = byte & 0x07U;
+                }
+
+                bool isValid = byteCount > 0U && static_cast<std::size_t>(end - cursor) >= byteCount;
+                for (std::size_t index = 1U; isValid && index < byteCount; ++index)
+                {
+                    const auto continuation = static_cast<unsigned char>(cursor[index]);
+                    isValid = (continuation & 0xC0U) == 0x80U;
+                    scalar = (scalar << 6U) | (continuation & 0x3FU);
+                }
+                isValid = isValid && scalar <= 0x10FFFFU && !(scalar >= 0xD800U && scalar <= 0xDFFFU) &&
+                          !(byteCount == 3U && scalar < 0x800U) && !(byteCount == 4U && scalar < 0x10000U);
+                if (!isValid)
+                {
+                    label.append("\\x");
+                    label.push_back(k_hexDigits[(byte >> 4U) & 0x0FU]);
+                    label.push_back(k_hexDigits[byte & 0x0FU]);
+                    ++cursor;
+                    break;
+                }
+
+                const bool isRepresentable =
+                    scalar <= static_cast<std::uint32_t>((std::numeric_limits<ImWchar>::max)());
+                if (font != nullptr && isRepresentable && font->IsGlyphInFont(static_cast<ImWchar>(scalar)))
+                {
+                    label.append(cursor, byteCount);
+                }
+                else
+                {
+                    if (a_usedUnicodeEscape != nullptr)
+                    {
+                        *a_usedUnicodeEscape = true;
+                    }
+                    label.append("\\u{");
+                    int highestShift = 12;
+                    while (highestShift < 20 && scalar >= (1U << (highestShift + 4)))
+                    {
+                        highestShift += 4;
+                    }
+                    for (int shift = highestShift; shift >= 0; shift -= 4)
+                    {
+                        label.push_back(k_hexDigits[(scalar >> shift) & 0x0FU]);
+                    }
+                    label.push_back('}');
+                }
+                cursor += byteCount;
             }
             break;
         }
@@ -660,6 +742,13 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     {
         commitName = input_object_name(m_name, *m_assertContext);
         commitName = commitName || ImGui::IsItemDeactivatedAfterEdit();
+        bool usedUnicodeEscape = false;
+        const std::string namePreview = object_name_label(m_name, &usedUnicodeEscape);
+        if (usedUnicodeEscape)
+        {
+            ImGui::TextDisabled("識別表示（Font非対応文字はUnicode Escape）");
+            ImGui::TextUnformatted(namePreview.data(), namePreview.data() + namePreview.size());
+        }
     }
     if (commitName)
     {

@@ -291,6 +291,12 @@ void test_hierarchy_inspector_intents() noexcept
     document = controller->session().find_document(documentId);
     require(document->scene_document().find_object(rootId)->name() == longName);
 
+    const std::string unsupportedFontName = "Object \xF0\x9F\x98\x80";
+    require(presenter->submit(cue::editor_core::RenameObjectIntent{rootId, unsupportedFontName}).has_value());
+    draw_frame(*presenter);
+    document = controller->session().find_document(documentId);
+    require(document->scene_document().find_object(rootId)->name() == unsupportedFontName);
+
     const std::string embeddedNullName("A\0B", 3U);
     require(presenter->submit(cue::editor_core::RenameObjectIntent{rootId, embeddedNullName}).has_value());
     draw_frame(*presenter);
