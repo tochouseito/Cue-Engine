@@ -285,15 +285,22 @@ OS Recycle BinはProject移動、Headless Test、復元Metadata、同一Volume�
     Payload
 ```
 
-`Record.cuetrash`はUTF-8 JSONのVersion付きRecordとし、少なくとも次を保持する。
+`Record.cuetrash`はUTF-8 JSONのVersion付きRecordとする。初期`schemaVersion`はJSON Numberの符号なし10進整数`1`へ固定する。
+Readerは`0`、小数、指数表記、負数、`uint32_t`範囲外、`1`以外の値を現行Schemaとして受理しない。少なくとも次を保持する。
 
-- `schemaVersion`
+- `schemaVersion`: 初期値`1`
 - `projectId`
 - `operationId`
 - `state`: `prepared`、`trashed`、`restoring`、`restored`
 - Project Root基準の`originalPath`
 - `entryType`
 - Fileの場合は削除開始時のByte SizeとContent Digest
+- Directoryの場合は、Payload Root基準Path、Entry Type、File Byte Size、Content Digestを持つBounded Manifest
+
+Directory ManifestはRoot自身を含まず、全ての通常DirectoryとRegular FileをPortable Comparison Key、Entry Type、元UTF-8 Byte列の順で
+並べる。Directory EntryにSizeとDigestを持たせず、Regular File Entryだけに両方を必須とする。作成時と読込み時に
+`TraversalLimits`のDepth、Entry数、Metadata Byte数を適用し、重複Path、Case Collision、欠落Parent、Reparse Point、
+Unsupported Entry、上限超過を拒否する。ManifestはDelete後のPayload検証とRestore直前の内容照合に使用する。
 
 `OperationId`はProject File操作ごとに新しく生成するlowercase UUID Version 4とし、Process再起動後もDirectory名とRecordを
 一意に対応させる。nil UUID、Version／Variant不正、Directory名とRecord値の不一致を拒否する。
@@ -301,13 +308,17 @@ OS Recycle BinはProject移動、Headless Test、復元Metadata、同一Volume�
 未知Version、Project ID不一致、Operation ID不一致、Path不正、重複Field、Resource Limit超過を推測して読まず、Entryを自動削除しない。
 既知の将来Migrationは`N -> N + 1`をMemory上で完了して再検証し、明示更新まで元Recordを維持する。
 
+Delete開始前に、単一FileではNative Link Countが1であることを要求する。DirectoryではManifest列挙対象の全Regular Fileについて
+Link Count 1を要求する。複数Hard Link、共有違反、列挙競合を`UnsupportedEntry`、`Busy`、または`RescanRequired`として拒否し、
+復元不能と判明しているEntryを回復可能Deleteとして受理しない。
+
 Delete順序を固定する。
 
-1. Source、Area、Open Document、Destination Trash不存在を検証する
+1. Source、Area、Open Document、Destination Trash不存在、Link Countを検証し、File FingerprintまたはDirectory Manifestを取得する
 2. Operation DirectoryをCreate-newで作成する
 3. `prepared` RecordをAtomic Publishする
 4. Sourceを`Payload`へ同一Volume Renameする
-5. Source不存在、Payload存在、Typeを再検証する
+5. Source不存在、Payload存在、Type、Link Count、FingerprintまたはManifest一致を再検証する
 6. Recordを`trashed`へAtomic更新する
 7. Trash CatalogとSource親Directoryを再列挙する
 
@@ -328,8 +339,10 @@ Mutation Area内の通常DirectoryだけをCreate-or-openできる。File／Unsu
 File PayloadはRestore直前に排他的なWrite／Delete Accessを取得してMove完了まで保持し、RecordのByte SizeとContent Digestへ一致する
 `RegularFile`であることを検証する。WindowsではLink Countが1であることも要求し、別名Hard Linkまたは共有違反を
 `UnsupportedEntry`または`Busy`として拒否する。Fingerprint不一致ではDestinationへMoveせず、RecordとPayloadを維持して
-`RecoveryRequired`を返す。Directory Payloadは`TraversalLimits`内で再列挙し、Reparse Point、操作不能Entry、Type不一致を含む場合は
-復元しない。
+`RecoveryRequired`を返す。Directory Payloadは`TraversalLimits`内で再列挙し、全Regular FileのLink Count 1を確認して、Recordの
+Bounded ManifestとPath、Type、Byte Size、Content Digestを完全一致させる。Reparse Point、操作不能Entry、Type不一致、Manifestの
+追加・欠落・Fingerprint不一致、複数Hard Linkを含む場合はDestinationへMoveせず、RecordとPayloadを維持して
+`RecoveryRequired`を返す。
 
 上記検証後にRecordを`restoring`へ更新し、PayloadをMoveする。Move後にSource存在とPayload不存在を検証して`restored`へ更新する。
 途中終了は同じ存在行列でReconciliationする。既存Destinationを上書きしない。
