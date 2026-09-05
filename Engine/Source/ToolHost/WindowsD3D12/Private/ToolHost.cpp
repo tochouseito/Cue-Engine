@@ -710,6 +710,7 @@ cue::Result<void> WindowsD3d12ToolHost::initialize_imgui(HWND a_window) noexcept
     }
     m_isImGuiContextInitialized = true;
     ImGui::GetIO().IniFilename = nullptr;
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     if (!configure_japanese_font(*m_assertContext))
     {
         return cue::Result<void>::failure(make_error(*m_assertContext,

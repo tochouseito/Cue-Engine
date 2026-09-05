@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Cue/EditorCore/EditorDocument.h>
+#include <Cue/EditorCore/EditorIntent.h>
 #include <Cue/EditorCore/Persistence.h>
 #include <Cue/EditorCore/SceneCommand.h>
 #include <Cue/Foundation/Result.h>
@@ -107,6 +108,12 @@ class EditorController final
                                                          bool a_hasSavedDestination) noexcept;
     /// @brief Source Assets RootからSceneを完全Loadし、Base FingerprintとRecovery有無を記録して開く
     [[nodiscard]] Result<EditorDocumentId> open_document_from_storage(RelativePath a_locator) noexcept;
+    /// @brief Semantic Intentを検証し、Scene CommandまたはEditor Workflowへ一元変換する
+    /// @param a_identitySource 新規Object／ComponentへStable Identity候補を供給する注入境界
+    /// @param a_componentTemplates Add Componentで使用可能な検証済み初期値Template
+    [[nodiscard]] Result<void> execute_intent(EditorDocumentId a_documentId, EditorIntent a_intent,
+                                              scene::SceneIdentitySource &a_identitySource,
+                                              std::span<const EditorComponentTemplate> a_componentTemplates) noexcept;
     /// @brief Stable Identity だけを保持する Scene 編集 Command を検証し一つの Revision として適用する
     /// @details Open 中の対象 Document と Scene Identity の一致を要求し、失敗時は Authoring Scene、Selection、
     /// Revision を呼び出し前の状態に維持する。同値更新は現在 Revision を返し新しい State を発行しない
