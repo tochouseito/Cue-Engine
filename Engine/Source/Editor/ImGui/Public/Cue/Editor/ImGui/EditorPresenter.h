@@ -96,5 +96,6 @@ class EditorPresenter final
     std::array<float, 3> m_scale{1.0F, 1.0F, 1.0F};
     std::string m_message;
     bool m_hasError = false;
+    bool m_preserveInspectorErrorAfterIntent = false;
 };
 } // namespace cue::editor

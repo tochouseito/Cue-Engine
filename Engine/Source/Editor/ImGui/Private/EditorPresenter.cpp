@@ -603,6 +603,7 @@ void EditorPresenter::draw() noexcept
 {
     try
     {
+        m_preserveInspectorErrorAfterIntent = false;
         std::optional<EditorIntent> pendingIntent = std::move(m_deferredIntent);
         m_deferredIntent.reset();
         const bool isApplyingDeferredIntent = pendingIntent.has_value();
@@ -649,11 +650,18 @@ void EditorPresenter::draw() noexcept
         // Scene ViewのPointerやSpanを使用し終えたFrame末尾だけでController Mutationを行う
         if (pendingIntent.has_value())
         {
+            const bool preserveInspectorError = m_preserveInspectorErrorAfterIntent;
+            std::string inspectorError = preserveInspectorError ? m_message : std::string{};
             Result<void> result = submit(std::move(*pendingIntent));
             if (!result)
             {
                 // Name確定に失敗した場合は、入力Bufferを修正できるように遷移Intentを破棄する
                 m_deferredIntent.reset();
+            }
+            else if (preserveInspectorError)
+            {
+                m_message = std::move(inspectorError);
+                m_hasError = true;
             }
         }
     }
@@ -872,6 +880,12 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
             m_deferredIntent.emplace(std::move(a_intent));
         }
     };
+    const auto setInspectorError = [this, &a_pendingIntent](const Error &a_error) noexcept
+    {
+        set_error(a_error);
+        m_preserveInspectorErrorAfterIntent =
+            a_pendingIntent.has_value() && std::holds_alternative<RenameObjectIntent>(*a_pendingIntent);
+    };
 
     const scene::ObjectId *parentId = object->try_parent_id();
     std::string parentPreview = "Scene Root";
@@ -922,7 +936,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
             math::Tolerance::create(m_assertContext->fatal_handler(), 0.00001F, 0.00001F);
         if (!tolerance)
         {
-            set_error(*tolerance.try_error());
+            setInspectorError(*tolerance.try_error());
         }
         else
         {
@@ -931,7 +945,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
                 math::Quaternion{m_rotation[0], m_rotation[1], m_rotation[2], m_rotation[3]}, *tolerance.try_value());
             if (!rotation)
             {
-                set_error(*rotation.try_error());
+                setInspectorError(*rotation.try_error());
             }
             else
             {
@@ -941,7 +955,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
                     math::Vector3{m_scale[0], m_scale[1], m_scale[2]}, *tolerance.try_value());
                 if (!transform)
                 {
-                    set_error(*transform.try_error());
+                    setInspectorError(*transform.try_error());
                 }
                 else
                 {
