@@ -168,7 +168,14 @@ M13の操作可能LocatorはADR-0014の`RelativePath`を継続利用する。`/`
 空Pathを受理しない。
 
 Files UIが保持するPathはSource Assets Area基準の相対Locatorとし、`ProjectFileService`だけがDescriptorのRoot Pathと合成する。
-合成後も`RelativePath`全体を再検証し、Area Root外へ解決されるPathを拒否する。UIへProject Rootの絶対PathをMutation Keyとして返さない。
+Area Rootと利用者Locatorにはそれぞれ`RelativePath`の上限を適用するが、合成後の内部Pathへ16 Segment／255 byteの利用者向け上限を
+再適用しない。再適用すると、有効なArea Rootが深いほど利用者に残るPath長が減り、16 SegmentのRootでは直下Entryも表現できないためである。
+
+`WorkspaceFilesystem`は、検証済みArea RootとArea基準`RelativePath`からだけ不透明な`BoundWorkspacePath`を生成する。
+`BoundWorkspacePath`は文字列から直接Parseできず、合成Segment、Area境界、Portable Comparison Keyを所有する。生成時は全Segmentの
+Portable規則、Area Root外へ解決されないこと、Project RootのNative Identity、Host Path上限を検証する。Host Path上限超過は
+`CapacityExceeded`とし、利用者LocatorのFormat Errorへ丸めない。UIへ`BoundWorkspacePath`またはProject Rootの絶対Pathを
+Mutation Keyとして返さない。
 
 Portable Comparison KeyはASCII lowercaseとし、Destination衝突、同一Path、親子循環、Case AliasをHostに依存せず判定する。
 Case-only Renameは、SourceとDestinationのComparison Keyが一致し、Source Native Identityが同じで、要求された最終Spellingを
@@ -316,7 +323,15 @@ Step 4より前の失敗ではSourceを維持し、Operation-owned Trash Directo
 
 RestoreはRecordの`originalPath`を使用し、DestinationがMissingである場合だけ`Payload`を同一Volume Renameで戻す。必要な親Directoryは
 Mutation Area内の通常DirectoryだけをCreate-or-openできる。File／Unsupported Entry衝突、Area外、Root変更、Project ID不一致では
-復元しない。Restore開始前にRecordを`restoring`へ更新し、Move後にSource存在とPayload不存在を検証して`restored`へ更新する。
+復元しない。
+
+File PayloadはRestore直前に排他的なWrite／Delete Accessを取得してMove完了まで保持し、RecordのByte SizeとContent Digestへ一致する
+`RegularFile`であることを検証する。WindowsではLink Countが1であることも要求し、別名Hard Linkまたは共有違反を
+`UnsupportedEntry`または`Busy`として拒否する。Fingerprint不一致ではDestinationへMoveせず、RecordとPayloadを維持して
+`RecoveryRequired`を返す。Directory Payloadは`TraversalLimits`内で再列挙し、Reparse Point、操作不能Entry、Type不一致を含む場合は
+復元しない。
+
+上記検証後にRecordを`restoring`へ更新し、PayloadをMoveする。Move後にSource存在とPayload不存在を検証して`restored`へ更新する。
 途中終了は同じ存在行列でReconciliationする。既存Destinationを上書きしない。
 
 M13はRecoverable Payloadの自動期限削除と永久削除UIを提供しない。成功済みRestoreの空Operation DirectoryとRecordだけを
@@ -330,7 +345,7 @@ Operation-owned Cleanupとして削除できる。未Restore PayloadはProject�
 
 | Outcome | Observable State | Caller Action |
 | --- | --- | --- |
-| `Committed` | 要求後の状態を再Query済み | Snapshotを更新して通常処理を継続する |
+| `Committed` | 必要なDurability Barrierが成功し、要求後の状態を再Query済み | Snapshotを更新して通常処理を継続する |
 | `NotCommitted` | Sourceと既存Destinationを維持 | Errorを表示し、Operation-owned Cleanupを確認する |
 | `CommittedButDurabilityUnknown` | 要求後の状態は見えるが永続化が不明 | 成功表示せず、再検証とUser通知を行う |
 | `ReconciliationRequired` | 事前状態か事後状態かを確定できない | 両候補を維持し、再Query／Trash Record照合を要求する |
@@ -338,6 +353,28 @@ Operation-owned Cleanupとして削除できる。未Restore PayloadはProject�
 Project Policy違反は`ProjectFileError`として、少なくとも`InvalidRequest`、`ProtectedEntry`、`InUse`、`Conflict`、
 `LimitExceeded`、`RecoveryRequired`を区別する。低レベルの`IoError`とNative CodeはImmediate Causeとして保持し、
 UI制御FlowをWin32 Error値へ依存させない。Errorには不要な絶対User Path、Credential、File Contentを含めない。
+
+### Durability Barrier
+
+Namespace Mutationの`Committed`はVisibilityの再Queryだけで判定しない。Windows AdapterはADR-0014と同じく、最終Nameを公開する
+Rename／Moveへ`MoveFileExW(..., MOVEFILE_WRITE_THROUGH)`相当のBarrierを適用し、成功後にSource／Destinationを再Queryする。
+直接作成したDirectoryをBarrier済みとみなさず、Create FolderとRestore用の不足ParentもOperation-owned Sibling Directoryを
+Create-newしてWrite-through Renameで一段ずつ公開する。
+
+Operationごとの必須Barrierを次のとおりとする。
+
+| Operation | `Committed`に必要なBarrier |
+| --- | --- |
+| Create File／Folder | TemporaryまたはSibling Directoryから最終NameへのWrite-through Publish |
+| Rename／Move | SourceからDestinationへのWrite-through Rename |
+| Copy | 検証済みTemporary／StagingからDestinationへのWrite-through Publish |
+| Delete | `prepared` RecordのAtomic Commit、PayloadへのWrite-through Rename、`trashed` RecordのAtomic Commit |
+| Restore | `restoring` RecordのAtomic Commit、Original PathへのWrite-through Rename、`restored` RecordのAtomic Commit |
+
+単一段のNative Publishが失敗しても、事後QueryでSource不存在とDestination存在を一意に確認できる場合は
+`CommittedButDurabilityUnknown`とする。旧状態と新状態を一意に確定できない場合、またはDelete／RestoreのRecordとPayloadの段階が
+一致しない場合は`ReconciliationRequired`とする。Barrier未実行または失敗を`Committed`へ変換せず、Post-query成功だけで
+Durability確定としない。
 
 ### Workspace Change Set and ViewModel
 
