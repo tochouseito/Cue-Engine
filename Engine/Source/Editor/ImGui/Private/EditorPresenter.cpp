@@ -721,6 +721,23 @@ void EditorPresenter::draw() noexcept
     }
 }
 
+std::optional<EditorWorkflowRequest> EditorPresenter::take_workflow_request() noexcept
+{
+    std::optional<EditorWorkflowRequest> request = m_workflowRequest;
+    m_workflowRequest.reset();
+    return request;
+}
+
+void EditorPresenter::report_workflow_error(const Error &a_error) noexcept
+{
+    set_error(a_error);
+}
+
+void EditorPresenter::report_workflow_status(std::string_view a_status) noexcept
+{
+    set_status(a_status);
+}
+
 Result<void> EditorPresenter::submit(editor_core::EditorIntent a_intent) noexcept
 {
     try
@@ -786,6 +803,36 @@ void EditorPresenter::draw_menu(const editor_core::EditorDocument &a_document,
     {
         return;
     }
+    if (ImGui::BeginMenu("ファイル"))
+    {
+        const bool canRequest = !m_workflowRequest.has_value() && !a_pendingIntent.has_value();
+        if (ImGui::MenuItem("新しいScene", "Ctrl+N", false, canRequest))
+        {
+            m_workflowRequest = EditorWorkflowRequest::NewScene;
+        }
+        if (ImGui::MenuItem("Sceneを開く", "Ctrl+O", false, canRequest))
+        {
+            m_workflowRequest = EditorWorkflowRequest::OpenScene;
+        }
+        if (ImGui::MenuItem("保存", "Ctrl+S", false, canRequest))
+        {
+            m_workflowRequest = EditorWorkflowRequest::SaveScene;
+        }
+        if (ImGui::MenuItem("名前を付けて保存", "Ctrl+Shift+S", false, canRequest))
+        {
+            m_workflowRequest = EditorWorkflowRequest::SaveSceneAs;
+        }
+        if (ImGui::MenuItem("再読込", nullptr, false, canRequest && a_document.has_saved_destination()))
+        {
+            m_workflowRequest = EditorWorkflowRequest::ReloadScene;
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("終了", nullptr, false, canRequest))
+        {
+            m_workflowRequest = EditorWorkflowRequest::CloseProject;
+        }
+        ImGui::EndMenu();
+    }
     if (ImGui::BeginMenu("編集"))
     {
         const bool canUndo = a_document.can_undo() && !a_pendingIntent.has_value();
@@ -815,6 +862,26 @@ void EditorPresenter::draw_menu(const editor_core::EditorDocument &a_document,
     }
     const bool canUseShortcut =
         !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId) && !ImGui::GetIO().WantTextInput;
+    if (!m_workflowRequest.has_value() && !a_pendingIntent.has_value() && canUseShortcut &&
+        ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_N))
+    {
+        m_workflowRequest = EditorWorkflowRequest::NewScene;
+    }
+    if (!m_workflowRequest.has_value() && !a_pendingIntent.has_value() && canUseShortcut &&
+        ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O))
+    {
+        m_workflowRequest = EditorWorkflowRequest::OpenScene;
+    }
+    if (!m_workflowRequest.has_value() && !a_pendingIntent.has_value() && canUseShortcut &&
+        ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S))
+    {
+        m_workflowRequest = EditorWorkflowRequest::SaveSceneAs;
+    }
+    if (!m_workflowRequest.has_value() && !a_pendingIntent.has_value() && canUseShortcut &&
+        ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S))
+    {
+        m_workflowRequest = EditorWorkflowRequest::SaveScene;
+    }
     if (!a_pendingIntent.has_value() && canUseShortcut && a_document.can_undo() &&
         ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z))
     {

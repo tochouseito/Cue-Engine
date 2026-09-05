@@ -20,6 +20,17 @@ class AssertContext;
 
 namespace cue::editor
 {
+/// @brief Editor Shellへ返すDocument外Workflow要求
+enum class EditorWorkflowRequest : std::uint8_t
+{
+    NewScene,
+    OpenScene,
+    SaveScene,
+    SaveSceneAs,
+    ReloadScene,
+    CloseProject,
+};
+
 /// @brief EditorControllerのRead-only ViewをHierarchy・Inspector操作へ変換するPresentation Adapter
 ///
 /// Controller、Identity Source、Schema Registry、Assert ContextはPresenterより長く生存させ、
@@ -48,6 +59,14 @@ class EditorPresenter final
 
     /// @brief 現在DocumentのRead-only ViewからHierarchy・Inspectorを描画し、Frame末尾で最大一Intentを適用する
     void draw() noexcept;
+
+    /// @brief 現在FrameまでにFile Menuから発行されたWorkflow要求を一度だけ返す
+    [[nodiscard]] std::optional<EditorWorkflowRequest> take_workflow_request() noexcept;
+
+    /// @brief Workflow層の回復可能な失敗をPresenter診断へ反映する
+    void report_workflow_error(const Error &a_error) noexcept;
+    /// @brief Workflow層の成功状態をPresenter Messageへ反映する
+    void report_workflow_status(std::string_view a_status) noexcept;
 
     /// @brief 意味IntentをEditorControllerの一元実行入口へ渡して結果をPresentation Messageへ反映する
     /// @details 失敗時はAuthoring SceneをControllerのRollback規則に従って維持し、Errorと日本語診断を返す
@@ -88,6 +107,7 @@ class EditorPresenter final
     std::vector<editor_core::EditorComponentTemplate> m_componentTemplates;
     editor_core::EditorDocumentId m_documentId;
     std::optional<editor_core::EditorIntent> m_deferredIntent;
+    std::optional<EditorWorkflowRequest> m_workflowRequest;
     std::optional<scene::ObjectId> m_inspectorObjectId;
     std::uint64_t m_inspectorStateValue = 0U;
     std::string m_name;

@@ -22,23 +22,6 @@ namespace
            a_error.root_code().value() == static_cast<std::int64_t>(cue::IoError::DurabilityUnknown);
 }
 
-[[nodiscard]] std::string make_version_text(const cue::EngineVersion &a_version)
-{
-    return std::to_string(a_version.major) + "." + std::to_string(a_version.minor) + "." +
-           std::to_string(a_version.patch);
-}
-
-[[nodiscard]] std::string make_compatibility_id(const cue::EngineCompatibility &a_compatibility)
-{
-    std::string identifier = "cue-engine:[" + make_version_text(a_compatibility.minimum) + ",";
-    if (a_compatibility.maximumExclusive.has_value())
-    {
-        identifier.append(make_version_text(*a_compatibility.maximumExclusive));
-    }
-    identifier.append(")");
-    return identifier;
-}
-
 [[nodiscard]] cue::project_hub::ProjectEntryState map_locator_state(cue::ProjectLocatorState a_state) noexcept
 {
     switch (a_state)
@@ -585,7 +568,8 @@ Result<EditorLaunchRequest> ProjectHubService::open_project(
                 std::move(*descriptorLocator.try_error())));
         }
         std::string expectedProjectId(descriptor.try_value()->project_id().text());
-        std::string compatibilityId = make_compatibility_id(descriptor.try_value()->engine_compatibility());
+        std::string compatibilityId =
+            make_engine_compatibility_id(descriptor.try_value()->engine_compatibility(), *m_assertContext);
         std::string projectLocator(found->locator());
         auto candidate = clone_registry();
         if (!candidate)

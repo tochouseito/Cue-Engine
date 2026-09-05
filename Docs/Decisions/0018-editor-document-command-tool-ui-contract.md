@@ -335,6 +335,15 @@ Reload、Save As、Cancelの明示Intentを要求する。
 Reloadは現在Fileを一時Documentへ完全Load、Migration、Validationしてから入れ替える。失敗時は現在Document、History、Selection、
 Dirtyを維持する。成功時はHistoryをClearし、新しいState IDを発行して`currentStateId`と`savedStateId`を一致させる。
 
+M12の単一Scene UIでNewまたはOpenへ切り替える場合は、対象を二つ目の準備済みDocumentとして完全作成またはLoadしてから、
+現在DocumentのSave、Discard、Cancel判断を開始する。対象の作成・Load失敗またはCancelでは準備済みDocumentだけを破棄し、
+現在DocumentとSelection、History、Dirtyを維持する。Reloadは現在Documentを閉じず、上記の一時Document経路を直接使用する。
+新規Sceneの初回保存はDestinationの`Missing`を必須Expected Fingerprintとし、準備時またはWrite Lease取得までに同名Entryが
+作成された場合は既存Fileを置換せずExternal Conflictとして失敗する。既存初回保存先の置換は別の明示確認を要求し、通常の
+Save操作やSave Uncertain RecordのDiscardだけを上書き許可として扱わない。
+保存済みSceneまたはRecoveryがExternal Conflict状態でも編集内容を退避できるよう、Editorは`Ctrl+Shift+S`のSave Asを公開する。
+Save Asの初回試行はDestinationの`Missing`を要求し、既存Entryは明示的な上書き確認を経た場合だけ置換する。
+
 ### Recovery
 
 Recovery FileはADR-0013で定義したProject Descriptorの`Saved` Root配下にある`Editor/Recovery`へ置き、Scene正本と異なるLocator、
@@ -348,6 +357,9 @@ State ID、Scene Data Digestを含む。既知の古いVersionは`N -> N + 1`の
 Recovery書込み成功は`savedStateId`を更新しない。起動時に有効なRecoveryを検出した場合は、正本を暗黙置換せず、Recover、Discard、
 Inspectの明示Intentを要求する。Recover後のDocumentはDirtyな新Stateとして開き、通常Saveが成功するまで正本としない。
 Autosave対象はDirtyなDocumentに加え、`currentStateId == savedStateId`でも保存先をまだ持たない新規Documentを含む。
+Editor ToolのFrame Compositionは、Dirtyな各Persistent Stateを一度だけ`autosave_recovery`へ接続する。同じStateの失敗を毎Frame
+再試行せず、次のPersistent Stateで再試行してUIへ失敗を報告する。Save Uncertain中はRecoveryを更新せず、先にRetryまたはDiscardを
+要求する。
 `ignore_recovery`は現在Sessionの表示だけを解除し、`discard_recovery`はSaved RootのRecovery File削除成功時だけ候補を解除する。
 削除失敗時はRecovery Fileと候補状態を維持する。
 
@@ -414,6 +426,8 @@ Save Uncertainが存在しないことを再確認する。保存開始後に編
 新しい状態に対するSave、Discard、Cancelを選択する`AwaitingDecision`へ戻す。
 Lease取得、Fingerprint取得、Serializationを含む保存前の失敗も`SaveRequested`へ留めず、同じ`AwaitingDecision`へ戻す。
 Save UncertainのRetryも、失敗または再び不確定な結果になった場合はPending Recordを維持したまま`AwaitingDecision`へ戻す。
+Tool UIはSave Uncertainを通常の保存成功として扱わず、Retry／再検証とPending RecordだけのDiscardを明示的に提示する。
+Pending RecordのDiscard後もDocumentはDirtyのままとし、Scene切替またはProject終了の判断画面へ戻す。
 
 DiscardはMemory上のEditorDocumentを閉じるだけで、正本FileやRecovery Fileを削除しない。Recovery削除は別の明示Intentとする。
 

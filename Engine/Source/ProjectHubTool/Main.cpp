@@ -65,6 +65,12 @@ class InitializationFailureClient final : public cue::tool_host::ToolHostClient
         ImGui::End();
     }
 
+    /// @brief Native Window終了要求を初期化失敗UIの終了状態へ反映する
+    void request_close() noexcept override
+    {
+        m_shouldClose = true;
+    }
+
     /// @brief Userが終了操作を選択したか返す
     [[nodiscard]] bool should_close() const noexcept override
     {
@@ -156,10 +162,16 @@ class ProjectHubToolClient final : public cue::tool_host::ToolHostClient
         m_editorProcess = std::move(*launched.try_value());
     }
 
+    /// @brief Native Window終了要求をProject Hub Presenterへ渡す
+    void request_close() noexcept override
+    {
+        m_closeRequested = true;
+    }
+
     /// @brief EscapeまたはWindow終了だけをTool Host終了要求として返す
     [[nodiscard]] bool should_close() const noexcept override
     {
-        return m_presenter->is_exit_requested();
+        return m_closeRequested || m_presenter->is_exit_requested();
     }
 
   private:
@@ -167,6 +179,7 @@ class ProjectHubToolClient final : public cue::tool_host::ToolHostClient
     const cue::AssertContext *m_assertContext;
     std::string m_editorExecutableLocator;
     std::unique_ptr<cue::project_hub::WindowsEditorProcess> m_editorProcess;
+    bool m_closeRequested = false;
 };
 
 /// @brief 実行中Project Hubと同じDirectoryにあるCueEditorTool.exeをUTF-8 Locatorで返す

@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <optional>
 #include <span>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -340,6 +341,30 @@ Result<ProjectCompatibilityReport> evaluate_project_compatibility(
 
         return Result<ProjectCompatibilityReport>::success(ProjectCompatibilityReport(
             status, canOpen, std::move(reasons), std::move(runtimeDecisions)));
+    }
+    catch (...)
+    {
+        terminate_compatibility_exception(a_assertContext);
+    }
+}
+
+std::string make_engine_compatibility_id(const EngineCompatibility &a_compatibility,
+                                         const AssertContext &a_assertContext) noexcept
+{
+    try
+    {
+        const auto makeVersion = [](const EngineVersion &a_version)
+        {
+            return std::to_string(a_version.major) + "." + std::to_string(a_version.minor) + "." +
+                   std::to_string(a_version.patch);
+        };
+        std::string identifier = "cue-engine:[" + makeVersion(a_compatibility.minimum) + ",";
+        if (a_compatibility.maximumExclusive.has_value())
+        {
+            identifier.append(makeVersion(*a_compatibility.maximumExclusive));
+        }
+        identifier.append(")");
+        return identifier;
     }
     catch (...)
     {

@@ -53,6 +53,11 @@ class SmokeClient final : public cue::tool_host::ToolHostClient
         ++m_drawCount;
     }
 
+    /// @brief 有限Frame Smokeでは予期しないNative Window終了要求を状態へ反映しない
+    void request_close() noexcept override
+    {
+    }
+
     /// @brief 最大Frame条件だけで終了するためClient起因の終了を要求しない
     [[nodiscard]] bool should_close() const noexcept override
     {

@@ -7,10 +7,14 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace cue
 {
+/// @brief Project HubとEditor間で使用する現在の値Contract Version
+inline constexpr std::uint32_t k_editorLaunchProtocolVersion = 1U;
+
 class AssertContext;
 
 /// @brief Project要件と実行環境の対応関係をPlatform非依存で識別するCapability
@@ -239,4 +243,8 @@ class ProjectCompatibilityReport final
     const EngineCompatibility &a_engineCompatibility, const EngineVersion &a_currentEngineVersion,
     const ProjectCapabilityProfile &a_profile, const ProjectCapabilitySnapshot &a_snapshot,
     const AssertContext &a_assertContext) noexcept;
+
+/// @brief Engine互換範囲をProcess間比較用の決定的な値Contractへ変換する
+[[nodiscard]] std::string make_engine_compatibility_id(const EngineCompatibility &a_compatibility,
+                                                       const AssertContext &a_assertContext) noexcept;
 } // namespace cue

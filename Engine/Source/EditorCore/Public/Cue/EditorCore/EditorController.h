@@ -129,6 +129,9 @@ class EditorController final
     /// @brief 指定Locatorを事前検査し、Committed時だけDocumentの正本Locatorへ切り替える
     [[nodiscard]] Result<scene::SceneSaveOutcome> save_document_as(EditorDocumentId a_documentId,
                                                                    RelativePath a_locator) noexcept;
+    /// @brief 未作成Locatorだけを許可し、競合なしでDocumentの正本Locatorへ切り替える
+    [[nodiscard]] Result<scene::SceneSaveOutcome> save_document_as_new(EditorDocumentId a_documentId,
+                                                                       RelativePath a_locator) noexcept;
     /// @brief 開いているDirty Documentを順番に保存し、各Atomic Save状態を返す
     [[nodiscard]] Result<std::vector<scene::SceneSaveStatus>> save_all_documents() noexcept;
     /// @brief Save UncertainのCandidateを結果種別に応じて再検証または再保存する
@@ -193,7 +196,8 @@ class EditorController final
     /// @brief 指定Destinationへ競合検査付きSaveを実行する共通経路
     [[nodiscard]] Result<scene::SceneSaveOutcome> save_document_to(EditorDocumentId a_documentId,
                                                                    RelativePath a_locator,
-                                                                   bool a_switchDestination) noexcept;
+                                                                   bool a_switchDestination,
+                                                                   bool a_requireMissingDestination) noexcept;
     /// @brief 現在 Thread が Controller 作成 Thread であることを全構成で検証する
     void assert_owner_thread() const noexcept;
     /// @brief Allocation 失敗を Fatal 境界へ変換する

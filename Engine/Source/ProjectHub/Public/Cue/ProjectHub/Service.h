@@ -22,7 +22,7 @@ class FilesystemRoot;
 
 namespace cue::project_hub
 {
-inline constexpr std::uint32_t k_editorLaunchProtocolVersion = 1U;
+inline constexpr std::uint32_t k_editorLaunchProtocolVersion = cue::k_editorLaunchProtocolVersion;
 inline constexpr std::string_view k_blank3dTemplateId = "cue.blank-3d";
 
 /// @brief Stored Locator を開く Platform Composition 境界
