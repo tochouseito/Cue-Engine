@@ -314,9 +314,11 @@ Sparse FileもLogical Sizeで判定し、CallerがAdapter Hard Limitを拡張で
 未知Version、Project ID不一致、Operation ID不一致、Path不正、重複Field、Resource Limit超過を推測して読まず、Entryを自動削除しない。
 既知の将来Migrationは`N -> N + 1`をMemory上で完了して再検証し、明示更新まで元Recordを維持する。
 
-Delete開始前に、単一FileではNative Link Countが1であることを要求する。DirectoryではManifest列挙対象の全Regular Fileについて
-Link Count 1を要求する。複数Hard Link、共有違反、列挙競合を`UnsupportedEntry`、`Busy`、または`RescanRequired`として拒否し、
-復元不能と判明しているEntryを回復可能Deleteとして受理しない。
+Delete開始前に、単一FileではNative Link Countが1であることを要求し、Fingerprint検証開始からNative Rename、移動先での
+Fingerprint再検証、`trashed` RecordのAtomic Commit完了までWrite／Delete非共有の排他的Accessを保持する。Directoryでは
+Manifest列挙対象の全Regular FileについてLink Count 1を要求する。複数Hard Link、共有違反、列挙競合を`UnsupportedEntry`、
+`Busy`、または`RescanRequired`として拒否し、復元不能と判明しているEntryを回復可能Deleteとして受理しない。単一Fileの排他取得後に
+Source IdentityとLink Countを再確認し、別Entryへの差替えまたは不一致ではFingerprintを取得せず`RescanRequired`とする。
 
 Directory DeleteとRestoreは、検証開始からNative Rename、移動先でのManifest再検証、最終Record Commitまで
 `DirectoryTreeMutationGuard`を保持する。Windows AdapterのGuardは全Regular FileをRead専用かつWrite／Delete非共有Handleで固定し、
@@ -327,7 +329,8 @@ RecordとPayloadを維持した`ReconciliationRequired`とする。黙って成�
 
 Delete順序を固定する。
 
-1. Source、Area、Open Document、Destination Trash不存在、Link Countを検証し、File FingerprintまたはDirectory Manifestを取得する
+1. Source、Area、Open Document、Destination Trash不存在、Link Countを検証し、単一Fileの排他または
+   `DirectoryTreeMutationGuard`を取得してからFile FingerprintまたはDirectory Manifestを取得する
 2. Operation DirectoryをCreate-newで作成する
 3. `prepared` RecordをAtomic Publishする
 4. Sourceを`Payload`へ同一Volume Renameする
