@@ -605,6 +605,7 @@ void EditorPresenter::draw() noexcept
     {
         std::optional<EditorIntent> pendingIntent = std::move(m_deferredIntent);
         m_deferredIntent.reset();
+        const bool isApplyingDeferredIntent = pendingIntent.has_value();
         const editor_core::EditorDocument *document = m_controller->session().find_document(m_documentId);
 
         ImGui::SetNextWindowPos(ImVec2(0.0F, 0.0F));
@@ -615,7 +616,9 @@ void EditorPresenter::draw() noexcept
         {
             if (document != nullptr)
             {
+                ImGui::BeginDisabled(isApplyingDeferredIntent);
                 draw_menu(*document, pendingIntent);
+                ImGui::EndDisabled();
             }
 
             if (!m_message.empty())
@@ -634,9 +637,11 @@ void EditorPresenter::draw() noexcept
             }
             else
             {
+                ImGui::BeginDisabled(isApplyingDeferredIntent);
                 draw_hierarchy(*document, pendingIntent);
                 ImGui::SameLine();
                 draw_inspector(*document, pendingIntent);
+                ImGui::EndDisabled();
             }
         }
         ImGui::End();
@@ -855,6 +860,18 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
         }
         a_pendingIntent.emplace(RenameObjectIntent{object->id(), m_name});
     }
+    const auto queueInspectorIntent = [this, &a_pendingIntent](EditorIntent a_intent)
+    {
+        if (!a_pendingIntent.has_value())
+        {
+            a_pendingIntent.emplace(std::move(a_intent));
+        }
+        else if (std::holds_alternative<RenameObjectIntent>(*a_pendingIntent) && !m_deferredIntent.has_value())
+        {
+            // Name確定を当Frameで適用し、同じClickが生成した後続操作を次Frameまで保持する
+            m_deferredIntent.emplace(std::move(a_intent));
+        }
+    };
 
     const scene::ObjectId *parentId = object->try_parent_id();
     std::string parentPreview = "Scene Root";
@@ -866,9 +883,9 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     if (ImGui::BeginCombo("Parent", parentPreview.c_str()))
     {
         const std::size_t selectedSubtreeHeight = subtree_height(sceneDocument, object->id());
-        if (ImGui::Selectable("Scene Root", parentId == nullptr) && !a_pendingIntent.has_value())
+        if (ImGui::Selectable("Scene Root", parentId == nullptr))
         {
-            a_pendingIntent.emplace(ReparentObjectIntent{object->id(), std::nullopt});
+            queueInspectorIntent(ReparentObjectIntent{object->id(), std::nullopt});
         }
         for (const scene::SceneObject &candidate : sceneDocument.objects())
         {
@@ -886,9 +903,9 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
             ImGui::PushID(candidateId.data(), candidateId.data() + candidateId.size());
             const bool isCurrent = parentId != nullptr && *parentId == candidate.id();
             const std::string candidateName = display_text_label(candidate.name());
-            if (ImGui::Selectable(candidateName.c_str(), isCurrent) && !a_pendingIntent.has_value())
+            if (ImGui::Selectable(candidateName.c_str(), isCurrent))
             {
-                a_pendingIntent.emplace(ReparentObjectIntent{object->id(), candidate.id()});
+                queueInspectorIntent(ReparentObjectIntent{object->id(), candidate.id()});
             }
             ImGui::PopID();
         }
@@ -899,7 +916,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     ImGui::InputFloat3("Translation", m_translation.data());
     ImGui::InputFloat4("Rotation (Quaternion)", m_rotation.data());
     ImGui::InputFloat3("Scale", m_scale.data());
-    if (ImGui::Button("Transformを適用") && !a_pendingIntent.has_value())
+    if (ImGui::Button("Transformを適用"))
     {
         Result<math::Tolerance> tolerance =
             math::Tolerance::create(m_assertContext->fatal_handler(), 0.00001F, 0.00001F);
@@ -928,7 +945,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
                 }
                 else
                 {
-                    a_pendingIntent.emplace(EditTransformIntent{object->id(), std::move(*transform.try_value())});
+                    queueInspectorIntent(EditTransformIntent{object->id(), std::move(*transform.try_value())});
                 }
             }
         }
@@ -969,9 +986,9 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
             {
                 ImGui::TextDisabled("未知Component Dataは保持されますが編集できません。");
             }
-            if (ImGui::Button("Componentを削除") && !a_pendingIntent.has_value())
+            if (ImGui::Button("Componentを削除"))
             {
-                a_pendingIntent.emplace(RemoveComponentIntent{object->id(), component.instance_id()});
+                queueInspectorIntent(RemoveComponentIntent{object->id(), component.instance_id()});
             }
         }
         ImGui::PopID();
@@ -1007,9 +1024,9 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
             }
             ImGui::BeginDisabled(!canAddTemplate);
             const std::string componentName = display_text_label(componentTemplate.displayName);
-            if (ImGui::Selectable(componentName.c_str()) && canAddTemplate && !a_pendingIntent.has_value())
+            if (ImGui::Selectable(componentName.c_str()) && canAddTemplate)
             {
-                a_pendingIntent.emplace(AddComponentIntent{object->id(), *typeId, templateIndex});
+                queueInspectorIntent(AddComponentIntent{object->id(), *typeId, templateIndex});
             }
             ImGui::EndDisabled();
             ImGui::PopID();
