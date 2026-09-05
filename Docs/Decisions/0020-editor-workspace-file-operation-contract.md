@@ -405,6 +405,13 @@ Rename／MoveへWrite-through Barrierを適用し、成功後にSource／Destina
 Guard Handleを`DELETE` Accessと`FILE_FLAG_WRITE_THROUGH`で開き、Destination Parentの検証済みHandleと上書き禁止のRelative Nameを渡す
 `SetFileInformationByHandle(..., FileRenameInfo, ...)`で同じHandleをRenameする。このHandle-based Rename成功をWrite-through Barrierとし、
 別Handleを開く`MoveFileExW`のためにGuardを解放しない。
+
+Windows契約の根拠:
+
+- [Microsoft: SetFileInformationByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfileinformationbyhandle)
+- [Microsoft: FILE_RENAME_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info)
+- [Microsoft: CREATEFILE2_EXTENDED_PARAMETERS](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/ns-fileapi-createfile2_extended_parameters)
+
 直接作成したDirectoryをBarrier済みとみなさず、Create FolderとRestore用の不足ParentもOperation-owned Sibling Directoryを
 Create-newしてWrite-through Renameで一段ずつ公開する。
 
