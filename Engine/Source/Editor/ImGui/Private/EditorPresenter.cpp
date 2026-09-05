@@ -832,6 +832,9 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     const scene::ObjectId *primarySelection = a_document.try_primary_selection();
     if (primarySelection == nullptr)
     {
+        m_inspectorObjectId.reset();
+        m_inspectorStateValue = 0U;
+        m_transformDirty = false;
         ImGui::TextDisabled("HierarchyからObjectを選択してください。");
         ImGui::EndChild();
         return;
@@ -841,6 +844,9 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     const scene::SceneObject *object = sceneDocument.find_object(*primarySelection);
     if (object == nullptr)
     {
+        m_inspectorObjectId.reset();
+        m_inspectorStateValue = 0U;
+        m_transformDirty = false;
         ImGui::TextUnformatted("選択ObjectがSceneに存在しません。");
         ImGui::EndChild();
         return;
