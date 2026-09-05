@@ -728,7 +728,9 @@ Result<void> EditorPresenter::submit(editor_core::EditorIntent a_intent) noexcep
             m_translation = appliedTranslation;
             m_rotation = appliedRotation;
             m_scale = appliedScale;
-            m_transformDirty = false;
+            m_translationDirty = false;
+            m_rotationDirty = false;
+            m_scaleDirty = false;
         }
         if (appliesInspectorName)
         {
@@ -878,7 +880,9 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
         m_inspectorObjectId.reset();
         m_inspectorStateValue = 0U;
         m_nameDirty = false;
-        m_transformDirty = false;
+        m_translationDirty = false;
+        m_rotationDirty = false;
+        m_scaleDirty = false;
         ImGui::TextDisabled("HierarchyからObjectを選択してください。");
         ImGui::EndChild();
         return;
@@ -891,7 +895,9 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
         m_inspectorObjectId.reset();
         m_inspectorStateValue = 0U;
         m_nameDirty = false;
-        m_transformDirty = false;
+        m_translationDirty = false;
+        m_rotationDirty = false;
+        m_scaleDirty = false;
         ImGui::TextUnformatted("選択ObjectがSceneに存在しません。");
         ImGui::EndChild();
         return;
@@ -997,17 +1003,24 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     const bool translationEdited = ImGui::InputFloat3("Translation", m_translation.data());
     const bool rotationEdited = ImGui::InputFloat4("Rotation (Quaternion)", m_rotation.data());
     const bool scaleEdited = ImGui::InputFloat3("Scale", m_scale.data());
-    m_transformDirty = m_transformDirty || translationEdited || rotationEdited || scaleEdited;
+    m_translationDirty = m_translationDirty || translationEdited;
+    m_rotationDirty = m_rotationDirty || rotationEdited;
+    m_scaleDirty = m_scaleDirty || scaleEdited;
     const math::Vector3 authoritativeTranslation = object->transform().translation();
     const math::Quaternion authoritativeRotation = object->transform().rotation();
     const math::Vector3 authoritativeScale = object->transform().scale();
-    if (m_translation ==
-            std::array{authoritativeTranslation.x, authoritativeTranslation.y, authoritativeTranslation.z} &&
-        m_rotation == std::array{authoritativeRotation.x, authoritativeRotation.y, authoritativeRotation.z,
-                                 authoritativeRotation.w} &&
-        m_scale == std::array{authoritativeScale.x, authoritativeScale.y, authoritativeScale.z})
+    if (m_translation == std::array{authoritativeTranslation.x, authoritativeTranslation.y, authoritativeTranslation.z})
     {
-        m_transformDirty = false;
+        m_translationDirty = false;
+    }
+    if (m_rotation ==
+        std::array{authoritativeRotation.x, authoritativeRotation.y, authoritativeRotation.z, authoritativeRotation.w})
+    {
+        m_rotationDirty = false;
+    }
+    if (m_scale == std::array{authoritativeScale.x, authoritativeScale.y, authoritativeScale.z})
+    {
+        m_scaleDirty = false;
     }
     if (ImGui::Button("Transformを適用"))
     {
@@ -1159,15 +1172,23 @@ void EditorPresenter::sync_inspector(const editor_core::EditorDocument &a_docume
         m_name.assign(a_object.name());
         m_nameDirty = false;
     }
-    if (!isSameObject || !m_transformDirty)
+    const math::Vector3 translation = a_object.transform().translation();
+    const math::Quaternion rotation = a_object.transform().rotation();
+    const math::Vector3 scale = a_object.transform().scale();
+    if (!isSameObject || !m_translationDirty)
     {
-        const math::Vector3 translation = a_object.transform().translation();
-        const math::Quaternion rotation = a_object.transform().rotation();
-        const math::Vector3 scale = a_object.transform().scale();
         m_translation = {translation.x, translation.y, translation.z};
+        m_translationDirty = false;
+    }
+    if (!isSameObject || !m_rotationDirty)
+    {
         m_rotation = {rotation.x, rotation.y, rotation.z, rotation.w};
+        m_rotationDirty = false;
+    }
+    if (!isSameObject || !m_scaleDirty)
+    {
         m_scale = {scale.x, scale.y, scale.z};
-        m_transformDirty = false;
+        m_scaleDirty = false;
     }
     m_inspectorObjectId = a_object.id();
     m_inspectorStateValue = stateValue;
