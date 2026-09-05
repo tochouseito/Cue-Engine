@@ -991,6 +991,8 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
         {
             const EditorComponentTemplate &componentTemplate = m_componentTemplates[templateIndex];
             const std::optional<schema::TypeId> typeId = component_type_id(componentTemplate.prototype);
+            const bool canAddTemplate = typeId.has_value() && componentTemplate.prototype.try_known() != nullptr &&
+                                        componentTemplate.prototype.is_valid();
             std::string templateIdentity;
             if (typeId.has_value())
             {
@@ -1003,9 +1005,9 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
             {
                 ImGui::PushID(&componentTemplate);
             }
-            ImGui::BeginDisabled(!typeId.has_value());
+            ImGui::BeginDisabled(!canAddTemplate);
             const std::string componentName = display_text_label(componentTemplate.displayName);
-            if (ImGui::Selectable(componentName.c_str()) && typeId.has_value() && !a_pendingIntent.has_value())
+            if (ImGui::Selectable(componentName.c_str()) && canAddTemplate && !a_pendingIntent.has_value())
             {
                 a_pendingIntent.emplace(AddComponentIntent{object->id(), *typeId, templateIndex});
             }
