@@ -71,19 +71,19 @@ namespace
     return text;
 }
 
-/// @brief Object名の特殊ByteとFont非対応Unicode Scalarを一意な可視表現へ変換する
-[[nodiscard]] std::string object_name_label(std::string_view a_name, bool *a_usedUnicodeEscape = nullptr)
+/// @brief 任意の表示Textに含まれる特殊ByteとFont非対応Unicode Scalarを一意な可視表現へ変換する
+[[nodiscard]] std::string display_text_label(std::string_view a_text, bool *a_usedUnicodeEscape = nullptr)
 {
     constexpr char k_hexDigits[] = "0123456789abcdef";
     std::string label;
-    label.reserve(a_name.size());
+    label.reserve(a_text.size());
     if (a_usedUnicodeEscape != nullptr)
     {
         *a_usedUnicodeEscape = false;
     }
 
-    const char *cursor = a_name.data();
-    const char *const end = cursor + a_name.size();
+    const char *cursor = a_text.data();
+    const char *const end = cursor + a_text.size();
     ImFont *font = ImGui::GetFont();
     while (cursor < end)
     {
@@ -322,6 +322,23 @@ using HierarchySelectionIndex = std::unordered_set<cue::scene::ObjectId, ObjectI
     return maximumHeight;
 }
 
+/// @brief Child索引から対象Subtreeが所有するObject数を返す
+[[nodiscard]] std::size_t subtree_object_count(const cue::scene::ObjectId &a_rootId,
+                                               const HierarchyChildIndex &a_childrenByParent) noexcept
+{
+    std::size_t count = 1U;
+    const auto children = a_childrenByParent.find(a_rootId);
+    if (children == a_childrenByParent.end())
+    {
+        return count;
+    }
+    for (const cue::scene::SceneObject *child : children->second)
+    {
+        count += subtree_object_count(child->id(), a_childrenByParent);
+    }
+    return count;
+}
+
 /// @brief Frame単位Child索引から一ObjectとChild群を再帰描画する
 void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyChildIndex &a_childrenByParent,
                       const HierarchySelectionIndex &a_selectionIndex,
@@ -342,7 +359,7 @@ void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyCh
     {
         flags |= ImGuiTreeNodeFlags_Selected;
     }
-    const std::string name = object_name_label(a_object.name());
+    const std::string name = display_text_label(a_object.name());
     const bool isOpen = ImGui::TreeNodeEx("##Object", flags, "%s", name.c_str());
     const bool mouseActivated = ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen();
     const bool keyboardActivated = ImGui::IsItemFocused() && (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
@@ -406,7 +423,7 @@ void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyCh
     cue::Result<const cue::schema::TypeDescriptor *> descriptor = a_registry.find(*typeId, a_assertContext);
     if (descriptor)
     {
-        return object_name_label((*descriptor.try_value())->name());
+        return display_text_label((*descriptor.try_value())->name());
     }
     return "Unknown Component [" + type_id_text(*typeId) + "]";
 }
@@ -420,7 +437,7 @@ void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyCh
         cue::Result<const cue::schema::FieldDescriptor *> field = a_descriptor->find_field(a_fieldId, a_assertContext);
         if (field)
         {
-            return object_name_label((*field.try_value())->name());
+            return display_text_label((*field.try_value())->name());
         }
     }
     return "Field " + std::to_string(a_fieldId.value());
@@ -445,14 +462,15 @@ void draw_field_value(const cue::scene::FieldValue &a_value)
         break;
     case cue::scene::FieldValueKind::String:
     {
-        const std::string &text = *a_value.try_string();
+        const std::string text = display_text_label(*a_value.try_string());
         ImGui::TextUnformatted(text.data(), text.data() + text.size());
         break;
     }
     case cue::scene::FieldValueKind::AssetReference:
     {
         const std::string_view token = a_value.try_asset_reference()->token();
-        ImGui::TextUnformatted(token.data(), token.data() + token.size());
+        const std::string text = display_text_label(token);
+        ImGui::TextUnformatted(text.data(), text.data() + text.size());
         break;
     }
     }
@@ -667,7 +685,7 @@ void EditorPresenter::draw_menu(const editor_core::EditorDocument &a_document,
         if (!a_document.undo_label().empty())
         {
             undoLabel.append(": ");
-            undoLabel.append(a_document.undo_label());
+            undoLabel.append(display_text_label(a_document.undo_label()));
         }
         if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, a_document.can_undo()))
         {
@@ -678,7 +696,7 @@ void EditorPresenter::draw_menu(const editor_core::EditorDocument &a_document,
         if (!a_document.redo_label().empty())
         {
             redoLabel.append(": ");
-            redoLabel.append(a_document.redo_label());
+            redoLabel.append(display_text_label(a_document.redo_label()));
         }
         if (!a_pendingIntent.has_value() && ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Y", false, a_document.can_redo()))
         {
@@ -706,29 +724,6 @@ void EditorPresenter::draw_hierarchy(const editor_core::EditorDocument &a_docume
 {
     const scene::SceneDocument &sceneDocument = a_document.scene_document();
     const scene::ObjectId *primarySelection = a_document.try_primary_selection();
-    ImGui::BeginChild("Hierarchy", ImVec2(ImGui::GetContentRegionAvail().x * 0.36F, -1.0F), true);
-    ImGui::TextUnformatted("Hierarchy");
-
-    if (ImGui::Button("Objectを追加") && !a_pendingIntent.has_value())
-    {
-        const std::optional<scene::ObjectId> parentId =
-            primarySelection != nullptr ? std::optional<scene::ObjectId>(*primarySelection) : std::nullopt;
-        a_pendingIntent.emplace(AddObjectIntent{parentId, "GameObject"});
-    }
-    ImGui::SameLine();
-    ImGui::BeginDisabled(primarySelection == nullptr);
-    if (ImGui::Button("複製") && !a_pendingIntent.has_value())
-    {
-        a_pendingIntent.emplace(DuplicateObjectIntent{*primarySelection});
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("削除") && !a_pendingIntent.has_value())
-    {
-        a_pendingIntent.emplace(DeleteObjectIntent{*primarySelection});
-    }
-    ImGui::EndDisabled();
-    ImGui::Separator();
-
     HierarchyChildIndex childrenByParent;
     childrenByParent.reserve(sceneDocument.object_count());
     for (const scene::SceneObject &object : sceneDocument.objects())
@@ -739,6 +734,40 @@ void EditorPresenter::draw_hierarchy(const editor_core::EditorDocument &a_docume
             childrenByParent[*parentId].push_back(&object);
         }
     }
+
+    ImGui::BeginChild("Hierarchy", ImVec2(ImGui::GetContentRegionAvail().x * 0.36F, -1.0F), true);
+    ImGui::TextUnformatted("Hierarchy");
+
+    const bool canAddObject = sceneDocument.object_count() < scene::k_maximumSceneObjectCount &&
+                              (primarySelection == nullptr || hierarchy_depth(sceneDocument, *primarySelection) <
+                                                                  scene::SceneDocument::maximum_hierarchy_depth());
+    ImGui::BeginDisabled(!canAddObject);
+    if (ImGui::Button("Objectを追加") && !a_pendingIntent.has_value())
+    {
+        const std::optional<scene::ObjectId> parentId =
+            primarySelection != nullptr ? std::optional<scene::ObjectId>(*primarySelection) : std::nullopt;
+        a_pendingIntent.emplace(AddObjectIntent{parentId, "GameObject"});
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    const bool canDuplicate =
+        primarySelection != nullptr && subtree_object_count(*primarySelection, childrenByParent) <=
+                                           scene::k_maximumSceneObjectCount - sceneDocument.object_count();
+    ImGui::BeginDisabled(!canDuplicate);
+    if (ImGui::Button("複製") && !a_pendingIntent.has_value())
+    {
+        a_pendingIntent.emplace(DuplicateObjectIntent{*primarySelection});
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(primarySelection == nullptr);
+    if (ImGui::Button("削除") && !a_pendingIntent.has_value())
+    {
+        a_pendingIntent.emplace(DeleteObjectIntent{*primarySelection});
+    }
+    ImGui::EndDisabled();
+    ImGui::Separator();
+
     HierarchySelectionIndex selectionIndex;
     selectionIndex.reserve(a_document.selection().size());
     selectionIndex.insert(a_document.selection().begin(), a_document.selection().end());
@@ -787,7 +816,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
         commitName = input_object_name(m_name, *m_assertContext);
         commitName = commitName || ImGui::IsItemDeactivatedAfterEdit();
         bool usedUnicodeEscape = false;
-        const std::string namePreview = object_name_label(m_name, &usedUnicodeEscape);
+        const std::string namePreview = display_text_label(m_name, &usedUnicodeEscape);
         if (usedUnicodeEscape)
         {
             ImGui::TextDisabled("識別表示（Font非対応文字はUnicode Escape）");
@@ -809,7 +838,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     if (parentId != nullptr)
     {
         const scene::SceneObject *parent = sceneDocument.find_object(*parentId);
-        parentPreview = parent != nullptr ? object_name_label(parent->name()) : "Missing Parent";
+        parentPreview = parent != nullptr ? display_text_label(parent->name()) : "Missing Parent";
     }
     if (ImGui::BeginCombo("Parent", parentPreview.c_str()))
     {
@@ -833,7 +862,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
             const scene::IdentityText candidateId = candidate.id().canonical_text();
             ImGui::PushID(candidateId.data(), candidateId.data() + candidateId.size());
             const bool isCurrent = parentId != nullptr && *parentId == candidate.id();
-            const std::string candidateName = object_name_label(candidate.name());
+            const std::string candidateName = display_text_label(candidate.name());
             if (ImGui::Selectable(candidateName.c_str(), isCurrent) && !a_pendingIntent.has_value())
             {
                 a_pendingIntent.emplace(ReparentObjectIntent{object->id(), candidate.id()});
@@ -925,7 +954,11 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
         ImGui::PopID();
     }
 
-    if (m_componentTemplates.empty())
+    if (object->components().size() >= scene::k_maximumSceneComponentsPerObject)
+    {
+        ImGui::TextDisabled("Component数がScene上限に達しています。");
+    }
+    else if (m_componentTemplates.empty())
     {
         ImGui::TextDisabled("追加可能なComponentは登録されていません。");
     }
@@ -948,7 +981,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
                 ImGui::PushID(&componentTemplate);
             }
             ImGui::BeginDisabled(!typeId.has_value());
-            const std::string componentName = object_name_label(componentTemplate.displayName);
+            const std::string componentName = display_text_label(componentTemplate.displayName);
             if (ImGui::Selectable(componentName.c_str()) && typeId.has_value() && !a_pendingIntent.has_value())
             {
                 a_pendingIntent.emplace(AddComponentIntent{object->id(), *typeId, templateIndex});

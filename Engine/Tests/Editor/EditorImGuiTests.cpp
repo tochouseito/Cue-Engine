@@ -104,6 +104,12 @@ template <typename T> T take_value(cue::Result<T> a_result) noexcept
     return take_value(cue::schema::FieldId::create(1U, a_assertContext));
 }
 
+/// @brief Font非対応文字を含むString Field用Identityを生成する
+[[nodiscard]] cue::schema::FieldId make_string_field_id(const cue::AssertContext &a_assertContext) noexcept
+{
+    return take_value(cue::schema::FieldId::create(2U, a_assertContext));
+}
+
 /// @brief Test用Component Schema Versionを生成する
 [[nodiscard]] cue::schema::SchemaVersion make_schema_version(const cue::AssertContext &a_assertContext) noexcept
 {
@@ -117,6 +123,8 @@ template <typename T> T take_value(cue::Result<T> a_result) noexcept
     std::vector<cue::schema::FieldDescriptor> fields;
     fields.push_back(
         take_value(cue::schema::create_field_descriptor(make_field_id(a_assertContext), "value", a_assertContext)));
+    fields.push_back(take_value(cue::schema::create_field_descriptor(make_string_field_id(a_assertContext),
+                                                                     "status \xF0\x9F\x98\x80", a_assertContext)));
     std::vector<cue::schema::FieldId> reserved;
     cue::schema::TypeDescriptor descriptor = take_value(cue::schema::create_type_descriptor(
         make_component_type_id(a_assertContext), "Cue.Editor.TestComponent", make_schema_version(a_assertContext),
@@ -131,7 +139,8 @@ template <typename T> T take_value(cue::Result<T> a_result) noexcept
     const cue::schema::SchemaRegistry &a_registry, const cue::AssertContext &a_assertContext) noexcept
 {
     std::vector<cue::scene::FieldKindBinding> bindings{
-        {make_field_id(a_assertContext), cue::scene::FieldValueKind::SignedInteger}};
+        {make_field_id(a_assertContext), cue::scene::FieldValueKind::SignedInteger},
+        {make_string_field_id(a_assertContext), cue::scene::FieldValueKind::String}};
     std::vector<cue::scene::ComponentValueSchema> schemas;
     schemas.push_back(take_value(cue::scene::create_component_value_schema(
         make_component_type_id(a_assertContext), make_schema_version(a_assertContext), std::move(bindings), a_registry,
@@ -152,6 +161,10 @@ template <typename T> T take_value(cue::Result<T> a_result) noexcept
     fields.push_back(take_value(
         cue::scene::create_known_field(make_field_id(a_assertContext), cue::scene::FieldValue::signed_integer(a_value),
                                        cue::scene::FieldValueKind::SignedInteger, a_assertContext)));
+    fields.push_back(take_value(cue::scene::create_known_field(
+        make_string_field_id(a_assertContext),
+        take_value(cue::scene::FieldValue::string("Ready \xF0\x9F\x98\x81", a_assertContext)),
+        cue::scene::FieldValueKind::String, a_assertContext)));
     std::vector<cue::scene::OpaqueFieldData> unknownFields;
     cue::scene::KnownComponentData component = take_value(cue::scene::create_known_component(
         std::move(componentId), make_component_type_id(a_assertContext), make_schema_version(a_assertContext),
@@ -242,7 +255,7 @@ void test_hierarchy_inspector_intents() noexcept
     const cue::scene::SceneObject *root = document->scene_document().find_object(rootId);
     require(root != nullptr && root->components().size() == 1U);
     const cue::scene::KnownComponentData *addedComponent = root->components()[0].try_known();
-    require(addedComponent != nullptr && addedComponent->known_fields().size() == 1U);
+    require(addedComponent != nullptr && addedComponent->known_fields().size() == 2U);
     require(*addedComponent->known_fields()[0].value().try_signed_integer() == 20);
     const cue::scene::ComponentInstanceId addedComponentId = root->components()[0].instance_id();
     require(presenter->submit(cue::editor_core::RemoveComponentIntent{rootId, addedComponentId}).has_value());
@@ -302,6 +315,19 @@ void test_hierarchy_inspector_intents() noexcept
     draw_frame(*presenter);
     document = controller->session().find_document(documentId);
     require(document->scene_document().find_object(rootId)->name() == std::string_view(embeddedNullName));
+
+    const std::string historyLabel("History##A\0\xF0\x9F\x98\x80", 15U);
+    cue::editor_core::EditorTransaction historyTransaction{historyLabel, {}};
+    historyTransaction.commands.push_back(cue::editor_core::SceneCommandRequest{
+        documentId, sceneAssetId, cue::editor_core::RenameObjectCommand{rootId, "History Label Target"}});
+    require(controller->execute_transaction(std::move(historyTransaction)).has_value());
+    document = controller->session().find_document(documentId);
+    require(document->undo_label() == std::string_view(historyLabel));
+    draw_frame(*presenter);
+    require(controller->undo(documentId).has_value());
+    document = controller->session().find_document(documentId);
+    require(document->redo_label() == std::string_view(historyLabel));
+    draw_frame(*presenter);
     ImGui::DestroyContext();
 
     constexpr std::string_view duplicateSuffix = " Copy";
