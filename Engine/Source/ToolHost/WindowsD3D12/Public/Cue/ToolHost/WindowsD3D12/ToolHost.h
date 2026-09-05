@@ -52,6 +52,9 @@ class ToolHostClient
     /// @brief 現在FrameのImGui Widgetを構築する
     virtual void draw_frame() noexcept = 0;
 
+    /// @brief Native Window終了要求をTool固有の保存確認または終了状態へ変換する
+    virtual void request_close() noexcept = 0;
+
     /// @brief PresentationがTool Session終了を要求したか返す
     [[nodiscard]] virtual bool should_close() const noexcept = 0;
 

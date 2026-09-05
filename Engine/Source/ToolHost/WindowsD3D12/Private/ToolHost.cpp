@@ -1296,9 +1296,13 @@ cue::Result<void> WindowsD3d12ToolHost::run(cue::tool_host::ToolHostClient &a_cl
         cue::WindowEvent event{};
         while (m_window->try_pop_event(event))
         {
-            if (event.type == cue::WindowEventType::CloseRequested || event.type == cue::WindowEventType::Destroyed)
+            if (event.type == cue::WindowEventType::Destroyed)
             {
                 return drain_for_shutdown();
+            }
+            if (event.type == cue::WindowEventType::CloseRequested)
+            {
+                a_client.request_close();
             }
             if (event.type == cue::WindowEventType::Minimized)
             {

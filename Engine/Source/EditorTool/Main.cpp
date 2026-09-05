@@ -1,0 +1,751 @@
+#include <Cue/Editor/ImGui/EditorPresenter.h>
+#include <Cue/Editor/Windows/EditorSession.h>
+#include <Cue/Foundation/Assert.h>
+#include <Cue/Foundation/Error.h>
+#include <Cue/Foundation/Fatal.h>
+#include <Cue/Foundation/Log.h>
+#include <Cue/Foundation/NumberParsing.h>
+#include <Cue/Foundation/Windows/UtfConversion.h>
+#include <Cue/IO/RelativePath.h>
+#include <Cue/Project/Compatibility.h>
+#include <Cue/Scene/Serialization.h>
+#include <Cue/ToolHost/WindowsD3D12/ToolHost.h>
+
+#include <algorithm>
+#include <array>
+#include <cstdio>
+#include <cstdlib>
+#include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include <imgui.h>
+
+namespace
+{
+constexpr int k_invalidArguments = 64;
+constexpr int k_sessionInitializationFailed = 1;
+constexpr int k_toolHostFailed = 2;
+
+/// @brief Editor ToolのCommand Line値と重複検査状態を保持する
+struct EditorToolOptions final
+{
+    cue::editor::WindowsEditorLaunchParameters parameters{};
+    bool hasProtocolVersion = false;
+    bool hasProjectDescriptor = false;
+    bool hasExpectedProjectId = false;
+    bool hasCompatibilityId = false;
+    bool hasInitialScene = false;
+};
+
+/// @brief Document終了後に継続するSceneまたはProject操作
+enum class PendingTransition : std::uint8_t
+{
+    None,
+    NewScene,
+    OpenScene,
+    ReloadScene,
+    CloseProject,
+};
+
+/// @brief Editor Tool失敗をProcess Rootの安定Domainへ分類する
+[[nodiscard]] cue::Error make_tool_error(const cue::AssertContext &a_context, std::int64_t a_code,
+                                         std::string_view a_summary) noexcept
+{
+    cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "Cue.EditorTool", a_code);
+    return cue::Error::create(a_context.fatal_handler(), std::move(code), a_summary);
+}
+
+/// @brief UI Composition中の予期しない例外をFatal境界へ渡す
+[[noreturn]] void terminate_tool_exception(const cue::AssertContext &a_context) noexcept
+{
+    a_context.fatal_handler().terminate("Editor Tool operation failed unexpectedly");
+    std::abort();
+}
+
+/// @brief Windows Command Line値をStrict UTF-8へ変換する
+[[nodiscard]] cue::Result<std::string> convert_argument(std::wstring_view a_value,
+                                                        const cue::AssertContext &a_context) noexcept
+{
+    std::string converted;
+    const cue::WindowsUtfConversionResult conversion =
+        cue::convert_windows_utf16_to_utf8(a_value, converted, a_context.fatal_handler());
+    if (conversion.status != cue::WindowsUtfConversionStatus::Success)
+    {
+        cue::ErrorCode code = cue::ErrorCode::create(a_context.fatal_handler(), "Cue.EditorTool", k_invalidArguments);
+        cue::NativeError nativeError =
+            cue::NativeError::create(a_context.fatal_handler(), "Win32", conversion.nativeCode);
+        cue::Error error = cue::Error::create(a_context.fatal_handler(), std::move(code),
+                                              "Editor option is not valid UTF-16", std::move(nativeError));
+        return cue::Result<std::string>::failure(std::move(error));
+    }
+
+    return cue::Result<std::string>::success(std::move(converted));
+}
+
+/// @brief Editor起動Contractの必須値、重複、未知Optionを検証する
+[[nodiscard]] cue::Result<EditorToolOptions> parse_options(int a_argumentCount, wchar_t **a_arguments,
+                                                           const cue::AssertContext &a_context) noexcept
+{
+    try
+    {
+        EditorToolOptions options;
+        for (int index = 1; index < a_argumentCount; ++index)
+        {
+            const std::wstring_view option = a_arguments[index];
+            if (index + 1 >= a_argumentCount)
+            {
+                return cue::Result<EditorToolOptions>::failure(
+                    make_tool_error(a_context, k_invalidArguments, "Editor option is missing its value"));
+            }
+            const std::wstring_view value = a_arguments[++index];
+            if (option == L"--protocol-version")
+            {
+                const std::optional<std::uint32_t> protocol = cue::parse_unsigned_decimal<std::uint32_t>(value);
+                if (options.hasProtocolVersion || !protocol.has_value())
+                {
+                    return cue::Result<EditorToolOptions>::failure(make_tool_error(
+                        a_context, k_invalidArguments, "Editor protocol version is duplicated or invalid"));
+                }
+                options.parameters.protocolVersion = *protocol;
+                options.hasProtocolVersion = true;
+            }
+            else if (option == L"--project-descriptor")
+            {
+                if (options.hasProjectDescriptor)
+                {
+                    return cue::Result<EditorToolOptions>::failure(
+                        make_tool_error(a_context, k_invalidArguments, "Project descriptor option is duplicated"));
+                }
+                cue::Result<std::string> converted = convert_argument(value, a_context);
+                if (!converted)
+                {
+                    return cue::Result<EditorToolOptions>::failure(std::move(*converted.try_error()));
+                }
+                options.parameters.projectDescriptorLocator = std::move(*converted.try_value());
+                options.hasProjectDescriptor = true;
+            }
+            else if (option == L"--expected-project-id")
+            {
+                if (options.hasExpectedProjectId)
+                {
+                    return cue::Result<EditorToolOptions>::failure(
+                        make_tool_error(a_context, k_invalidArguments, "Expected ProjectId option is duplicated"));
+                }
+                cue::Result<std::string> converted = convert_argument(value, a_context);
+                if (!converted)
+                {
+                    return cue::Result<EditorToolOptions>::failure(std::move(*converted.try_error()));
+                }
+                options.parameters.expectedProjectId = std::move(*converted.try_value());
+                options.hasExpectedProjectId = true;
+            }
+            else if (option == L"--engine-compatibility-id")
+            {
+                if (options.hasCompatibilityId)
+                {
+                    return cue::Result<EditorToolOptions>::failure(
+                        make_tool_error(a_context, k_invalidArguments, "Engine compatibility option is duplicated"));
+                }
+                cue::Result<std::string> converted = convert_argument(value, a_context);
+                if (!converted)
+                {
+                    return cue::Result<EditorToolOptions>::failure(std::move(*converted.try_error()));
+                }
+                options.parameters.engineCompatibilityId = std::move(*converted.try_value());
+                options.hasCompatibilityId = true;
+            }
+            else if (option == L"--initial-scene")
+            {
+                if (options.hasInitialScene)
+                {
+                    return cue::Result<EditorToolOptions>::failure(
+                        make_tool_error(a_context, k_invalidArguments, "Initial scene option is duplicated"));
+                }
+                cue::Result<std::string> converted = convert_argument(value, a_context);
+                if (!converted)
+                {
+                    return cue::Result<EditorToolOptions>::failure(std::move(*converted.try_error()));
+                }
+                options.parameters.initialSceneLocator = std::move(*converted.try_value());
+                options.hasInitialScene = true;
+            }
+            else
+            {
+                return cue::Result<EditorToolOptions>::failure(
+                    make_tool_error(a_context, k_invalidArguments, "Editor option is not recognized"));
+            }
+        }
+        if (!options.hasProtocolVersion || !options.hasProjectDescriptor || !options.hasExpectedProjectId ||
+            !options.hasCompatibilityId)
+        {
+            return cue::Result<EditorToolOptions>::failure(
+                make_tool_error(a_context, k_invalidArguments, "Required Editor launch options are missing"));
+        }
+        return cue::Result<EditorToolOptions>::success(std::move(options));
+    }
+    catch (...)
+    {
+        terminate_tool_exception(a_context);
+    }
+}
+
+/// @brief 現在BuildがM12で対応するProject互換性入力を生成する
+[[nodiscard]] cue::Result<cue::editor::WindowsEditorEngineConfiguration> make_engine_configuration(
+    const cue::AssertContext &a_context) noexcept
+{
+    cue::Result<cue::ProjectCapabilityProfile> profile = cue::ProjectCapabilityProfile::create({}, a_context);
+    if (!profile)
+    {
+        return cue::Result<cue::editor::WindowsEditorEngineConfiguration>::failure(std::move(*profile.try_error()));
+    }
+    cue::Result<cue::ProjectCapabilitySnapshot> snapshot = cue::ProjectCapabilitySnapshot::create({}, a_context);
+    if (!snapshot)
+    {
+        return cue::Result<cue::editor::WindowsEditorEngineConfiguration>::failure(std::move(*snapshot.try_error()));
+    }
+    return cue::Result<cue::editor::WindowsEditorEngineConfiguration>::success(
+        {1U, cue::EngineVersion{1U, 0U, 0U}, std::move(*profile.try_value()), std::move(*snapshot.try_value())});
+}
+
+/// @brief Project-only ShellとActive EditorPresenterをFile Workflowへ接続する
+class EditorToolClient final : public cue::tool_host::ToolHostClient
+{
+  public:
+    /// @brief Sessionと診断ContextをClient全寿命へ関連付ける
+    EditorToolClient(cue::editor::WindowsEditorSession &a_session, const cue::AssertContext &a_assertContext) noexcept
+        : m_session(&a_session), m_assertContext(&a_assertContext)
+    {
+        refresh_recovery_candidates();
+        rebuild_presenter();
+    }
+
+    EditorToolClient(const EditorToolClient &) = delete;
+    EditorToolClient &operator=(const EditorToolClient &) = delete;
+    /// @brief PresenterとRecovery SnapshotをSessionより先に破棄する
+    ~EditorToolClient() override = default;
+
+    /// @brief Project-onlyまたはActive Scene UIを描画しFrame末尾でWorkflowを進める
+    void draw_frame() noexcept override
+    {
+        try
+        {
+            if (m_presenter != nullptr)
+            {
+                m_presenter->draw();
+                std::optional<cue::editor::EditorWorkflowRequest> request = m_presenter->take_workflow_request();
+                if (request.has_value())
+                {
+                    handle_workflow_request(*request);
+                }
+            }
+            else
+            {
+                draw_project_shell();
+            }
+            draw_locator_dialog();
+            draw_close_dialog();
+        }
+        catch (...)
+        {
+            terminate_tool_exception(*m_assertContext);
+        }
+    }
+
+    /// @brief Native Window終了要求をDirty Close状態遷移へ変換する
+    void request_close() noexcept override
+    {
+        if (!m_shouldClose && m_pendingTransition == PendingTransition::None)
+        {
+            begin_transition(PendingTransition::CloseProject);
+        }
+    }
+
+    /// @brief Project Session終了が確認済みならTool Host終了を許可する
+    [[nodiscard]] bool should_close() const noexcept override
+    {
+        return m_shouldClose;
+    }
+
+  private:
+    /// @brief Active Document Identityに対応するPresenterを再生成する
+    void rebuild_presenter() noexcept
+    {
+        if (!m_session->active_document_id().has_value())
+        {
+            m_presenter.reset();
+            return;
+        }
+        m_presenter = cue::editor::EditorPresenter::create(m_session->controller(), *m_session->active_document_id(),
+                                                           m_session->identity_source(), m_session->schema_registry(),
+                                                           {}, *m_assertContext);
+    }
+
+    /// @brief Project-only状態からScene作成、Open、Recovery、終了操作を描画する
+    void draw_project_shell() noexcept
+    {
+        ImGui::SetNextWindowPos(ImVec2(0.0F, 0.0F));
+        ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+        constexpr ImGuiWindowFlags k_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoCollapse |
+                                             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
+        std::optional<PendingTransition> transition;
+        if (ImGui::Begin("CueEngine Editor", nullptr, k_flags))
+        {
+            if (ImGui::BeginMenuBar())
+            {
+                if (ImGui::BeginMenu("ファイル"))
+                {
+                    if (ImGui::MenuItem("新しいScene", "Ctrl+N"))
+                    {
+                        transition = PendingTransition::NewScene;
+                    }
+                    if (ImGui::MenuItem("Sceneを開く", "Ctrl+O"))
+                    {
+                        transition = PendingTransition::OpenScene;
+                    }
+                    if (ImGui::MenuItem("終了"))
+                    {
+                        transition = PendingTransition::CloseProject;
+                    }
+                    ImGui::EndMenu();
+                }
+                ImGui::EndMenuBar();
+            }
+            ImGui::Text("Project: %s", m_session->project_locator().data());
+            ImGui::TextUnformatted("Sceneを作成するか、Source Assets内のSceneを開いてください。");
+            if (!m_message.empty())
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                                      m_hasError ? ImVec4(1.0F, 0.35F, 0.35F, 1.0F) : ImVec4(0.45F, 0.9F, 0.55F, 1.0F));
+                ImGui::TextWrapped("%s", m_message.c_str());
+                ImGui::PopStyleColor();
+            }
+            if (ImGui::Button("新しいScene"))
+            {
+                transition = PendingTransition::NewScene;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Sceneを開く"))
+            {
+                transition = PendingTransition::OpenScene;
+            }
+            ImGui::Separator();
+            ImGui::TextUnformatted("Recovery");
+            if (ImGui::Button("Recovery候補を更新"))
+            {
+                refresh_recovery_candidates();
+            }
+            for (std::size_t index = 0; index < m_recoveryCandidates.size(); ++index)
+            {
+                const cue::editor_core::RecoveryCandidateInspection &candidate = m_recoveryCandidates[index];
+                ImGui::PushID(static_cast<int>(index));
+                ImGui::TextUnformatted(candidate.scene_id().c_str());
+                if (candidate.try_metadata() != nullptr)
+                {
+                    ImGui::SameLine();
+                    if (ImGui::Button("開く"))
+                    {
+                        cue::Result<cue::editor_core::EditorDocumentId> opened =
+                            m_session->open_recovery_scene(candidate.scene_id());
+                        if (!opened)
+                        {
+                            report_error(*opened.try_error());
+                        }
+                        else
+                        {
+                            m_recoveryCandidates.clear();
+                            rebuild_presenter();
+                        }
+                    }
+                }
+                else if (candidate.try_error() != nullptr)
+                {
+                    ImGui::SameLine();
+                    ImGui::TextUnformatted("破損または未対応");
+                }
+                ImGui::PopID();
+            }
+        }
+        ImGui::End();
+        const bool canUseShortcut =
+            !ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
+        if (!transition.has_value() && canUseShortcut && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_N))
+        {
+            transition = PendingTransition::NewScene;
+        }
+        if (!transition.has_value() && canUseShortcut && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O))
+        {
+            transition = PendingTransition::OpenScene;
+        }
+        if (transition.has_value())
+        {
+            begin_transition(*transition);
+        }
+    }
+
+    /// @brief PresenterのFile Menu要求をSession Workflowへ変換する
+    void handle_workflow_request(cue::editor::EditorWorkflowRequest a_request) noexcept
+    {
+        switch (a_request)
+        {
+        case cue::editor::EditorWorkflowRequest::NewScene:
+            begin_transition(PendingTransition::NewScene);
+            break;
+        case cue::editor::EditorWorkflowRequest::OpenScene:
+            begin_transition(PendingTransition::OpenScene);
+            break;
+        case cue::editor::EditorWorkflowRequest::SaveScene:
+            save_scene();
+            break;
+        case cue::editor::EditorWorkflowRequest::ReloadScene:
+            begin_transition(PendingTransition::ReloadScene);
+            break;
+        case cue::editor::EditorWorkflowRequest::CloseProject:
+            begin_transition(PendingTransition::CloseProject);
+            break;
+        }
+    }
+
+    /// @brief Scene切替またはProject終了前に現在LocatorとClose判断を確定する
+    void begin_transition(PendingTransition a_transition) noexcept
+    {
+        if (m_pendingTransition != PendingTransition::None || m_shouldClose)
+        {
+            return;
+        }
+        m_pendingTransition = a_transition;
+        if (a_transition == PendingTransition::ReloadScene && m_session->active_document_id().has_value())
+        {
+            const cue::editor_core::EditorDocument *document =
+                m_session->controller().session().find_document(*m_session->active_document_id());
+            if (document != nullptr)
+            {
+                m_transitionLocator = std::string(document->scene_locator().text());
+            }
+        }
+        cue::Result<cue::editor_core::DocumentCloseState> state = m_session->request_close();
+        if (!state)
+        {
+            report_error(*state.try_error());
+            m_pendingTransition = PendingTransition::None;
+            return;
+        }
+        if (*state.try_value() == cue::editor_core::DocumentCloseState::Closed)
+        {
+            rebuild_presenter();
+            complete_transition();
+        }
+        else
+        {
+            m_openCloseDialog = true;
+        }
+    }
+
+    /// @brief Closed状態の次に予約されたSceneまたはProject操作を開始する
+    void complete_transition() noexcept
+    {
+        const PendingTransition transition = m_pendingTransition;
+        m_pendingTransition = PendingTransition::None;
+        m_openCloseDialog = false;
+        if (transition == PendingTransition::CloseProject)
+        {
+            m_shouldClose = true;
+            return;
+        }
+        if (transition == PendingTransition::ReloadScene)
+        {
+            cue::Result<cue::RelativePath> locator = cue::RelativePath::parse(m_transitionLocator, *m_assertContext);
+            if (!locator)
+            {
+                report_error(*locator.try_error());
+                return;
+            }
+            cue::Result<cue::editor_core::EditorDocumentId> opened =
+                m_session->open_scene(std::move(*locator.try_value()));
+            if (!opened)
+            {
+                report_error(*opened.try_error());
+                return;
+            }
+            rebuild_presenter();
+            report_status("Sceneを再読込しました。");
+            return;
+        }
+        if (transition == PendingTransition::NewScene || transition == PendingTransition::OpenScene)
+        {
+            m_locatorMode = transition;
+            m_sceneLocator.fill('\0');
+            const std::string_view initial =
+                transition == PendingTransition::NewScene ? "Scenes/NewScene.cuescene" : "Scenes/Main.cuescene";
+            std::copy(initial.begin(), initial.end(), m_sceneLocator.begin());
+            m_openLocatorDialog = true;
+        }
+    }
+
+    /// @brief Scene Locator入力を検証してNewまたはOpenへ渡す
+    void draw_locator_dialog() noexcept
+    {
+        if (m_openLocatorDialog)
+        {
+            ImGui::OpenPopup("Scene Locator");
+            m_openLocatorDialog = false;
+        }
+        if (!ImGui::BeginPopupModal("Scene Locator", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            return;
+        }
+        ImGui::TextUnformatted("Source Assets Rootからの相対Pathを入力してください。");
+        ImGui::InputText("##SceneLocator", m_sceneLocator.data(), m_sceneLocator.size());
+        if (ImGui::Button(m_locatorMode == PendingTransition::NewScene ? "作成" : "開く"))
+        {
+            cue::Result<cue::RelativePath> locator = cue::RelativePath::parse(m_sceneLocator.data(), *m_assertContext);
+            if (!locator)
+            {
+                report_error(*locator.try_error());
+            }
+            else
+            {
+                cue::Result<cue::editor_core::EditorDocumentId> opened =
+                    m_locatorMode == PendingTransition::NewScene
+                        ? m_session->create_scene(std::move(*locator.try_value()))
+                        : m_session->open_scene(std::move(*locator.try_value()));
+                if (!opened)
+                {
+                    report_error(*opened.try_error());
+                }
+                else
+                {
+                    rebuild_presenter();
+                    m_locatorMode = PendingTransition::None;
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("キャンセル"))
+        {
+            m_locatorMode = PendingTransition::None;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    /// @brief Dirty SceneのSave、Discard、Cancel判断をCoreへ返す
+    void draw_close_dialog() noexcept
+    {
+        if (m_openCloseDialog)
+        {
+            ImGui::OpenPopup("未保存の変更");
+            m_openCloseDialog = false;
+        }
+        if (!ImGui::BeginPopupModal("未保存の変更", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            return;
+        }
+        ImGui::TextUnformatted("Sceneに未保存の変更があります。");
+        if (ImGui::Button("保存"))
+        {
+            cue::Result<cue::editor_core::DocumentCloseState> state =
+                m_session->respond_to_close(cue::editor_core::CloseDecision::Save);
+            if (!state)
+            {
+                report_error(*state.try_error());
+            }
+            else
+            {
+                save_scene();
+                if (!m_session->active_document_id().has_value())
+                {
+                    ImGui::CloseCurrentPopup();
+                    rebuild_presenter();
+                    complete_transition();
+                }
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("破棄"))
+        {
+            cue::Result<cue::editor_core::DocumentCloseState> state =
+                m_session->respond_to_close(cue::editor_core::CloseDecision::Discard);
+            if (!state)
+            {
+                report_error(*state.try_error());
+            }
+            else
+            {
+                ImGui::CloseCurrentPopup();
+                rebuild_presenter();
+                complete_transition();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("キャンセル"))
+        {
+            cue::Result<cue::editor_core::DocumentCloseState> state =
+                m_session->respond_to_close(cue::editor_core::CloseDecision::Cancel);
+            if (!state)
+            {
+                report_error(*state.try_error());
+            }
+            else
+            {
+                m_pendingTransition = PendingTransition::None;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndPopup();
+    }
+
+    /// @brief Active Sceneの確定Saveだけを成功Messageへ変換する
+    void save_scene() noexcept
+    {
+        cue::Result<cue::scene::SceneSaveOutcome> saved = m_session->save_active_scene();
+        if (!saved)
+        {
+            report_error(*saved.try_error());
+            return;
+        }
+        if (saved.try_value()->status() != cue::scene::SceneSaveStatus::Committed)
+        {
+            if (saved.try_value()->try_error() != nullptr)
+            {
+                report_error(*saved.try_value()->try_error());
+            }
+            return;
+        }
+        report_status("Sceneを保存しました。");
+    }
+
+    /// @brief Recovery Registryを再列挙してProject-only Snapshotへ反映する
+    void refresh_recovery_candidates() noexcept
+    {
+        cue::Result<std::vector<cue::editor_core::RecoveryCandidateInspection>> candidates =
+            m_session->list_recovery_candidates();
+        if (!candidates)
+        {
+            report_error(*candidates.try_error());
+            return;
+        }
+        m_recoveryCandidates = std::move(*candidates.try_value());
+    }
+
+    /// @brief Workflow ErrorをActive PresenterまたはProject Shellへ表示する
+    void report_error(const cue::Error &a_error) noexcept
+    {
+        if (m_presenter != nullptr)
+        {
+            m_presenter->report_workflow_error(a_error);
+            return;
+        }
+        try
+        {
+            m_message = std::string(a_error.summary());
+            m_hasError = true;
+        }
+        catch (...)
+        {
+            terminate_tool_exception(*m_assertContext);
+        }
+    }
+
+    /// @brief Workflow成功をActive PresenterまたはProject Shellへ表示する
+    void report_status(std::string_view a_status) noexcept
+    {
+        if (m_presenter != nullptr)
+        {
+            m_presenter->report_workflow_status(a_status);
+            return;
+        }
+        try
+        {
+            m_message.assign(a_status);
+            m_hasError = false;
+        }
+        catch (...)
+        {
+            terminate_tool_exception(*m_assertContext);
+        }
+    }
+
+    cue::editor::WindowsEditorSession *m_session;
+    const cue::AssertContext *m_assertContext;
+    std::unique_ptr<cue::editor::EditorPresenter> m_presenter;
+    std::vector<cue::editor_core::RecoveryCandidateInspection> m_recoveryCandidates;
+    std::array<char, 512> m_sceneLocator{};
+    std::string m_transitionLocator;
+    std::string m_message;
+    PendingTransition m_pendingTransition = PendingTransition::None;
+    PendingTransition m_locatorMode = PendingTransition::None;
+    bool m_openLocatorDialog = false;
+    bool m_openCloseDialog = false;
+    bool m_shouldClose = false;
+    bool m_hasError = false;
+};
+
+/// @brief 起動失敗をLoggerへ記録し対応するProcess Exit Codeを返す
+[[nodiscard]] int report_error(cue::Logger &a_logger, std::string_view a_summary, cue::Error a_error,
+                               int a_exitCode) noexcept
+{
+    static_cast<void>(a_logger.log(cue::LogLevel::Error, a_summary, std::move(a_error)));
+    static_cast<void>(a_logger.flush());
+    return a_exitCode;
+}
+
+/// @brief Editor SessionとTool Hostを寿命順に構築してUI Loopを実行する
+[[nodiscard]] int run(EditorToolOptions a_options, cue::Logger &a_logger,
+                      const cue::AssertContext &a_assertContext) noexcept
+{
+    cue::Result<cue::editor::WindowsEditorEngineConfiguration> configuration =
+        make_engine_configuration(a_assertContext);
+    if (!configuration)
+    {
+        return report_error(a_logger, "Editor engine configuration failed", std::move(*configuration.try_error()),
+                            k_sessionInitializationFailed);
+    }
+    cue::Result<std::unique_ptr<cue::editor::WindowsEditorSession>> session = cue::editor::WindowsEditorSession::create(
+        std::move(a_options.parameters), std::move(*configuration.try_value()), a_assertContext);
+    if (!session)
+    {
+        return report_error(a_logger, "Editor project session failed", std::move(*session.try_error()),
+                            k_sessionInitializationFailed);
+    }
+    EditorToolClient client(**session.try_value(), a_assertContext);
+    const cue::tool_host::ToolHostDescriptor descriptor{"CueEngine Editor", {1440U, 900U}, 0U};
+    cue::Result<void> hosted = cue::tool_host::run_windows_d3d12_tool_host(descriptor, client, a_assertContext);
+    if (!hosted)
+    {
+        return report_error(a_logger, "Editor Tool Host failed", std::move(*hosted.try_error()), k_toolHostFailed);
+    }
+    return 0;
+}
+} // namespace
+
+/// @brief Project Hub起動値をEditor Sessionへ変換してProcess Exit Codeを返す
+int wmain(int a_argumentCount, wchar_t **a_arguments)
+{
+    cue::AbortFatalHandler fatalHandler;
+    try
+    {
+        std::vector<std::unique_ptr<cue::LogSink>> sinks;
+        sinks.push_back(std::make_unique<cue::ConsoleLogSink>());
+        cue::Logger logger(fatalHandler, std::move(sinks));
+        cue::AssertContext assertContext(logger, fatalHandler);
+        cue::Result<EditorToolOptions> options = parse_options(a_argumentCount, a_arguments, assertContext);
+        if (!options)
+        {
+            std::fputws(L"Usage: CueEditorTool --protocol-version <version> --project-descriptor <absolute path> "
+                        L"--expected-project-id <uuid> --engine-compatibility-id <id> [--initial-scene <path>]\n",
+                        stderr);
+            return report_error(logger, "Editor command line is invalid", std::move(*options.try_error()),
+                                k_invalidArguments);
+        }
+        return run(std::move(*options.try_value()), logger, assertContext);
+    }
+    catch (...)
+    {
+        fatalHandler.terminate("Editor Tool allocation failed");
+    }
+}
