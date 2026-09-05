@@ -314,18 +314,24 @@ Sparse FileもLogical Sizeで判定し、CallerがAdapter Hard Limitを拡張で
 未知Version、Project ID不一致、Operation ID不一致、Path不正、重複Field、Resource Limit超過を推測して読まず、Entryを自動削除しない。
 既知の将来Migrationは`N -> N + 1`をMemory上で完了して再検証し、明示更新まで元Recordを維持する。
 
-Delete開始前に、単一FileではNative Link Countが1であることを要求し、Fingerprint検証開始からNative Rename、移動先での
-Fingerprint再検証、`trashed` RecordのAtomic Commit完了までWrite／Delete非共有の排他的Accessを保持する。Directoryでは
-Manifest列挙対象の全Regular FileについてLink Count 1を要求する。複数Hard Link、共有違反、列挙競合を`UnsupportedEntry`、
-`Busy`、または`RescanRequired`として拒否し、復元不能と判明しているEntryを回復可能Deleteとして受理しない。単一Fileの排他取得後に
-Source IdentityとLink Countを再確認し、別Entryへの差替えまたは不一致ではFingerprintを取得せず`RescanRequired`とする。
+回復可能Delete／Restoreで単一Fileを扱う場合はNative Link Countが1であることを要求し、Fingerprint検証開始からNative Rename、
+移動先でのFingerprint再検証、最終RecordのAtomic Commit完了まで`SingleFileMutationGuard`を保持する。Windows AdapterはSourceを
+Read Data／Read Attributes／`DELETE` Access、共有Modeは`FILE_SHARE_READ`だけ、
+`FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_WRITE_THROUGH`で一度だけ開く。FingerprintとRenameは同じHandleを使うため、排他解除後の
+Path基準RenameへFallbackしない。DirectoryではManifest列挙対象の全Regular FileについてLink Count 1を要求する。複数Hard Link、
+共有違反、列挙競合を`UnsupportedEntry`、`Busy`、または`RescanRequired`として拒否し、復元不能と判明しているEntryを回復可能Deleteとして
+受理しない。単一FileのGuard取得後にSource IdentityとLink Countを再確認し、別Entryへの差替えまたは不一致ではFingerprintを取得せず
+`RescanRequired`とする。
 
 Directory DeleteとRestoreは、検証開始からNative Rename、移動先でのManifest再検証、最終Record Commitまで
-`DirectoryTreeMutationGuard`を保持する。Windows AdapterのGuardは全Regular FileをRead専用かつWrite／Delete非共有Handleで固定し、
-全Directory HandleへRまたはRH Directory Oplockを要求してBreakを監視する。既存Writer、Guard非対応Filesystem、Oplock取得失敗では
-`Busy`または`UnsupportedEntry`としてMoveを開始しない。Directory Oplockは内容変更を阻止しない通知契約であるため、Guard期間中の
-Breakを失敗として記録し、移動先でLink CountとManifestを再検証する。Move前のBreakは`NotCommitted`、Move後のBreakまたは不一致は
-RecordとPayloadを維持した`ReconciliationRequired`とする。黙って成功へFallbackしない。
+`DirectoryTreeMutationGuard`を保持する。Windows AdapterのGuardはSource Root Directoryを`DELETE` Accessと
+`FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_WRITE_THROUGH`で開き、Native Renameにも同じHandleを使用する。全Regular FileはRead専用かつ
+Write非共有、Delete共有Handleで固定し、全Directory HandleへRまたはRH Directory Oplockを要求してBreakを監視する。ChildのDelete共有は
+Source Root Handleによる親Directory Renameを妨げないために必要であり、外部のChild Rename／DeleteはDirectory Oplock Breakと移動先の
+Manifest再検証で検出する。既存Writer、Guard非対応Filesystem、Oplock取得失敗では`Busy`または`UnsupportedEntry`としてMoveを開始しない。
+Directory Oplockは内容変更を阻止しない通知契約であるため、Guard期間中のBreakを失敗として記録し、移動先でLink CountとManifestを
+再検証する。Move前のBreakは`NotCommitted`、Move後のBreakまたは不一致はRecordとPayloadを維持した
+`ReconciliationRequired`とする。黙って成功へFallbackしない。
 
 Delete順序を固定する。
 
@@ -348,7 +354,7 @@ Step 4より前の失敗ではSourceを維持し、Operation-owned Trash Directo
 | Exists | Exists | 外部競合として両方を維持し、User判断を要求する |
 | Missing | Missing | Data所在不明としてRecordを維持し、Errorを報告する |
 
-`Missing / Exists`の再検証前に、単一Fileは排他的Write／Delete Access、Directoryは`DirectoryTreeMutationGuard`を取得し、
+`Missing / Exists`の再検証前に、単一Fileは`SingleFileMutationGuard`、Directoryは`DirectoryTreeMutationGuard`を取得し、
 検証から`trashed` RecordのAtomic Commit完了まで保持する。排他取得、再検証、または上限確認が失敗した場合は
 `trashed`へ昇格せず、RecordとPayloadを維持して`ReconciliationRequired`を報告する。
 
@@ -356,8 +362,9 @@ RestoreはRecordの`originalPath`を使用し、DestinationがMissingである�
 Mutation Area内の通常DirectoryだけをCreate-or-openできる。File／Unsupported Entry衝突、Area外、Root変更、Project ID不一致では
 復元しない。
 
-File PayloadはRestore直前に排他的なWrite／Delete Accessを取得してMove完了まで保持し、RecordのByte SizeとContent Digestへ一致する
-`RegularFile`であることを検証する。WindowsではLink Countが1であることも要求し、別名Hard Linkまたは共有違反を
+File PayloadはRestore直前に`SingleFileMutationGuard`を取得して`restored` RecordのAtomic Commit完了まで保持し、同じHandleから
+RecordのByte SizeとContent Digestへ一致する`RegularFile`であることを検証する。WindowsではLink Countが1であることも要求し、
+別名Hard Linkまたは共有違反を
 `UnsupportedEntry`または`Busy`として拒否する。Fingerprint不一致ではDestinationへMoveせず、RecordとPayloadを維持して
 `RecoveryRequired`を返す。Directory Payloadは`TraversalLimits`内で再列挙し、全Regular FileのLink Count 1を確認して、Recordの
 Bounded ManifestとPath、Type、Byte Size、Content Digestを完全一致させる。Reparse Point、操作不能Entry、Type不一致、Manifestの
@@ -366,7 +373,7 @@ Bounded ManifestとPath、Type、Byte Size、Content Digestを完全一致させ
 
 Directory Payloadの検証は`DirectoryTreeMutationGuard`取得後に行い、Guardを保持したままRecordを`restoring`へ更新してPayloadを
 Moveする。Move後はOriginal Path側でLink CountとManifestを再検証し、Guard Breakがなく完全一致する場合だけ`restored`へ更新する。
-単一Fileも上記検証後にRecordを`restoring`へ更新し、排他的Accessを保持したままPayloadをMoveする。Move後にSource存在、
+単一Fileも上記検証後にRecordを`restoring`へ更新し、`SingleFileMutationGuard`のHandleでPayloadをMoveする。Move後にSource存在、
 Payload不存在、Fingerprint一致を検証して`restored`へ更新する。
 途中終了は同じ存在行列でReconciliationする。既存Destinationを上書きしない。
 
@@ -393,7 +400,11 @@ UI制御FlowをWin32 Error値へ依存させない。Errorには不要な絶対U
 ### Durability Barrier
 
 Namespace Mutationの`Committed`はVisibilityの再Queryだけで判定しない。Windows AdapterはADR-0014と同じく、最終Nameを公開する
-Rename／Moveへ`MoveFileExW(..., MOVEFILE_WRITE_THROUGH)`相当のBarrierを適用し、成功後にSource／Destinationを再Queryする。
+Rename／MoveへWrite-through Barrierを適用し、成功後にSource／Destinationを再Queryする。Guardを必要としない操作は
+`MoveFileExW(..., MOVEFILE_WRITE_THROUGH)`を使用できる。`SingleFileMutationGuard`または`DirectoryTreeMutationGuard`を保持する操作は、
+Guard Handleを`DELETE` Accessと`FILE_FLAG_WRITE_THROUGH`で開き、Destination Parentの検証済みHandleと上書き禁止のRelative Nameを渡す
+`SetFileInformationByHandle(..., FileRenameInfo, ...)`で同じHandleをRenameする。このHandle-based Rename成功をWrite-through Barrierとし、
+別Handleを開く`MoveFileExW`のためにGuardを解放しない。
 直接作成したDirectoryをBarrier済みとみなさず、Create FolderとRestore用の不足ParentもOperation-owned Sibling Directoryを
 Create-newしてWrite-through Renameで一段ずつ公開する。
 
