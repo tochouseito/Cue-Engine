@@ -57,8 +57,9 @@ Project HubとEditorを別Processとして起動し、Project選択からScene�
 ## Automated Process Boundary
 
 `Cue.Editor.Workflow.ProcessRoundTrip`はTest用Projectと保存済みSceneを作成し、実際の`CueEditorTool.exe`をVersion付き
-Command Lineと`--initial-scene`で三Process起動する。最初の子ProcessはSceneを編集してRecovery Autosaveを実行し、親Processが
-Recovery内容を再Openして検証する。次の子Processは別のObjectを追加し、Dirty CloseのSaveを通してSceneを閉じる。最後の子Processは
+Command Lineと`--initial-scene`で四Process起動する。最初の子Processは未編集の新規Sceneを作成してRecovery Autosaveを実行し、
+親Processが未保存LocatorとIdentityを再Openして検証する。次の子Processは既存Sceneを編集してRecovery Autosaveを実行し、親Processが
+Recovery内容を再Openして検証する。三つ目の子Processは別のObjectを追加し、Dirty CloseのSaveを通してSceneを閉じる。最後の子Processは
 保存済みSceneを再Openする。各ProcessはTest専用の有限Frame設定で正常終了し、Project ID、Scene ID、既存Object ID、子Processで
 追加したObject、保存Dataが維持されることを検証する。
 

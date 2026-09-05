@@ -131,9 +131,18 @@ class TestDirectory final
                                L" --initial-scene Scenes/Main.cuescene --maximum-frame-count 1";
     if (a_processTestAction.has_value())
     {
-        commandLine.append(*a_processTestAction == "autosave-recovery"
-                               ? L" --process-test-action autosave-recovery"
-                               : L" --process-test-action edit-close-save");
+        if (*a_processTestAction == "autosave-recovery")
+        {
+            commandLine.append(L" --process-test-action autosave-recovery");
+        }
+        else if (*a_processTestAction == "autosave-new-scene")
+        {
+            commandLine.append(L" --process-test-action autosave-new-scene");
+        }
+        else
+        {
+            commandLine.append(L" --process-test-action edit-close-save");
+        }
     }
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
@@ -292,6 +301,52 @@ void test_process_round_trip(const std::filesystem::path &a_editorExecutable,
         std::_Exit(28);
     }
     session.try_value()->reset();
+
+    if (!run_editor_process(a_editorExecutable, projectPath, "autosave-new-scene"))
+    {
+        std::_Exit(45);
+    }
+    auto cleanRecoverySession = cue::editor::WindowsEditorSession::create(
+        make_parameters(projectPath, projectId.try_value()->text(), engineCompatibility, a_context),
+        make_configuration(a_context), a_context);
+    if (!cleanRecoverySession)
+    {
+        std::_Exit(46);
+    }
+    auto cleanRecoveryCandidates = (*cleanRecoverySession.try_value())->list_recovery_candidates();
+    const cue::editor_core::RecoveryCandidateInspection *cleanRecoveryCandidate = nullptr;
+    if (cleanRecoveryCandidates)
+    {
+        for (const cue::editor_core::RecoveryCandidateInspection &candidate : *cleanRecoveryCandidates.try_value())
+        {
+            if (candidate.try_metadata() != nullptr &&
+                candidate.try_metadata()->source_locator().text() == "Scenes/Child-Unedited.cuescene")
+            {
+                cleanRecoveryCandidate = &candidate;
+                break;
+            }
+        }
+    }
+    if (cleanRecoveryCandidate == nullptr)
+    {
+        std::_Exit(47);
+    }
+    auto cleanRecoveryDocumentId =
+        (*cleanRecoverySession.try_value())->open_recovery_scene(cleanRecoveryCandidate->scene_id());
+    const cue::editor_core::EditorDocument *cleanRecoveryDocument =
+        cleanRecoveryDocumentId ? (*cleanRecoverySession.try_value())
+                                      ->controller()
+                                      .session()
+                                      .find_document(*cleanRecoveryDocumentId.try_value())
+                                : nullptr;
+    if (!cleanRecoveryDocumentId || cleanRecoveryDocument == nullptr ||
+        cleanRecoveryDocument->scene_locator().text() != "Scenes/Child-Unedited.cuescene" ||
+        cleanRecoveryDocument->scene_document().object_count() != 0U ||
+        cleanRecoveryDocument->has_saved_destination())
+    {
+        std::_Exit(48);
+    }
+    cleanRecoverySession.try_value()->reset();
 
     if (!run_editor_process(a_editorExecutable, projectPath, "autosave-recovery"))
     {

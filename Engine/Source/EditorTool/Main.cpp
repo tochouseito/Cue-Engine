@@ -222,6 +222,7 @@ enum class PendingTransition : std::uint8_t
         if (options.hasProcessTestAction &&
             (!options.hasInitialScene || !options.hasMaximumFrameCount ||
              (*options.processTestAction != "autosave-recovery" &&
+              *options.processTestAction != "autosave-new-scene" &&
               *options.processTestAction != "edit-close-save")))
         {
             return cue::Result<EditorToolOptions>::failure(make_tool_error(
@@ -342,7 +343,7 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
             m_lastRecoveryStateValue.reset();
             return;
         }
-        if (!document->is_dirty() ||
+        if ((!document->is_dirty() && document->has_saved_destination()) ||
             document->persistence_state() != cue::editor_core::DocumentPersistenceState::Idle)
         {
             return;
@@ -1150,6 +1151,37 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
     {
         return cue::Result<void>::failure(
             make_tool_error(a_assertContext, k_processTestFailed, "Process test action requires an active scene"));
+    }
+    if (*a_action == "autosave-new-scene")
+    {
+        cue::Result<cue::editor_core::DocumentCloseState> closed = a_session.request_close();
+        if (!closed || *closed.try_value() != cue::editor_core::DocumentCloseState::Closed)
+        {
+            return cue::Result<void>::failure(
+                closed ? make_tool_error(a_assertContext, k_processTestFailed,
+                                         "Process test could not close the clean initial scene")
+                       : std::move(*closed.try_error()));
+        }
+        cue::Result<cue::RelativePath> locator =
+            cue::RelativePath::parse("Scenes/Child-Unedited.cuescene", a_assertContext);
+        if (!locator)
+        {
+            return cue::Result<void>::failure(std::move(*locator.try_error()));
+        }
+        cue::Result<cue::editor_core::EditorDocumentId> created =
+            a_session.create_scene(std::move(*locator.try_value()));
+        if (!created)
+        {
+            return cue::Result<void>::failure(std::move(*created.try_error()));
+        }
+        const cue::editor_core::EditorDocument *document =
+            a_session.controller().session().find_document(*created.try_value());
+        if (document == nullptr || document->is_dirty() || document->has_saved_destination())
+        {
+            return cue::Result<void>::failure(make_tool_error(
+                a_assertContext, k_processTestFailed, "Process test new scene did not remain clean and unsaved"));
+        }
+        return cue::Result<void>::success();
     }
     cue::editor_core::AddObjectIntent addObject{
         std::nullopt, *a_action == "autosave-recovery" ? "Child Process Recovery" : "Child Process Saved"};
