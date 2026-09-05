@@ -302,10 +302,11 @@ Directory ManifestはRoot自身を含まず、全ての通常DirectoryとRegular
 `TraversalLimits`のDepth、Entry数、Metadata Byte数を適用し、重複Path、Case Collision、欠落Parent、Reparse Point、
 Unsupported Entry、上限超過を拒否する。ManifestはDelete後のPayload検証とRestore直前の内容照合に使用する。
 
-ManifestのDigest計算には、非ZeroのFile単位最大Content Byte数とOperation合計最大Content Byte数を持つ
-`ContentVerificationLimits`も必須とする。Adapter Hard LimitとCaller Limitの小さい方を適用し、列挙で得たLogical File Sizeを
-Digest読込み前に合計する。単一Fileまたは合計が上限を超える場合は`CapacityExceeded`とし、SourceまたはPayloadをMoveせず、
-部分Manifestを完全結果として保存しない。Sparse FileもLogical Sizeで判定する。
+単一FileのFingerprintとDirectory ManifestのDigest計算には、非ZeroのFile単位最大Content Byte数とOperation合計最大Content Byte数を
+持つ`ContentVerificationLimits`も必須とする。Adapter Hard LimitとCaller Limitの小さい方を適用し、Logical File Sizeを
+Digest読込み前に検査する。単一FileはFile単位上限、DirectoryはFile単位と合計の両方を適用する。上限超過は
+`CapacityExceeded`とし、SourceまたはPayloadをMoveせず、部分Fingerprintまたは部分Manifestを完全結果として保存しない。
+Sparse FileもLogical Sizeで判定し、CallerがAdapter Hard Limitを拡張できないようにする。
 
 `OperationId`はProject File操作ごとに新しく生成するlowercase UUID Version 4とし、Process再起動後もDirectory名とRecordを
 一意に対応させる。nil UUID、Version／Variant不正、Directory名とRecord値の不一致を拒否する。
@@ -344,8 +345,9 @@ Step 4より前の失敗ではSourceを維持し、Operation-owned Trash Directo
 | Exists | Exists | 外部競合として両方を維持し、User判断を要求する |
 | Missing | Missing | Data所在不明としてRecordを維持し、Errorを報告する |
 
-`Missing / Exists`でも再検証が失敗または上限超過した場合は`trashed`へ昇格せず、RecordとPayloadを維持して
-`ReconciliationRequired`を報告する。
+`Missing / Exists`の再検証前に、単一Fileは排他的Write／Delete Access、Directoryは`DirectoryTreeMutationGuard`を取得し、
+検証から`trashed` RecordのAtomic Commit完了まで保持する。排他取得、再検証、または上限確認が失敗した場合は
+`trashed`へ昇格せず、RecordとPayloadを維持して`ReconciliationRequired`を報告する。
 
 RestoreはRecordの`originalPath`を使用し、DestinationがMissingである場合だけ`Payload`を同一Volume Renameで戻す。必要な親Directoryは
 Mutation Area内の通常DirectoryだけをCreate-or-openできる。File／Unsupported Entry衝突、Area外、Root変更、Project ID不一致では
