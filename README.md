@@ -48,6 +48,7 @@ Repository Root は CMake の Build 入口、License、Repository 設定など�
 - Windows x64
 - Visual Studio 2026（Desktop development with C++）
 - CMake 4.2.0以上
+- PowerShell 7（`pwsh`）
 - Windows SDK 10.0.26100.0以上
 - DirectX 12対応GPU。自動検証ではWARPも使用できます
 
@@ -62,6 +63,17 @@ git branch --show-current
 ```
 
 最後のコマンドが`Rebuild`を出力することを確認してから、以下のConfigure、Build、Testを順に実行します。
+
+## Dependency Restore
+
+新規Checkoutでは、Configureより先にPin済みvcpkg Toolと承認済み第三者Libraryを復元します。
+
+```powershell
+pwsh -NoProfile -File Tools/Dependencies/RestoreVcpkg.ps1
+```
+
+このScriptは`ThirdParty/vcpkg-tool.json`と`ThirdParty/vcpkg-configuration.json`で固定したvcpkg Tool、Registry、
+Package Versionを検証し、Git管理対象外の`ThirdParty/.tools`と`ThirdParty/vcpkg_installed`へ生成物を配置します。
 
 ## Configure
 
