@@ -680,12 +680,17 @@ Result<void> EditorPresenter::submit(editor_core::EditorIntent a_intent) noexcep
     try
     {
         const std::string_view status = intent_status(a_intent);
+        const bool appliesTransform = std::holds_alternative<EditTransformIntent>(a_intent);
         Result<void> result =
             m_controller->execute_intent(m_documentId, std::move(a_intent), *m_identitySource, m_componentTemplates);
         if (!result)
         {
             set_error(*result.try_error());
             return result;
+        }
+        if (appliesTransform)
+        {
+            m_transformDirty = false;
         }
         set_status(status);
         return result;
@@ -927,9 +932,10 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     }
 
     ImGui::SeparatorText("Core Transform");
-    ImGui::InputFloat3("Translation", m_translation.data());
-    ImGui::InputFloat4("Rotation (Quaternion)", m_rotation.data());
-    ImGui::InputFloat3("Scale", m_scale.data());
+    const bool translationEdited = ImGui::InputFloat3("Translation", m_translation.data());
+    const bool rotationEdited = ImGui::InputFloat4("Rotation (Quaternion)", m_rotation.data());
+    const bool scaleEdited = ImGui::InputFloat3("Scale", m_scale.data());
+    m_transformDirty = m_transformDirty || translationEdited || rotationEdited || scaleEdited;
     if (ImGui::Button("Transformを適用"))
     {
         Result<math::Tolerance> tolerance =
@@ -1061,18 +1067,23 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
 void EditorPresenter::sync_inspector(const editor_core::EditorDocument &a_document, const scene::SceneObject &a_object)
 {
     const std::uint64_t stateValue = a_document.current_state_id().value();
-    if (m_inspectorObjectId.has_value() && *m_inspectorObjectId == a_object.id() && m_inspectorStateValue == stateValue)
+    const bool isSameObject = m_inspectorObjectId.has_value() && *m_inspectorObjectId == a_object.id();
+    if (isSameObject && m_inspectorStateValue == stateValue)
     {
         return;
     }
 
     m_name.assign(a_object.name());
-    const math::Vector3 translation = a_object.transform().translation();
-    const math::Quaternion rotation = a_object.transform().rotation();
-    const math::Vector3 scale = a_object.transform().scale();
-    m_translation = {translation.x, translation.y, translation.z};
-    m_rotation = {rotation.x, rotation.y, rotation.z, rotation.w};
-    m_scale = {scale.x, scale.y, scale.z};
+    if (!isSameObject || !m_transformDirty)
+    {
+        const math::Vector3 translation = a_object.transform().translation();
+        const math::Quaternion rotation = a_object.transform().rotation();
+        const math::Vector3 scale = a_object.transform().scale();
+        m_translation = {translation.x, translation.y, translation.z};
+        m_rotation = {rotation.x, rotation.y, rotation.z, rotation.w};
+        m_scale = {scale.x, scale.y, scale.z};
+        m_transformDirty = false;
+    }
     m_inspectorObjectId = a_object.id();
     m_inspectorStateValue = stateValue;
 }
