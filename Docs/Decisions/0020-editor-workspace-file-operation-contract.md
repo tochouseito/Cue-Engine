@@ -254,10 +254,12 @@ Asset Identity導入後は、File MoveとMetadata Transactionを別Research Issu
 
 ### Copy Contract
 
-File CopyはSourceをRead Data／Read Attributes、`FILE_SHARE_READ`だけで開く`SingleFileCopyGuard`を取得し、同じHandleから
-DestinationのSibling TemporaryへCreate-newでCopyする。Source FingerprintをCopy前後で照合し、TemporaryのSizeとFingerprintも
+File Copyは事前検査でSource Native IdentityとTypeをPlanへ固定し、SourceをRead Data／Read Attributes、`FILE_SHARE_READ`だけ、
+`FILE_FLAG_OPEN_REPARSE_POINT`で開く`SingleFileCopyGuard`を取得する。読取り開始前にGuard HandleのIdentity、Type、Reparse Point不存在を
+Planと再照合し、同じHandleからDestinationのSibling TemporaryへCreate-newでCopyする。Source FingerprintをCopy前後で照合し、TemporaryのSizeとFingerprintも
 Sourceに一致する場合だけ、Guardを保持したままDestinationへ公開する。Directory Copyは全Regular FileをRead専用かつ
-Write／Delete非共有Handleで固定し、全DirectoryのOplock Breakを監視する`DirectoryCopySourceGuard`を取得する。Guard取得後のSource
+Write／Delete非共有Handleで固定し、全DirectoryのOplock Breakを監視する`DirectoryCopySourceGuard`を取得する。Source Rootと全Childは
+`FILE_FLAG_OPEN_REPARSE_POINT`相当で開き、読取り前に事前ManifestのNative Identity、Type、Reparse Point不存在を再照合する。Guard取得後のSource
 Manifestを基準に、同じFile HandleからDestinationのSiblingにあるOperation-owned Staging Directoryへ全EntryをLimit内でCopy、Flush、
 再列挙する。Source Manifestの再照合、Oplock Break不存在、Staging Manifestの完全一致を確認してから、Guardを保持したまま一度の
 同一Volume Renameで公開する。
@@ -307,6 +309,10 @@ Readerは`0`、小数、指数表記、負数、`uint32_t`範囲外、`1`以外�
 `1099511628211`とし、File Byteを先頭から符号なし8-bit値として処理する。JSONの`contentDigest`は`0x` Prefixを持たない正確に16文字の
 lowercase hexadecimal Stringとし、JSON Number、大文字、桁不足、桁超過、非16進文字を拒否する。Algorithm、Bit幅、Encodingの変更は
 `schemaVersion` Migrationなしに行わない。
+
+FileとDirectory ManifestのByte Size Field名は`byteSize`へ固定し、`0`から`18446744073709551615`までの`uint64_t`値をJSON Stringの
+符号なし10進整数で保存する。`0`以外の先頭Zero、符号、空文字、小数点、指数表記、Whitespace、範囲外を拒否する。JSON Numberを
+浮動小数点へ変換して受理せず、表現変更は`schemaVersion` Migrationの対象とする。
 
 Directory ManifestはRoot自身を含まず、全ての通常DirectoryとRegular FileをPortable Comparison Key、Entry Type、元UTF-8 Byte列の順で
 並べる。Directory EntryにSizeとDigestを持たせず、Regular File Entryだけに両方を必須とする。作成時と読込み時に
