@@ -703,6 +703,18 @@ Result<void> EditorPresenter::submit(editor_core::EditorIntent a_intent) noexcep
         const EditTransformIntent *transformIntent = std::get_if<EditTransformIntent>(&a_intent);
         const bool appliesInspectorTransform = transformIntent != nullptr && m_inspectorObjectId.has_value() &&
                                                transformIntent->objectId == *m_inspectorObjectId;
+        std::array<float, 3> appliedTranslation{};
+        std::array<float, 4> appliedRotation{};
+        std::array<float, 3> appliedScale{};
+        if (appliesInspectorTransform)
+        {
+            const math::Vector3 translation = transformIntent->transform.translation();
+            const math::Quaternion rotation = transformIntent->transform.rotation();
+            const math::Vector3 scale = transformIntent->transform.scale();
+            appliedTranslation = {translation.x, translation.y, translation.z};
+            appliedRotation = {rotation.x, rotation.y, rotation.z, rotation.w};
+            appliedScale = {scale.x, scale.y, scale.z};
+        }
         Result<void> result =
             m_controller->execute_intent(m_documentId, std::move(a_intent), *m_identitySource, m_componentTemplates);
         if (!result)
@@ -712,6 +724,9 @@ Result<void> EditorPresenter::submit(editor_core::EditorIntent a_intent) noexcep
         }
         if (appliesInspectorTransform)
         {
+            m_translation = appliedTranslation;
+            m_rotation = appliedRotation;
+            m_scale = appliedScale;
             m_transformDirty = false;
         }
         if (appliesInspectorName)
