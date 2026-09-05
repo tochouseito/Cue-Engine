@@ -208,6 +208,35 @@ namespace
     return label;
 }
 
+/// @brief ImGui入力前後と正本値を比較し、未保存成分だけをDirtyとして保持する
+template <std::size_t Size>
+void update_component_dirty_state(const std::array<float, Size> &a_previous, const std::array<float, Size> &a_current,
+                                  const std::array<float, Size> &a_authoritative,
+                                  std::array<bool, Size> &a_dirty) noexcept
+{
+    for (std::size_t index = 0U; index < Size; ++index)
+    {
+        a_dirty[index] = a_current[index] == a_authoritative[index]
+                             ? false
+                             : a_dirty[index] || a_current[index] != a_previous[index];
+    }
+}
+
+/// @brief 未編集成分だけを新しい正本値へ同期し、別Objectでは全成分を置き換える
+template <std::size_t Size>
+void sync_clean_components(std::array<float, Size> &a_current, std::array<bool, Size> &a_dirty,
+                           const std::array<float, Size> &a_authoritative, bool a_isSameObject) noexcept
+{
+    for (std::size_t index = 0U; index < Size; ++index)
+    {
+        if (!a_isSameObject || !a_dirty[index])
+        {
+            a_current[index] = a_authoritative[index];
+            a_dirty[index] = false;
+        }
+    }
+}
+
 /// @brief Stable Component IdentityをImGui ID用のCanonical文字列へ変換する
 [[nodiscard]] cue::scene::IdentityText component_id_text(const cue::scene::ComponentInstanceId &a_componentId) noexcept
 {
@@ -728,9 +757,9 @@ Result<void> EditorPresenter::submit(editor_core::EditorIntent a_intent) noexcep
             m_translation = appliedTranslation;
             m_rotation = appliedRotation;
             m_scale = appliedScale;
-            m_translationDirty = false;
-            m_rotationDirty = false;
-            m_scaleDirty = false;
+            m_translationDirty.fill(false);
+            m_rotationDirty.fill(false);
+            m_scaleDirty.fill(false);
         }
         if (appliesInspectorName)
         {
@@ -880,9 +909,9 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
         m_inspectorObjectId.reset();
         m_inspectorStateValue = 0U;
         m_nameDirty = false;
-        m_translationDirty = false;
-        m_rotationDirty = false;
-        m_scaleDirty = false;
+        m_translationDirty.fill(false);
+        m_rotationDirty.fill(false);
+        m_scaleDirty.fill(false);
         ImGui::TextDisabled("HierarchyからObjectを選択してください。");
         ImGui::EndChild();
         return;
@@ -895,9 +924,9 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
         m_inspectorObjectId.reset();
         m_inspectorStateValue = 0U;
         m_nameDirty = false;
-        m_translationDirty = false;
-        m_rotationDirty = false;
-        m_scaleDirty = false;
+        m_translationDirty.fill(false);
+        m_rotationDirty.fill(false);
+        m_scaleDirty.fill(false);
         ImGui::TextUnformatted("選択ObjectがSceneに存在しません。");
         ImGui::EndChild();
         return;
@@ -1000,28 +1029,26 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     }
 
     ImGui::SeparatorText("Core Transform");
-    const bool translationEdited = ImGui::InputFloat3("Translation", m_translation.data());
-    const bool rotationEdited = ImGui::InputFloat4("Rotation (Quaternion)", m_rotation.data());
-    const bool scaleEdited = ImGui::InputFloat3("Scale", m_scale.data());
-    m_translationDirty = m_translationDirty || translationEdited;
-    m_rotationDirty = m_rotationDirty || rotationEdited;
-    m_scaleDirty = m_scaleDirty || scaleEdited;
+    const std::array<float, 3> previousTranslation = m_translation;
+    const std::array<float, 4> previousRotation = m_rotation;
+    const std::array<float, 3> previousScale = m_scale;
+    static_cast<void>(ImGui::InputFloat3("Translation", m_translation.data()));
+    static_cast<void>(ImGui::InputFloat4("Rotation (Quaternion)", m_rotation.data()));
+    static_cast<void>(ImGui::InputFloat3("Scale", m_scale.data()));
     const math::Vector3 authoritativeTranslation = object->transform().translation();
     const math::Quaternion authoritativeRotation = object->transform().rotation();
     const math::Vector3 authoritativeScale = object->transform().scale();
-    if (m_translation == std::array{authoritativeTranslation.x, authoritativeTranslation.y, authoritativeTranslation.z})
-    {
-        m_translationDirty = false;
-    }
-    if (m_rotation ==
-        std::array{authoritativeRotation.x, authoritativeRotation.y, authoritativeRotation.z, authoritativeRotation.w})
-    {
-        m_rotationDirty = false;
-    }
-    if (m_scale == std::array{authoritativeScale.x, authoritativeScale.y, authoritativeScale.z})
-    {
-        m_scaleDirty = false;
-    }
+    update_component_dirty_state(
+        previousTranslation, m_translation,
+        std::array{authoritativeTranslation.x, authoritativeTranslation.y, authoritativeTranslation.z},
+        m_translationDirty);
+    update_component_dirty_state(
+        previousRotation, m_rotation,
+        std::array{authoritativeRotation.x, authoritativeRotation.y, authoritativeRotation.z, authoritativeRotation.w},
+        m_rotationDirty);
+    update_component_dirty_state(previousScale, m_scale,
+                                 std::array{authoritativeScale.x, authoritativeScale.y, authoritativeScale.z},
+                                 m_scaleDirty);
     if (ImGui::Button("Transformを適用"))
     {
         Result<math::Tolerance> tolerance =
@@ -1175,21 +1202,11 @@ void EditorPresenter::sync_inspector(const editor_core::EditorDocument &a_docume
     const math::Vector3 translation = a_object.transform().translation();
     const math::Quaternion rotation = a_object.transform().rotation();
     const math::Vector3 scale = a_object.transform().scale();
-    if (!isSameObject || !m_translationDirty)
-    {
-        m_translation = {translation.x, translation.y, translation.z};
-        m_translationDirty = false;
-    }
-    if (!isSameObject || !m_rotationDirty)
-    {
-        m_rotation = {rotation.x, rotation.y, rotation.z, rotation.w};
-        m_rotationDirty = false;
-    }
-    if (!isSameObject || !m_scaleDirty)
-    {
-        m_scale = {scale.x, scale.y, scale.z};
-        m_scaleDirty = false;
-    }
+    sync_clean_components(m_translation, m_translationDirty, std::array{translation.x, translation.y, translation.z},
+                          isSameObject);
+    sync_clean_components(m_rotation, m_rotationDirty, std::array{rotation.x, rotation.y, rotation.z, rotation.w},
+                          isSameObject);
+    sync_clean_components(m_scale, m_scaleDirty, std::array{scale.x, scale.y, scale.z}, isSameObject);
     m_inspectorObjectId = a_object.id();
     m_inspectorStateValue = stateValue;
 }

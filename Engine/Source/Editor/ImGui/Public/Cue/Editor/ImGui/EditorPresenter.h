@@ -95,9 +95,9 @@ class EditorPresenter final
     std::array<float, 4> m_rotation{};
     std::array<float, 3> m_scale{1.0F, 1.0F, 1.0F};
     bool m_nameDirty = false;
-    bool m_translationDirty = false;
-    bool m_rotationDirty = false;
-    bool m_scaleDirty = false;
+    std::array<bool, 3> m_translationDirty{};
+    std::array<bool, 4> m_rotationDirty{};
+    std::array<bool, 3> m_scaleDirty{};
     std::string m_message;
     bool m_hasError = false;
     bool m_preserveInspectorErrorAfterIntent = false;
