@@ -436,22 +436,28 @@ void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyCh
     ImGui::PopID();
 }
 
-/// @brief Schema RegistryからComponent表示名を取得し、未知TypeはStable Identity表示へ退避する
+/// @brief Schema RegistryからComponent表示名を取得し、InstanceのStable Identityを併記する
 [[nodiscard]] std::string component_label(const cue::scene::SceneComponent &a_component,
                                           const cue::schema::SchemaRegistry &a_registry,
                                           const cue::AssertContext &a_assertContext)
 {
+    std::string label;
     const std::optional<cue::schema::TypeId> typeId = component_type_id(a_component);
     if (!typeId.has_value())
     {
-        return "無効なComponent";
+        label = "無効なComponent";
     }
-    cue::Result<const cue::schema::TypeDescriptor *> descriptor = a_registry.find(*typeId, a_assertContext);
-    if (descriptor)
+    else
     {
-        return display_text_label((*descriptor.try_value())->name());
+        cue::Result<const cue::schema::TypeDescriptor *> descriptor = a_registry.find(*typeId, a_assertContext);
+        label = descriptor ? display_text_label((*descriptor.try_value())->name())
+                           : "Unknown Component [" + type_id_text(*typeId) + "]";
     }
-    return "Unknown Component [" + type_id_text(*typeId) + "]";
+    const cue::scene::IdentityText instanceId = component_id_text(a_component.instance_id());
+    label.append(" [");
+    label.append(instanceId.data(), instanceId.size());
+    label.push_back(']');
+    return label;
 }
 
 /// @brief Field Descriptorがあれば診断名を返し、未登録FieldはStable数値を返す
@@ -1076,7 +1082,12 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
                 ImGui::PushID(&componentTemplate);
             }
             ImGui::BeginDisabled(!canAddTemplate);
-            const std::string componentName = display_text_label(componentTemplate.displayName);
+            std::string componentName = display_text_label(componentTemplate.displayName);
+            componentName.append(" [");
+            componentName.append(typeId.has_value() ? type_id_text(*typeId) : "Invalid Type");
+            componentName.append(" / Template ");
+            componentName.append(std::to_string(templateIndex));
+            componentName.push_back(']');
             if (ImGui::Selectable(componentName.c_str()) && canAddTemplate)
             {
                 queueInspectorIntent(AddComponentIntent{object->id(), *typeId, templateIndex});
