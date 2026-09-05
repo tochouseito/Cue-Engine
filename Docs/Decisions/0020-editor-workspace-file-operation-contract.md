@@ -254,13 +254,19 @@ Asset Identity導入後は、File MoveとMetadata Transactionを別Research Issu
 
 ### Copy Contract
 
-File CopyはDestinationのSibling TemporaryへCreate-newでCopyし、Sizeと必要なFingerprintを検証してからDestinationへ公開する。
-Directory CopyはDestinationのSiblingにOperation-owned Staging Directoryを作り、全EntryをLimit内でCopy、Flush、再列挙し、
-Reparse PointとUnsupported Entryがないことを検証してから一度の同一Volume Renameで公開する。
+File CopyはSourceをRead Data／Read Attributes、`FILE_SHARE_READ`だけで開く`SingleFileCopyGuard`を取得し、同じHandleから
+DestinationのSibling TemporaryへCreate-newでCopyする。Source FingerprintをCopy前後で照合し、TemporaryのSizeとFingerprintも
+Sourceに一致する場合だけ、Guardを保持したままDestinationへ公開する。Directory Copyは全Regular FileをRead専用かつ
+Write／Delete非共有Handleで固定し、全DirectoryのOplock Breakを監視する`DirectoryCopySourceGuard`を取得する。Guard取得後のSource
+Manifestを基準に、同じFile HandleからDestinationのSiblingにあるOperation-owned Staging Directoryへ全EntryをLimit内でCopy、Flush、
+再列挙する。Source Manifestの再照合、Oplock Break不存在、Staging Manifestの完全一致を確認してから、Guardを保持したまま一度の
+同一Volume Renameで公開する。
 
 途中Dataを最終Destination名で見せず、既存DestinationをMergeまたは上書きしない。Cross-volume Copy、Project外Copy、Hard Link作成、
 Symbolic Link複製へFallbackしない。失敗時はOperation所有Temporary／StagingだけをRollbackし、Sourceと既存Destinationを変更しない。
 Rollback失敗はPrimary Errorを上書きせずSecondary Diagnosticsへ追加する。
+Copyにも`TraversalLimits`と`ContentVerificationLimits`のCaller LimitおよびAdapter Hard Limitを適用する。Guard取得不能、Sourceの
+Fingerprint／Manifest変化、Oplock Break、上限超過ではDestinationを公開せず、`Busy`、`RescanRequired`、または`CapacityExceeded`を返す。
 
 ### Open Document Guard
 
@@ -296,6 +302,11 @@ Readerは`0`、小数、指数表記、負数、`uint32_t`範囲外、`1`以外�
 - `entryType`
 - Fileの場合は削除開始時のByte SizeとContent Digest
 - Directoryの場合は、Payload Root基準Path、Entry Type、File Byte Size、Content Digestを持つBounded Manifest
+
+`schemaVersion` 1のContent DigestはFNV-1a 64-bitへ固定する。Offset Basisは`14695981039346656037`、Primeは
+`1099511628211`とし、File Byteを先頭から符号なし8-bit値として処理する。JSONの`contentDigest`は`0x` Prefixを持たない正確に16文字の
+lowercase hexadecimal Stringとし、JSON Number、大文字、桁不足、桁超過、非16進文字を拒否する。Algorithm、Bit幅、Encodingの変更は
+`schemaVersion` Migrationなしに行わない。
 
 Directory ManifestはRoot自身を含まず、全ての通常DirectoryとRegular FileをPortable Comparison Key、Entry Type、元UTF-8 Byte列の順で
 並べる。Directory EntryにSizeとDigestを持たせず、Regular File Entryだけに両方を必須とする。作成時と読込み時に
@@ -403,8 +414,10 @@ Namespace Mutationの`Committed`はVisibilityの再Queryだけで判定しない
 Rename／MoveへWrite-through Barrierを適用し、成功後にSource／Destinationを再Queryする。Guardを必要としない操作は
 `MoveFileExW(..., MOVEFILE_WRITE_THROUGH)`を使用できる。`SingleFileMutationGuard`または`DirectoryTreeMutationGuard`を保持する操作は、
 Guard Handleを`DELETE` Accessと`FILE_FLAG_WRITE_THROUGH`で開き、Destination Parentの検証済みHandleと上書き禁止のRelative Nameを渡す
-`SetFileInformationByHandle(..., FileRenameInfo, ...)`で同じHandleをRenameする。このHandle-based Rename成功をWrite-through Barrierとし、
-別Handleを開く`MoveFileExW`のためにGuardを解放しない。
+`SetFileInformationByHandle(..., FileRenameInfo, ...)`で同じHandleをRenameする。別Handleを開く`MoveFileExW`のためにGuardを解放しない。
+ただし、`SetFileInformationByHandle`の成功またはHandleの`FILE_FLAG_WRITE_THROUGH`だけをNamespace Metadataの文書化済みDurability Barrierと
+みなさない。Guardを保持したRenameはSource不存在とDestination存在を確認できても、別の文書化済みBarrierを実行できないWindows
+Adapterでは`CommittedButDurabilityUnknown`とし、`Committed`を返さない。
 
 Windows契約の根拠:
 
@@ -422,8 +435,8 @@ Operationごとの必須Barrierを次のとおりとする。
 | Create File／Folder | TemporaryまたはSibling Directoryから最終NameへのWrite-through Publish |
 | Rename／Move | SourceからDestinationへのWrite-through Rename |
 | Copy | 検証済みTemporary／StagingからDestinationへのWrite-through Publish |
-| Delete | `prepared` RecordのAtomic Commit、PayloadへのWrite-through Rename、`trashed` RecordのAtomic Commit |
-| Restore | `restoring` RecordのAtomic Commit、Original PathへのWrite-through Rename、`restored` RecordのAtomic Commit |
+| Delete | `prepared` RecordのAtomic Commit、Payload Renameの文書化済みDurability Barrier、`trashed` RecordのAtomic Commit。Barrierを提供できないWindows Handle-based Renameは`CommittedButDurabilityUnknown` |
+| Restore | `restoring` RecordのAtomic Commit、Original Path Renameの文書化済みDurability Barrier、`restored` RecordのAtomic Commit。Barrierを提供できないWindows Handle-based Renameは`CommittedButDurabilityUnknown` |
 
 単一段のNative Publishが失敗しても、事後QueryでSource不存在とDestination存在を一意に確認できる場合は
 `CommittedButDurabilityUnknown`とする。旧状態と新状態を一意に確定できない場合、またはDelete／RestoreのRecordとPayloadの段階が
