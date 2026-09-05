@@ -573,6 +573,28 @@ Result<scene::SceneSaveOutcome> WindowsEditorSession::save_active_scene_overwrit
     return save_active_scene_impl(true);
 }
 
+Result<scene::SceneSaveOutcome> WindowsEditorSession::save_active_scene_as_new(RelativePath a_locator) noexcept
+{
+    return save_active_scene_as_impl(std::move(a_locator), false);
+}
+
+Result<scene::SceneSaveOutcome> WindowsEditorSession::save_active_scene_as_overwriting(RelativePath a_locator) noexcept
+{
+    return save_active_scene_as_impl(std::move(a_locator), true);
+}
+
+Result<void> WindowsEditorSession::autosave_active_scene_recovery() noexcept
+{
+    reconcile_active_document();
+    if (!m_activeDocumentId.has_value())
+    {
+        return Result<void>::failure(make_session_error(
+            *m_assertContext, WindowsEditorSessionError::InvalidSessionState,
+            "No active scene is available for recovery autosave"));
+    }
+    return m_controller->autosave_recovery(*m_activeDocumentId);
+}
+
 Result<scene::SceneSaveOutcome> WindowsEditorSession::save_active_scene_impl(
     bool a_allowExistingDestination) noexcept
 {
@@ -585,24 +607,10 @@ Result<scene::SceneSaveOutcome> WindowsEditorSession::save_active_scene_impl(
     const editor_core::EditorDocument *document = m_controller->session().find_document(*m_activeDocumentId);
     if (!document->has_saved_destination())
     {
-        const std::string_view locator = document->scene_locator().text();
-        const std::size_t separator = locator.rfind('/');
-        if (separator != std::string_view::npos)
+        Result<void> created = ensure_scene_parent_directory(document->scene_locator());
+        if (!created)
         {
-            Result<RelativePath> parent = RelativePath::parse(locator.substr(0U, separator), *m_assertContext);
-            if (!parent)
-            {
-                return Result<scene::SceneSaveOutcome>::failure(
-                    reclassify_session_error(*m_assertContext, WindowsEditorSessionError::SceneSaveFailed,
-                                             "Scene destination directory is invalid", std::move(*parent.try_error())));
-            }
-            Result<void> created = m_sourceAssetsRoot->create_directories(*parent.try_value());
-            if (!created)
-            {
-                return Result<scene::SceneSaveOutcome>::failure(reclassify_session_error(
-                    *m_assertContext, WindowsEditorSessionError::SceneSaveFailed,
-                    "Scene destination directory could not be created", std::move(*created.try_error())));
-            }
+            return Result<scene::SceneSaveOutcome>::failure(std::move(*created.try_error()));
         }
     }
     Result<scene::SceneSaveOutcome> saved =
@@ -614,6 +622,54 @@ Result<scene::SceneSaveOutcome> WindowsEditorSession::save_active_scene_impl(
                                                         RelativePath(document->scene_locator())));
     reconcile_active_document();
     return saved;
+}
+
+Result<scene::SceneSaveOutcome> WindowsEditorSession::save_active_scene_as_impl(
+    RelativePath a_locator, bool a_allowExistingDestination) noexcept
+{
+    reconcile_active_document();
+    if (!m_activeDocumentId.has_value())
+    {
+        return Result<scene::SceneSaveOutcome>::failure(make_session_error(
+            *m_assertContext, WindowsEditorSessionError::InvalidSessionState,
+            "No active scene is available to save as another destination"));
+    }
+    Result<void> created = ensure_scene_parent_directory(a_locator);
+    if (!created)
+    {
+        return Result<scene::SceneSaveOutcome>::failure(std::move(*created.try_error()));
+    }
+    Result<scene::SceneSaveOutcome> saved =
+        a_allowExistingDestination
+            ? m_controller->save_document_as(*m_activeDocumentId, std::move(a_locator))
+            : m_controller->save_document_as_new(*m_activeDocumentId, std::move(a_locator));
+    reconcile_active_document();
+    return saved;
+}
+
+Result<void> WindowsEditorSession::ensure_scene_parent_directory(const RelativePath &a_locator) noexcept
+{
+    const std::string_view locator = a_locator.text();
+    const std::size_t separator = locator.rfind('/');
+    if (separator == std::string_view::npos)
+    {
+        return Result<void>::success();
+    }
+    Result<RelativePath> parent = RelativePath::parse(locator.substr(0U, separator), *m_assertContext);
+    if (!parent)
+    {
+        return Result<void>::failure(
+            reclassify_session_error(*m_assertContext, WindowsEditorSessionError::SceneSaveFailed,
+                                     "Scene destination directory is invalid", std::move(*parent.try_error())));
+    }
+    Result<void> created = m_sourceAssetsRoot->create_directories(*parent.try_value());
+    if (!created)
+    {
+        return Result<void>::failure(reclassify_session_error(
+            *m_assertContext, WindowsEditorSessionError::SceneSaveFailed,
+            "Scene destination directory could not be created", std::move(*created.try_error())));
+    }
+    return Result<void>::success();
 }
 
 Result<editor_core::DocumentStateId> WindowsEditorSession::reload_active_scene() noexcept

@@ -341,6 +341,8 @@ M12の単一Scene UIでNewまたはOpenへ切り替える場合は、対象を�
 新規Sceneの初回保存はDestinationの`Missing`を必須Expected Fingerprintとし、準備時またはWrite Lease取得までに同名Entryが
 作成された場合は既存Fileを置換せずExternal Conflictとして失敗する。既存初回保存先の置換は別の明示確認を要求し、通常の
 Save操作やSave Uncertain RecordのDiscardだけを上書き許可として扱わない。
+保存済みSceneまたはRecoveryがExternal Conflict状態でも編集内容を退避できるよう、Editorは`Ctrl+Shift+S`のSave Asを公開する。
+Save Asの初回試行はDestinationの`Missing`を要求し、既存Entryは明示的な上書き確認を経た場合だけ置換する。
 
 ### Recovery
 
@@ -355,6 +357,9 @@ State ID、Scene Data Digestを含む。既知の古いVersionは`N -> N + 1`の
 Recovery書込み成功は`savedStateId`を更新しない。起動時に有効なRecoveryを検出した場合は、正本を暗黙置換せず、Recover、Discard、
 Inspectの明示Intentを要求する。Recover後のDocumentはDirtyな新Stateとして開き、通常Saveが成功するまで正本としない。
 Autosave対象はDirtyなDocumentに加え、`currentStateId == savedStateId`でも保存先をまだ持たない新規Documentを含む。
+Editor ToolのFrame Compositionは、Dirtyな各Persistent Stateを一度だけ`autosave_recovery`へ接続する。同じStateの失敗を毎Frame
+再試行せず、次のPersistent Stateで再試行してUIへ失敗を報告する。Save Uncertain中はRecoveryを更新せず、先にRetryまたはDiscardを
+要求する。
 `ignore_recovery`は現在Sessionの表示だけを解除し、`discard_recovery`はSaved RootのRecovery File削除成功時だけ候補を解除する。
 削除失敗時はRecovery Fileと候補状態を維持する。
 

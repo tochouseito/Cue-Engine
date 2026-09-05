@@ -30,9 +30,10 @@ Project HubとEditorを別Processとして起動し、Project選択からScene�
 2. HierarchyでObjectを追加し、名前変更、Parent変更、Transform編集を行う。
 3. UndoとRedoを実行し、Hierarchy、Inspector、Selection、Dirty表示が同じRevisionへ戻ることを確認する。
 4. Sceneを保存し、`Source Assets/Scenes/Main.cuescene`が作成されることを確認する。
-5. 未保存変更がない状態でSceneを再読込し、Scene ID、Object ID、Hierarchy、Transformが維持されることを確認する。
-6. Editorを終了し、Project Hubから同じProjectを再度開く。
-7. 「Sceneを開く」から`Scenes/Main.cuescene`を開き、Scene IDとObject IDが前回保存時から維持されることを確認する。
+5. 「名前を付けて保存」または`Ctrl+Shift+S`で別Locatorへ保存し、元Fileを変更せず新しいScene Fileが作成されることを確認する。
+6. 未保存変更がない状態でSceneを再読込し、Scene ID、Object ID、Hierarchy、Transformが維持されることを確認する。
+7. Editorを終了し、Project Hubから同じProjectを再度開く。
+8. 「Sceneを開く」から`Scenes/Main.cuescene`を開き、Scene IDとObject IDが前回保存時から維持されることを確認する。
 
 ## Unsaved and Error Workflow
 
@@ -44,6 +45,7 @@ Project HubとEditorを別Processとして起動し、Project選択からScene�
 6. Scene編集中に存在しない、または破損したSceneを開き、現在のScene、Selection、History、Dirty状態が維持されることを確認する。
 7. 保存結果が未確定になった場合、成功表示や自動終了をせず、「再検証 / 再試行」と「不確定記録を破棄」を選べることを確認する。
 8. 新規Sceneの初回保存先が既に存在する場合、通常Saveでは置換せず、別の上書き確認を表示することを確認する。
+9. DirtyなSceneのRecoveryがSaved Rootへ自動保存され、Editor再起動後のRecovery一覧から編集内容を開けることを確認する。
 
 ## Expected Persistence
 
@@ -55,8 +57,10 @@ Project HubとEditorを別Processとして起動し、Project選択からScene�
 ## Automated Process Boundary
 
 `Cue.Editor.Workflow.ProcessRoundTrip`はTest用Projectと保存済みSceneを作成し、実際の`CueEditorTool.exe`をVersion付き
-Command Lineと`--initial-scene`で二Process連続起動する。各ProcessはTest専用の有限Frame設定で正常終了し、その後に
-Project ID、Scene ID、Object ID、保存Dataが維持されることを検証する。
+Command Lineと`--initial-scene`で三Process起動する。最初の子ProcessはSceneを編集してRecovery Autosaveを実行し、親Processが
+Recovery内容を再Openして検証する。次の子Processは別のObjectを追加し、Dirty CloseのSaveを通してSceneを閉じる。最後の子Processは
+保存済みSceneを再Openする。各ProcessはTest専用の有限Frame設定で正常終了し、Project ID、Scene ID、既存Object ID、子Processで
+追加したObject、保存Dataが維持されることを検証する。
 
 ## Deferred Default Scene
 

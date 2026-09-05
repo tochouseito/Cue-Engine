@@ -26,6 +26,7 @@ enum class EditorWorkflowRequest : std::uint8_t
     NewScene,
     OpenScene,
     SaveScene,
+    SaveSceneAs,
     ReloadScene,
     CloseProject,
 };

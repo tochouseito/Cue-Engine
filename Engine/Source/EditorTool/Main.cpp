@@ -1,6 +1,7 @@
 #include <Cue/Editor/ImGui/EditorPresenter.h>
 #include <Cue/Editor/Windows/EditorSession.h>
 #include <Cue/EditorCore/Error.h>
+#include <Cue/EditorCore/EditorIntent.h>
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
 #include <Cue/Foundation/Fatal.h>
@@ -30,11 +31,13 @@ namespace
 constexpr int k_invalidArguments = 64;
 constexpr int k_sessionInitializationFailed = 1;
 constexpr int k_toolHostFailed = 2;
+constexpr int k_processTestFailed = 3;
 
 /// @brief Editor ToolのCommand Line値と重複検査状態を保持する
 struct EditorToolOptions final
 {
     cue::editor::WindowsEditorLaunchParameters parameters{};
+    std::optional<std::string> processTestAction;
     std::uint64_t maximumFrameCount = 0U;
     bool hasProtocolVersion = false;
     bool hasProjectDescriptor = false;
@@ -42,6 +45,7 @@ struct EditorToolOptions final
     bool hasCompatibilityId = false;
     bool hasInitialScene = false;
     bool hasMaximumFrameCount = false;
+    bool hasProcessTestAction = false;
 };
 
 /// @brief Document終了後に継続するSceneまたはProject操作
@@ -50,6 +54,7 @@ enum class PendingTransition : std::uint8_t
     None,
     NewScene,
     OpenScene,
+    SaveSceneAs,
     ReloadScene,
     CloseProject,
 };
@@ -187,6 +192,21 @@ enum class PendingTransition : std::uint8_t
                 options.maximumFrameCount = *frameCount;
                 options.hasMaximumFrameCount = true;
             }
+            else if (option == L"--process-test-action")
+            {
+                if (options.hasProcessTestAction)
+                {
+                    return cue::Result<EditorToolOptions>::failure(
+                        make_tool_error(a_context, k_invalidArguments, "Process test action is duplicated"));
+                }
+                cue::Result<std::string> converted = convert_argument(value, a_context);
+                if (!converted)
+                {
+                    return cue::Result<EditorToolOptions>::failure(std::move(*converted.try_error()));
+                }
+                options.processTestAction = std::move(*converted.try_value());
+                options.hasProcessTestAction = true;
+            }
             else
             {
                 return cue::Result<EditorToolOptions>::failure(
@@ -198,6 +218,15 @@ enum class PendingTransition : std::uint8_t
         {
             return cue::Result<EditorToolOptions>::failure(
                 make_tool_error(a_context, k_invalidArguments, "Required Editor launch options are missing"));
+        }
+        if (options.hasProcessTestAction &&
+            (!options.hasInitialScene || !options.hasMaximumFrameCount ||
+             (*options.processTestAction != "autosave-recovery" &&
+              *options.processTestAction != "edit-close-save")))
+        {
+            return cue::Result<EditorToolOptions>::failure(make_tool_error(
+                a_context, k_invalidArguments,
+                "Process test action requires an initial scene, a maximum frame count, and a recognized value"));
         }
         return cue::Result<EditorToolOptions>::success(std::move(options));
     }
@@ -264,6 +293,7 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
             draw_close_dialog();
             draw_overwrite_dialog();
             draw_uncertain_save_dialog();
+            autosave_recovery_if_needed();
         }
         catch (...)
         {
@@ -290,6 +320,8 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
     /// @brief Active Document Identityに対応するPresenterを再生成する
     void rebuild_presenter() noexcept
     {
+        m_lastRecoveryDocumentId.reset();
+        m_lastRecoveryStateValue.reset();
         if (!m_session->active_document_id().has_value())
         {
             m_presenter.reset();
@@ -298,6 +330,36 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
         m_presenter = cue::editor::EditorPresenter::create(m_session->controller(), *m_session->active_document_id(),
                                                            m_session->identity_source(), m_session->schema_registry(),
                                                            {}, *m_assertContext);
+    }
+
+    /// @brief 各Persistent Stateを一度だけRecoveryへAtomic保存する
+    void autosave_recovery_if_needed() noexcept
+    {
+        const cue::editor_core::EditorDocument *document = active_document();
+        if (document == nullptr)
+        {
+            m_lastRecoveryDocumentId.reset();
+            m_lastRecoveryStateValue.reset();
+            return;
+        }
+        if (!document->is_dirty() ||
+            document->persistence_state() != cue::editor_core::DocumentPersistenceState::Idle)
+        {
+            return;
+        }
+        const std::uint64_t documentId = document->id().value();
+        const std::uint64_t stateValue = document->current_state_id().value();
+        if (m_lastRecoveryDocumentId == documentId && m_lastRecoveryStateValue == stateValue)
+        {
+            return;
+        }
+        m_lastRecoveryDocumentId = documentId;
+        m_lastRecoveryStateValue = stateValue;
+        cue::Result<void> saved = m_session->autosave_active_scene_recovery();
+        if (!saved)
+        {
+            report_error(*saved.try_error());
+        }
     }
 
     /// @brief Project-only状態からScene作成、Open、Recovery、終了操作を描画する
@@ -416,6 +478,9 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
         case cue::editor::EditorWorkflowRequest::SaveScene:
             static_cast<void>(save_scene());
             break;
+        case cue::editor::EditorWorkflowRequest::SaveSceneAs:
+            begin_transition(PendingTransition::SaveSceneAs);
+            break;
         case cue::editor::EditorWorkflowRequest::ReloadScene:
             begin_transition(PendingTransition::ReloadScene);
             break;
@@ -432,13 +497,20 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
         {
             return;
         }
-        if (a_transition == PendingTransition::NewScene || a_transition == PendingTransition::OpenScene)
+        if (a_transition == PendingTransition::NewScene || a_transition == PendingTransition::OpenScene ||
+            a_transition == PendingTransition::SaveSceneAs)
         {
             m_locatorMode = a_transition;
             m_sceneLocator.fill('\0');
+            const cue::editor_core::EditorDocument *document = active_document();
             const std::string_view initial =
-                a_transition == PendingTransition::NewScene ? "Scenes/NewScene.cuescene" : "Scenes/Main.cuescene";
-            std::copy(initial.begin(), initial.end(), m_sceneLocator.begin());
+                a_transition == PendingTransition::NewScene
+                    ? "Scenes/NewScene.cuescene"
+                    : (a_transition == PendingTransition::SaveSceneAs && document != nullptr
+                           ? document->scene_locator().text()
+                           : "Scenes/Main.cuescene");
+            std::copy_n(initial.begin(), std::min(initial.size(), m_sceneLocator.size() - 1U),
+                        m_sceneLocator.begin());
             m_openLocatorDialog = true;
             return;
         }
@@ -494,6 +566,12 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
             report_status(transition == PendingTransition::NewScene ? "新しいSceneを作成しました。"
                                                                     : "Sceneを開きました。");
         }
+        else if (transition == PendingTransition::SaveSceneAs)
+        {
+            m_locatorMode = PendingTransition::None;
+            rebuild_presenter();
+            report_status("Sceneを別名で保存しました。");
+        }
     }
 
     /// @brief Active Documentを失わないController Reloadを実行する
@@ -511,7 +589,7 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
         report_status("Sceneを再読込しました。");
     }
 
-    /// @brief Scene Locator入力を検証してNewまたはOpenへ渡す
+    /// @brief Scene Locator入力を検証してNew、Open、Save Asへ渡す
     void draw_locator_dialog() noexcept
     {
         if (m_openLocatorDialog)
@@ -525,7 +603,10 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
         }
         ImGui::TextUnformatted("Source Assets Rootからの相対Pathを入力してください。");
         ImGui::InputText("##SceneLocator", m_sceneLocator.data(), m_sceneLocator.size());
-        if (ImGui::Button(m_locatorMode == PendingTransition::NewScene ? "作成" : "開く"))
+        const char *confirmLabel = m_locatorMode == PendingTransition::NewScene
+                                       ? "作成"
+                                       : (m_locatorMode == PendingTransition::SaveSceneAs ? "保存" : "開く");
+        if (ImGui::Button(confirmLabel))
         {
             cue::Result<cue::RelativePath> locator = cue::RelativePath::parse(m_sceneLocator.data(), *m_assertContext);
             if (!locator)
@@ -535,8 +616,28 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
             else
             {
                 const PendingTransition locatorMode = m_locatorMode;
+                if (locatorMode == PendingTransition::SaveSceneAs)
+                {
+                    m_pendingTransition = PendingTransition::SaveSceneAs;
+                    if (save_scene_as(std::move(*locator.try_value()), false))
+                    {
+                        m_locatorMode = PendingTransition::None;
+                        ImGui::CloseCurrentPopup();
+                        complete_transition();
+                    }
+                    else if (m_openUncertainSaveDialog || m_openOverwriteDialog)
+                    {
+                        ImGui::CloseCurrentPopup();
+                    }
+                    else
+                    {
+                        m_pendingTransition = PendingTransition::None;
+                    }
+                    ImGui::EndPopup();
+                    return;
+                }
                 cue::Result<cue::editor_core::EditorDocumentId> prepared =
-                    m_locatorMode == PendingTransition::NewScene
+                    locatorMode == PendingTransition::NewScene
                         ? m_session->prepare_new_scene(std::move(*locator.try_value()))
                         : m_session->prepare_open_scene(std::move(*locator.try_value()));
                 if (!prepared)
@@ -675,6 +776,11 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
     /// @brief 確定Save後に保留中のReload、Scene切替、Project終了を継続する
     void continue_transition_after_save() noexcept
     {
+        if (m_pendingTransition == PendingTransition::SaveSceneAs)
+        {
+            complete_transition();
+            return;
+        }
         if (m_pendingTransition == PendingTransition::ReloadScene)
         {
             perform_reload();
@@ -776,12 +882,46 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
         return true;
     }
 
+    /// @brief Active Sceneを別Locatorへ保存し競合とSave Uncertainの判断画面へ接続する
+    [[nodiscard]] bool save_scene_as(cue::RelativePath a_locator, bool a_allowExistingDestination) noexcept
+    {
+        cue::Result<cue::scene::SceneSaveOutcome> saved =
+            a_allowExistingDestination
+                ? m_session->save_active_scene_as_overwriting(std::move(a_locator))
+                : m_session->save_active_scene_as_new(std::move(a_locator));
+        if (!saved)
+        {
+            const bool destinationConflict =
+                !a_allowExistingDestination && is_destination_conflict(*saved.try_error());
+            report_error(*saved.try_error());
+            m_openUncertainSaveDialog = active_save_is_uncertain();
+            m_openOverwriteDialog = destinationConflict && !m_openUncertainSaveDialog;
+            return false;
+        }
+        if (saved.try_value()->status() != cue::scene::SceneSaveStatus::Committed)
+        {
+            if (saved.try_value()->try_error() != nullptr)
+            {
+                report_error(*saved.try_value()->try_error());
+            }
+            m_openUncertainSaveDialog = active_save_is_uncertain();
+            return false;
+        }
+        return true;
+    }
+
     /// @brief 未保存Documentの初回Destination競合か判定する
     [[nodiscard]] bool is_new_destination_conflict(const cue::Error &a_error) const noexcept
     {
         const cue::editor_core::EditorDocument *document = active_document();
         return document != nullptr && !document->has_saved_destination() &&
-               a_error.root_code().domain() == "Cue.EditorCore" &&
+               is_destination_conflict(a_error);
+    }
+
+    /// @brief 保存先Entryの存在または外部変更競合か判定する
+    [[nodiscard]] static bool is_destination_conflict(const cue::Error &a_error) noexcept
+    {
+        return a_error.root_code().domain() == "Cue.EditorCore" &&
                a_error.root_code().value() ==
                    static_cast<std::int64_t>(cue::editor_core::EditorCoreError::ExternalConflict);
     }
@@ -806,11 +946,29 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
         {
             return;
         }
-        ImGui::TextUnformatted("初回保存先に既存Fileがあります。");
+        ImGui::TextUnformatted("保存先に既存Fileがあります。");
         ImGui::TextUnformatted("内容を置換して保存しますか？");
         if (ImGui::Button("上書きして保存"))
         {
-            if (save_scene(true))
+            bool saved = false;
+            if (m_locatorMode == PendingTransition::SaveSceneAs)
+            {
+                cue::Result<cue::RelativePath> locator =
+                    cue::RelativePath::parse(m_sceneLocator.data(), *m_assertContext);
+                if (!locator)
+                {
+                    report_error(*locator.try_error());
+                }
+                else
+                {
+                    saved = save_scene_as(std::move(*locator.try_value()), true);
+                }
+            }
+            else
+            {
+                saved = save_scene(true);
+            }
+            if (saved)
             {
                 ImGui::CloseCurrentPopup();
                 continue_transition_after_save();
@@ -824,7 +982,12 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
         if (ImGui::Button("キャンセル"))
         {
             ImGui::CloseCurrentPopup();
-            if (m_pendingTransition != PendingTransition::None)
+            if (m_pendingTransition == PendingTransition::SaveSceneAs)
+            {
+                m_pendingTransition = PendingTransition::None;
+                m_locatorMode = PendingTransition::None;
+            }
+            else if (m_pendingTransition != PendingTransition::None)
             {
                 m_openCloseDialog = true;
             }
@@ -872,7 +1035,12 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
             {
                 ImGui::CloseCurrentPopup();
                 report_status("保存の不確定記録を破棄しました。Sceneは未保存のままです。");
-                if (m_pendingTransition != PendingTransition::None)
+                if (m_pendingTransition == PendingTransition::SaveSceneAs)
+                {
+                    m_pendingTransition = PendingTransition::None;
+                    m_locatorMode = PendingTransition::None;
+                }
+                else if (m_pendingTransition != PendingTransition::None)
                 {
                     m_openCloseDialog = true;
                 }
@@ -948,6 +1116,8 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
     std::vector<cue::editor_core::RecoveryCandidateInspection> m_recoveryCandidates;
     std::array<char, 512> m_sceneLocator{};
     std::string m_message;
+    std::optional<std::uint64_t> m_lastRecoveryDocumentId;
+    std::optional<std::uint64_t> m_lastRecoveryStateValue;
     PendingTransition m_pendingTransition = PendingTransition::None;
     PendingTransition m_locatorMode = PendingTransition::None;
     bool m_openLocatorDialog = false;
@@ -967,6 +1137,62 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
     return a_exitCode;
 }
 
+/// @brief Process Test専用Actionを実Editor Session内で実行する
+[[nodiscard]] cue::Result<void> apply_process_test_action(
+    const std::optional<std::string> &a_action, cue::editor::WindowsEditorSession &a_session,
+    const cue::AssertContext &a_assertContext) noexcept
+{
+    if (!a_action.has_value())
+    {
+        return cue::Result<void>::success();
+    }
+    if (!a_session.active_document_id().has_value())
+    {
+        return cue::Result<void>::failure(
+            make_tool_error(a_assertContext, k_processTestFailed, "Process test action requires an active scene"));
+    }
+    cue::editor_core::AddObjectIntent addObject{
+        std::nullopt, *a_action == "autosave-recovery" ? "Child Process Recovery" : "Child Process Saved"};
+    cue::Result<void> edited = a_session.controller().execute_intent(
+        *a_session.active_document_id(), std::move(addObject), a_session.identity_source(), {});
+    if (!edited)
+    {
+        return cue::Result<void>::failure(std::move(*edited.try_error()));
+    }
+    if (*a_action == "autosave-recovery")
+    {
+        return cue::Result<void>::success();
+    }
+
+    cue::Result<cue::editor_core::DocumentCloseState> state = a_session.request_close();
+    if (!state)
+    {
+        return cue::Result<void>::failure(std::move(*state.try_error()));
+    }
+    if (*state.try_value() != cue::editor_core::DocumentCloseState::AwaitingDecision)
+    {
+        return cue::Result<void>::failure(make_tool_error(
+            a_assertContext, k_processTestFailed, "Process test edit did not require a close decision"));
+    }
+    state = a_session.respond_to_close(cue::editor_core::CloseDecision::Save);
+    if (!state)
+    {
+        return cue::Result<void>::failure(std::move(*state.try_error()));
+    }
+    cue::Result<cue::scene::SceneSaveOutcome> saved = a_session.save_active_scene();
+    if (!saved)
+    {
+        return cue::Result<void>::failure(std::move(*saved.try_error()));
+    }
+    if (saved.try_value()->status() != cue::scene::SceneSaveStatus::Committed ||
+        a_session.active_document_id().has_value())
+    {
+        return cue::Result<void>::failure(make_tool_error(
+            a_assertContext, k_processTestFailed, "Process test close save did not commit and close the scene"));
+    }
+    return cue::Result<void>::success();
+}
+
 /// @brief Editor SessionとTool Hostを寿命順に構築してUI Loopを実行する
 [[nodiscard]] int run(EditorToolOptions a_options, cue::Logger &a_logger,
                       const cue::AssertContext &a_assertContext) noexcept
@@ -984,6 +1210,13 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
     {
         return report_error(a_logger, "Editor project session failed", std::move(*session.try_error()),
                             k_sessionInitializationFailed);
+    }
+    cue::Result<void> processTest =
+        apply_process_test_action(a_options.processTestAction, **session.try_value(), a_assertContext);
+    if (!processTest)
+    {
+        return report_error(a_logger, "Editor process test action failed", std::move(*processTest.try_error()),
+                            k_processTestFailed);
     }
     EditorToolClient client(**session.try_value(), a_assertContext);
     const cue::tool_host::ToolHostDescriptor descriptor{"CueEngine Editor", {1440U, 900U},
@@ -1011,7 +1244,8 @@ int wmain(int a_argumentCount, wchar_t **a_arguments)
         if (!options)
         {
             std::fputws(L"Usage: CueEditorTool --protocol-version <version> --project-descriptor <absolute path> "
-                        L"--expected-project-id <uuid> --engine-compatibility-id <id> [--initial-scene <path>]\n",
+                        L"--expected-project-id <uuid> --engine-compatibility-id <id> [--initial-scene <path>] "
+                        L"[--maximum-frame-count <count>]\n",
                         stderr);
             return report_error(logger, "Editor command line is invalid", std::move(*options.try_error()),
                                 k_invalidArguments);

@@ -818,6 +818,10 @@ void EditorPresenter::draw_menu(const editor_core::EditorDocument &a_document,
         {
             m_workflowRequest = EditorWorkflowRequest::SaveScene;
         }
+        if (ImGui::MenuItem("名前を付けて保存", "Ctrl+Shift+S", false, canRequest))
+        {
+            m_workflowRequest = EditorWorkflowRequest::SaveSceneAs;
+        }
         if (ImGui::MenuItem("再読込", nullptr, false, canRequest && a_document.has_saved_destination()))
         {
             m_workflowRequest = EditorWorkflowRequest::ReloadScene;
@@ -867,6 +871,11 @@ void EditorPresenter::draw_menu(const editor_core::EditorDocument &a_document,
         ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O))
     {
         m_workflowRequest = EditorWorkflowRequest::OpenScene;
+    }
+    if (!m_workflowRequest.has_value() && !a_pendingIntent.has_value() && canUseShortcut &&
+        ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S))
+    {
+        m_workflowRequest = EditorWorkflowRequest::SaveSceneAs;
     }
     if (!m_workflowRequest.has_value() && !a_pendingIntent.has_value() && canUseShortcut &&
         ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S))
