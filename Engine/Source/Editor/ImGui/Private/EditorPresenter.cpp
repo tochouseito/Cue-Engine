@@ -197,6 +197,17 @@ namespace
     return label;
 }
 
+/// @brief Object表示名へStable Identityを併記して同名候補を識別可能にする
+[[nodiscard]] std::string object_reference_label(const cue::scene::SceneObject &a_object)
+{
+    std::string label = display_text_label(a_object.name());
+    const cue::scene::IdentityText identity = a_object.id().canonical_text();
+    label.append(" [");
+    label.append(identity.data(), identity.size());
+    label.push_back(']');
+    return label;
+}
+
 /// @brief Stable Component IdentityをImGui ID用のCanonical文字列へ変換する
 [[nodiscard]] cue::scene::IdentityText component_id_text(const cue::scene::ComponentInstanceId &a_componentId) noexcept
 {
@@ -872,12 +883,18 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     }
     if (commitName)
     {
-        if (a_pendingIntent.has_value())
+        const bool hasHistoryIntent =
+            a_pendingIntent.has_value() && (std::holds_alternative<UndoIntent>(*a_pendingIntent) ||
+                                            std::holds_alternative<RedoIntent>(*a_pendingIntent));
+        if (!hasHistoryIntent && a_pendingIntent.has_value())
         {
             // Hierarchy操作よりName確定を優先し、成功後の次FrameまでScene遷移を遅延する
             m_deferredIntent.emplace(std::move(*a_pendingIntent));
         }
-        a_pendingIntent.emplace(RenameObjectIntent{object->id(), m_name});
+        if (!hasHistoryIntent)
+        {
+            a_pendingIntent.emplace(RenameObjectIntent{object->id(), m_name});
+        }
     }
     const auto queueInspectorIntent = [this, &a_pendingIntent](EditorIntent a_intent)
     {
@@ -903,7 +920,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     if (parentId != nullptr)
     {
         const scene::SceneObject *parent = sceneDocument.find_object(*parentId);
-        parentPreview = parent != nullptr ? display_text_label(parent->name()) : "Missing Parent";
+        parentPreview = parent != nullptr ? object_reference_label(*parent) : "Missing Parent";
     }
     if (ImGui::BeginCombo("Parent", parentPreview.c_str()))
     {
@@ -927,7 +944,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
             const scene::IdentityText candidateId = candidate.id().canonical_text();
             ImGui::PushID(candidateId.data(), candidateId.data() + candidateId.size());
             const bool isCurrent = parentId != nullptr && *parentId == candidate.id();
-            const std::string candidateName = display_text_label(candidate.name());
+            const std::string candidateName = object_reference_label(candidate);
             if (ImGui::Selectable(candidateName.c_str(), isCurrent))
             {
                 queueInspectorIntent(ReparentObjectIntent{object->id(), candidate.id()});
@@ -1060,8 +1077,11 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
         ImGui::EndCombo();
     }
 
+    const bool hasHistoryIntent =
+        a_pendingIntent.has_value() &&
+        (std::holds_alternative<UndoIntent>(*a_pendingIntent) || std::holds_alternative<RedoIntent>(*a_pendingIntent));
     if (a_pendingIntent.has_value() && !std::holds_alternative<RenameObjectIntent>(*a_pendingIntent) &&
-        m_name.find('\0') == std::string::npos && m_name != object->name())
+        !hasHistoryIntent && m_name.find('\0') == std::string::npos && m_name != object->name())
     {
         // 後続Inspector操作よりName確定を優先し、成功後の次Frameまで元の操作を遅延する
         m_deferredIntent.emplace(std::move(*a_pendingIntent));
