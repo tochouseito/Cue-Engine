@@ -322,21 +322,36 @@ using HierarchySelectionIndex = std::unordered_set<cue::scene::ObjectId, ObjectI
     return maximumHeight;
 }
 
-/// @brief Child索引から対象Subtreeが所有するObject数を返す
-[[nodiscard]] std::size_t subtree_object_count(const cue::scene::ObjectId &a_rootId,
-                                               const HierarchyChildIndex &a_childrenByParent) noexcept
+/// @brief Subtree複製のObject数とComponent複製可否を保持する
+struct SubtreeDuplicateInfo final
 {
-    std::size_t count = 1U;
-    const auto children = a_childrenByParent.find(a_rootId);
+    std::size_t objectCount = 1U;
+    bool allComponentsDuplicable = true;
+};
+
+/// @brief Child索引から対象Subtreeの複製可否を返す
+[[nodiscard]] SubtreeDuplicateInfo subtree_duplicate_info(const cue::scene::SceneObject &a_root,
+                                                          const HierarchyChildIndex &a_childrenByParent) noexcept
+{
+    SubtreeDuplicateInfo info;
+    for (const cue::scene::SceneComponent &component : a_root.components())
+    {
+        info.allComponentsDuplicable =
+            info.allComponentsDuplicable && component.try_known() != nullptr && component.is_valid();
+    }
+
+    const auto children = a_childrenByParent.find(a_root.id());
     if (children == a_childrenByParent.end())
     {
-        return count;
+        return info;
     }
     for (const cue::scene::SceneObject *child : children->second)
     {
-        count += subtree_object_count(child->id(), a_childrenByParent);
+        const SubtreeDuplicateInfo childInfo = subtree_duplicate_info(*child, a_childrenByParent);
+        info.objectCount += childInfo.objectCount;
+        info.allComponentsDuplicable = info.allComponentsDuplicable && childInfo.allComponentsDuplicable;
     }
-    return count;
+    return info;
 }
 
 /// @brief Frame単位Child索引から一ObjectとChild群を再帰描画する
@@ -681,24 +696,26 @@ void EditorPresenter::draw_menu(const editor_core::EditorDocument &a_document,
     }
     if (ImGui::BeginMenu("編集"))
     {
+        const bool canUndo = a_document.can_undo() && !a_pendingIntent.has_value();
         std::string undoLabel = "元に戻す";
         if (!a_document.undo_label().empty())
         {
             undoLabel.append(": ");
             undoLabel.append(display_text_label(a_document.undo_label()));
         }
-        if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, a_document.can_undo()))
+        if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, canUndo))
         {
             a_pendingIntent.emplace(UndoIntent{});
         }
 
+        const bool canRedo = a_document.can_redo() && !a_pendingIntent.has_value();
         std::string redoLabel = "やり直す";
         if (!a_document.redo_label().empty())
         {
             redoLabel.append(": ");
             redoLabel.append(display_text_label(a_document.redo_label()));
         }
-        if (!a_pendingIntent.has_value() && ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Y", false, a_document.can_redo()))
+        if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Y", false, canRedo))
         {
             a_pendingIntent.emplace(RedoIntent{});
         }
@@ -750,9 +767,15 @@ void EditorPresenter::draw_hierarchy(const editor_core::EditorDocument &a_docume
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
+    const scene::SceneObject *primaryObject =
+        primarySelection != nullptr ? sceneDocument.find_object(*primarySelection) : nullptr;
+    const std::optional<SubtreeDuplicateInfo> duplicateInfo =
+        primaryObject != nullptr
+            ? std::optional<SubtreeDuplicateInfo>(subtree_duplicate_info(*primaryObject, childrenByParent))
+            : std::nullopt;
     const bool canDuplicate =
-        primarySelection != nullptr && subtree_object_count(*primarySelection, childrenByParent) <=
-                                           scene::k_maximumSceneObjectCount - sceneDocument.object_count();
+        duplicateInfo.has_value() && duplicateInfo->allComponentsDuplicable &&
+        duplicateInfo->objectCount <= scene::k_maximumSceneObjectCount - sceneDocument.object_count();
     ImGui::BeginDisabled(!canDuplicate);
     if (ImGui::Button("複製") && !a_pendingIntent.has_value())
     {
