@@ -283,6 +283,45 @@ using HierarchySelectionIndex = std::unordered_set<cue::scene::ObjectId, ObjectI
     return false;
 }
 
+/// @brief ObjectのScene Root始まりDepthをRead-only Parent Chainから返す
+[[nodiscard]] std::size_t hierarchy_depth(const cue::scene::SceneDocument &a_document,
+                                          const cue::scene::ObjectId &a_objectId) noexcept
+{
+    std::size_t depth = 0U;
+    const cue::scene::SceneObject *current = a_document.find_object(a_objectId);
+    while (current != nullptr && depth <= cue::scene::SceneDocument::maximum_hierarchy_depth())
+    {
+        ++depth;
+        const cue::scene::ObjectId *parentId = current->try_parent_id();
+        current = parentId != nullptr ? a_document.find_object(*parentId) : nullptr;
+    }
+    return depth;
+}
+
+/// @brief 対象Objectを1とするSubtree最大相対DepthをRead-only Parent Chainから返す
+[[nodiscard]] std::size_t subtree_height(const cue::scene::SceneDocument &a_document,
+                                         const cue::scene::ObjectId &a_rootId) noexcept
+{
+    std::size_t maximumHeight = 1U;
+    for (const cue::scene::SceneObject &candidate : a_document.objects())
+    {
+        std::size_t height = 1U;
+        const cue::scene::ObjectId *parentId = candidate.try_parent_id();
+        while (parentId != nullptr && height <= cue::scene::SceneDocument::maximum_hierarchy_depth())
+        {
+            if (*parentId == a_rootId)
+            {
+                maximumHeight = (std::max)(maximumHeight, height + 1U);
+                break;
+            }
+            const cue::scene::SceneObject *parent = a_document.find_object(*parentId);
+            parentId = parent != nullptr ? parent->try_parent_id() : nullptr;
+            ++height;
+        }
+    }
+    return maximumHeight;
+}
+
 /// @brief Frame単位Child索引から一ObjectとChild群を再帰描画する
 void draw_object_node(const cue::scene::SceneObject &a_object, const HierarchyChildIndex &a_childrenByParent,
                       const HierarchySelectionIndex &a_selectionIndex,
@@ -541,16 +580,9 @@ void EditorPresenter::draw() noexcept
                                                    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
         if (ImGui::Begin("CueEngine Editor", nullptr, k_windowFlags))
         {
-            if (document == nullptr)
-            {
-                ImGui::TextUnformatted("編集対象のScene Documentが開かれていません。");
-            }
-            else
+            if (document != nullptr)
             {
                 draw_menu(*document, pendingIntent);
-                draw_hierarchy(*document, pendingIntent);
-                ImGui::SameLine();
-                draw_inspector(*document, pendingIntent);
             }
 
             if (!m_message.empty())
@@ -560,6 +592,18 @@ void EditorPresenter::draw() noexcept
                                       m_hasError ? ImVec4(1.0F, 0.35F, 0.35F, 1.0F) : ImVec4(0.45F, 0.9F, 0.55F, 1.0F));
                 ImGui::TextWrapped("%s", m_message.c_str());
                 ImGui::PopStyleColor();
+                ImGui::Separator();
+            }
+
+            if (document == nullptr)
+            {
+                ImGui::TextUnformatted("編集対象のScene Documentが開かれていません。");
+            }
+            else
+            {
+                draw_hierarchy(*document, pendingIntent);
+                ImGui::SameLine();
+                draw_inspector(*document, pendingIntent);
             }
         }
         ImGui::End();
@@ -769,6 +813,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     }
     if (ImGui::BeginCombo("Parent", parentPreview.c_str()))
     {
+        const std::size_t selectedSubtreeHeight = subtree_height(sceneDocument, object->id());
         if (ImGui::Selectable("Scene Root", parentId == nullptr) && !a_pendingIntent.has_value())
         {
             a_pendingIntent.emplace(ReparentObjectIntent{object->id(), std::nullopt});
@@ -776,6 +821,12 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
         for (const scene::SceneObject &candidate : sceneDocument.objects())
         {
             if (is_in_subtree(sceneDocument, candidate.id(), object->id()))
+            {
+                continue;
+            }
+            const std::size_t targetDepth = hierarchy_depth(sceneDocument, candidate.id()) + 1U;
+            const std::size_t maximumDepth = scene::SceneDocument::maximum_hierarchy_depth();
+            if (targetDepth > maximumDepth || selectedSubtreeHeight > maximumDepth - targetDepth + 1U)
             {
                 continue;
             }
