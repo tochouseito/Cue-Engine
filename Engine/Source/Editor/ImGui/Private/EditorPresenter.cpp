@@ -691,6 +691,9 @@ Result<void> EditorPresenter::submit(editor_core::EditorIntent a_intent) noexcep
     try
     {
         const std::string_view status = intent_status(a_intent);
+        const RenameObjectIntent *renameIntent = std::get_if<RenameObjectIntent>(&a_intent);
+        const bool appliesInspectorName = renameIntent != nullptr && m_inspectorObjectId.has_value() &&
+                                          renameIntent->objectId == *m_inspectorObjectId;
         const bool appliesTransform = std::holds_alternative<EditTransformIntent>(a_intent);
         Result<void> result =
             m_controller->execute_intent(m_documentId, std::move(a_intent), *m_identitySource, m_componentTemplates);
@@ -702,6 +705,10 @@ Result<void> EditorPresenter::submit(editor_core::EditorIntent a_intent) noexcep
         if (appliesTransform)
         {
             m_transformDirty = false;
+        }
+        if (appliesInspectorName)
+        {
+            m_nameDirty = false;
         }
         set_status(status);
         return result;
@@ -845,6 +852,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     {
         m_inspectorObjectId.reset();
         m_inspectorStateValue = 0U;
+        m_nameDirty = false;
         m_transformDirty = false;
         ImGui::TextDisabled("HierarchyからObjectを選択してください。");
         ImGui::EndChild();
@@ -857,6 +865,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     {
         m_inspectorObjectId.reset();
         m_inspectorStateValue = 0U;
+        m_nameDirty = false;
         m_transformDirty = false;
         ImGui::TextUnformatted("選択ObjectがSceneに存在しません。");
         ImGui::EndChild();
@@ -872,6 +881,7 @@ void EditorPresenter::draw_inspector(const editor_core::EditorDocument &a_docume
     else
     {
         commitName = input_object_name(m_name, *m_assertContext);
+        m_nameDirty = m_nameDirty || ImGui::IsItemEdited();
         commitName = commitName || ImGui::IsItemDeactivatedAfterEdit();
         bool usedUnicodeEscape = false;
         const std::string namePreview = display_text_label(m_name, &usedUnicodeEscape);
@@ -1099,7 +1109,11 @@ void EditorPresenter::sync_inspector(const editor_core::EditorDocument &a_docume
         return;
     }
 
-    m_name.assign(a_object.name());
+    if (!isSameObject || !m_nameDirty)
+    {
+        m_name.assign(a_object.name());
+        m_nameDirty = false;
+    }
     if (!isSameObject || !m_transformDirty)
     {
         const math::Vector3 translation = a_object.transform().translation();

@@ -94,6 +94,7 @@ class EditorPresenter final
     std::array<float, 3> m_translation{};
     std::array<float, 4> m_rotation{};
     std::array<float, 3> m_scale{1.0F, 1.0F, 1.0F};
+    bool m_nameDirty = false;
     bool m_transformDirty = false;
     std::string m_message;
     bool m_hasError = false;
