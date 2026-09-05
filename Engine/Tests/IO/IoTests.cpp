@@ -1042,6 +1042,13 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     {
         return false;
     }
+    auto probePath = cue::RelativePath::parse("AtomicWriteProbe.bin", a_assertContext);
+    constexpr std::array<std::byte, 3> k_probeBytes{std::byte{0x43}, std::byte{0x55}, std::byte{0x45}};
+    if (!probePath || !(**created.try_value()).write_file_atomic(*probePath.try_value(), k_probeBytes) ||
+        !(**created.try_value()).remove_file(*probePath.try_value()))
+    {
+        return false;
+    }
     created.try_value()->reset();
 
     auto reopened = cue::create_windows_known_folder_filesystem_root(

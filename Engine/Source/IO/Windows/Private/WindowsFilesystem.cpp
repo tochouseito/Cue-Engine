@@ -742,7 +742,7 @@ struct NativePublishOutcome final
     }
 
     UniqueHandle directory(CreateFileW(extended.try_value()->c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
-                                       FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                       FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
                                        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
     if (!directory.is_valid())
     {
