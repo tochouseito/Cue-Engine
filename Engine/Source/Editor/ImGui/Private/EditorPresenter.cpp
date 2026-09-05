@@ -700,7 +700,9 @@ Result<void> EditorPresenter::submit(editor_core::EditorIntent a_intent) noexcep
         const RenameObjectIntent *renameIntent = std::get_if<RenameObjectIntent>(&a_intent);
         const bool appliesInspectorName = renameIntent != nullptr && m_inspectorObjectId.has_value() &&
                                           renameIntent->objectId == *m_inspectorObjectId;
-        const bool appliesTransform = std::holds_alternative<EditTransformIntent>(a_intent);
+        const EditTransformIntent *transformIntent = std::get_if<EditTransformIntent>(&a_intent);
+        const bool appliesInspectorTransform = transformIntent != nullptr && m_inspectorObjectId.has_value() &&
+                                               transformIntent->objectId == *m_inspectorObjectId;
         Result<void> result =
             m_controller->execute_intent(m_documentId, std::move(a_intent), *m_identitySource, m_componentTemplates);
         if (!result)
@@ -708,7 +710,7 @@ Result<void> EditorPresenter::submit(editor_core::EditorIntent a_intent) noexcep
             set_error(*result.try_error());
             return result;
         }
-        if (appliesTransform)
+        if (appliesInspectorTransform)
         {
             m_transformDirty = false;
         }
