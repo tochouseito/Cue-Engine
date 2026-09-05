@@ -1272,6 +1272,12 @@ void test_scene_persistence_workflow() noexcept
     require(originalLocatorSave.has_value() &&
             originalLocatorSave.try_value()->status() == cue::scene::SceneSaveStatus::Committed);
     const std::string savedOriginalLocator(sourceAssets.text("Scenes/Main.cuescene"));
+    auto protectedSaveAs = controller->save_document_as_new(
+        documentId, take_value(cue::RelativePath::parse("Scenes/Renamed.cuescene", assertContext)));
+    require(!protectedSaveAs.has_value());
+    require(protectedSaveAs.try_error()->code().value() ==
+            static_cast<std::int64_t>(cue::editor_core::EditorCoreError::ExternalConflict));
+    require(sourceAssets.text("Scenes/Renamed.cuescene") == externalJson);
     auto saveAs = controller->save_document_as(
         documentId, take_value(cue::RelativePath::parse("Scenes/Renamed.cuescene", assertContext)));
     require(saveAs.has_value() && saveAs.try_value()->status() == cue::scene::SceneSaveStatus::Committed);

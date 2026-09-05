@@ -1,5 +1,6 @@
 #include <Cue/Editor/ImGui/EditorPresenter.h>
 #include <Cue/Editor/Windows/EditorSession.h>
+#include <Cue/EditorCore/Error.h>
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Error.h>
 #include <Cue/Foundation/Fatal.h>
@@ -34,11 +35,13 @@ constexpr int k_toolHostFailed = 2;
 struct EditorToolOptions final
 {
     cue::editor::WindowsEditorLaunchParameters parameters{};
+    std::uint64_t maximumFrameCount = 0U;
     bool hasProtocolVersion = false;
     bool hasProjectDescriptor = false;
     bool hasExpectedProjectId = false;
     bool hasCompatibilityId = false;
     bool hasInitialScene = false;
+    bool hasMaximumFrameCount = false;
 };
 
 /// @brief Document終了後に継続するSceneまたはProject操作
@@ -173,6 +176,17 @@ enum class PendingTransition : std::uint8_t
                 options.parameters.initialSceneLocator = std::move(*converted.try_value());
                 options.hasInitialScene = true;
             }
+            else if (option == L"--maximum-frame-count")
+            {
+                const std::optional<std::uint64_t> frameCount = cue::parse_unsigned_decimal<std::uint64_t>(value);
+                if (options.hasMaximumFrameCount || !frameCount.has_value())
+                {
+                    return cue::Result<EditorToolOptions>::failure(make_tool_error(
+                        a_context, k_invalidArguments, "Maximum frame count is duplicated or invalid"));
+                }
+                options.maximumFrameCount = *frameCount;
+                options.hasMaximumFrameCount = true;
+            }
             else
             {
                 return cue::Result<EditorToolOptions>::failure(
@@ -248,6 +262,8 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
             }
             draw_locator_dialog();
             draw_close_dialog();
+            draw_overwrite_dialog();
+            draw_uncertain_save_dialog();
         }
         catch (...)
         {
@@ -398,7 +414,7 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
             begin_transition(PendingTransition::OpenScene);
             break;
         case cue::editor::EditorWorkflowRequest::SaveScene:
-            save_scene();
+            static_cast<void>(save_scene());
             break;
         case cue::editor::EditorWorkflowRequest::ReloadScene:
             begin_transition(PendingTransition::ReloadScene);
@@ -409,22 +425,39 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
         }
     }
 
-    /// @brief Scene切替またはProject終了前に現在LocatorとClose判断を確定する
+    /// @brief Scene切替入力またはProject終了前のClose判断を開始する
     void begin_transition(PendingTransition a_transition) noexcept
     {
         if (m_pendingTransition != PendingTransition::None || m_shouldClose)
         {
             return;
         }
-        m_pendingTransition = a_transition;
-        if (a_transition == PendingTransition::ReloadScene && m_session->active_document_id().has_value())
+        if (a_transition == PendingTransition::NewScene || a_transition == PendingTransition::OpenScene)
         {
-            const cue::editor_core::EditorDocument *document =
-                m_session->controller().session().find_document(*m_session->active_document_id());
-            if (document != nullptr)
+            m_locatorMode = a_transition;
+            m_sceneLocator.fill('\0');
+            const std::string_view initial =
+                a_transition == PendingTransition::NewScene ? "Scenes/NewScene.cuescene" : "Scenes/Main.cuescene";
+            std::copy(initial.begin(), initial.end(), m_sceneLocator.begin());
+            m_openLocatorDialog = true;
+            return;
+        }
+        m_pendingTransition = a_transition;
+        if (a_transition == PendingTransition::ReloadScene)
+        {
+            const cue::editor_core::EditorDocument *document = active_document();
+            if (document == nullptr)
             {
-                m_transitionLocator = std::string(document->scene_locator().text());
+                m_pendingTransition = PendingTransition::None;
+                return;
             }
+            if (document->requires_close_decision())
+            {
+                m_openCloseDialog = true;
+                return;
+            }
+            perform_reload();
+            return;
         }
         cue::Result<cue::editor_core::DocumentCloseState> state = m_session->request_close();
         if (!state)
@@ -444,7 +477,7 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
         }
     }
 
-    /// @brief Closed状態の次に予約されたSceneまたはProject操作を開始する
+    /// @brief 準備済みSceneへの切替またはProject終了を確定する
     void complete_transition() noexcept
     {
         const PendingTransition transition = m_pendingTransition;
@@ -455,34 +488,27 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
             m_shouldClose = true;
             return;
         }
-        if (transition == PendingTransition::ReloadScene)
-        {
-            cue::Result<cue::RelativePath> locator = cue::RelativePath::parse(m_transitionLocator, *m_assertContext);
-            if (!locator)
-            {
-                report_error(*locator.try_error());
-                return;
-            }
-            cue::Result<cue::editor_core::EditorDocumentId> opened =
-                m_session->open_scene(std::move(*locator.try_value()));
-            if (!opened)
-            {
-                report_error(*opened.try_error());
-                return;
-            }
-            rebuild_presenter();
-            report_status("Sceneを再読込しました。");
-            return;
-        }
         if (transition == PendingTransition::NewScene || transition == PendingTransition::OpenScene)
         {
-            m_locatorMode = transition;
-            m_sceneLocator.fill('\0');
-            const std::string_view initial =
-                transition == PendingTransition::NewScene ? "Scenes/NewScene.cuescene" : "Scenes/Main.cuescene";
-            std::copy(initial.begin(), initial.end(), m_sceneLocator.begin());
-            m_openLocatorDialog = true;
+            rebuild_presenter();
+            report_status(transition == PendingTransition::NewScene ? "新しいSceneを作成しました。"
+                                                                    : "Sceneを開きました。");
         }
+    }
+
+    /// @brief Active Documentを失わないController Reloadを実行する
+    void perform_reload() noexcept
+    {
+        cue::Result<cue::editor_core::DocumentStateId> reloaded = m_session->reload_active_scene();
+        m_pendingTransition = PendingTransition::None;
+        m_openCloseDialog = false;
+        if (!reloaded)
+        {
+            report_error(*reloaded.try_error());
+            return;
+        }
+        rebuild_presenter();
+        report_status("Sceneを再読込しました。");
     }
 
     /// @brief Scene Locator入力を検証してNewまたはOpenへ渡す
@@ -508,19 +534,37 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
             }
             else
             {
-                cue::Result<cue::editor_core::EditorDocumentId> opened =
+                const PendingTransition locatorMode = m_locatorMode;
+                cue::Result<cue::editor_core::EditorDocumentId> prepared =
                     m_locatorMode == PendingTransition::NewScene
-                        ? m_session->create_scene(std::move(*locator.try_value()))
-                        : m_session->open_scene(std::move(*locator.try_value()));
-                if (!opened)
+                        ? m_session->prepare_new_scene(std::move(*locator.try_value()))
+                        : m_session->prepare_open_scene(std::move(*locator.try_value()));
+                if (!prepared)
                 {
-                    report_error(*opened.try_error());
+                    report_error(*prepared.try_error());
                 }
                 else
                 {
-                    rebuild_presenter();
                     m_locatorMode = PendingTransition::None;
                     ImGui::CloseCurrentPopup();
+                    m_pendingTransition = locatorMode;
+                    cue::Result<cue::editor_core::DocumentCloseState> state =
+                        m_session->request_activate_prepared_scene();
+                    if (!state)
+                    {
+                        const cue::Error activationError = std::move(*state.try_error());
+                        static_cast<void>(m_session->discard_prepared_scene());
+                        m_pendingTransition = PendingTransition::None;
+                        report_error(activationError);
+                    }
+                    else if (*state.try_value() == cue::editor_core::DocumentCloseState::Closed)
+                    {
+                        complete_transition();
+                    }
+                    else
+                    {
+                        m_openCloseDialog = true;
+                    }
                 }
             }
         }
@@ -533,7 +577,7 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
         ImGui::EndPopup();
     }
 
-    /// @brief Dirty SceneのSave、Discard、Cancel判断をCoreへ返す
+    /// @brief Dirty SceneのSave、Discard、Cancel判断を切替種別へ適用する
     void draw_close_dialog() noexcept
     {
         if (m_openCloseDialog)
@@ -548,65 +592,176 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
         ImGui::TextUnformatted("Sceneに未保存の変更があります。");
         if (ImGui::Button("保存"))
         {
-            cue::Result<cue::editor_core::DocumentCloseState> state =
-                m_session->respond_to_close(cue::editor_core::CloseDecision::Save);
-            if (!state)
+            bool canSave = true;
+            if (m_pendingTransition != PendingTransition::ReloadScene)
             {
-                report_error(*state.try_error());
-            }
-            else
-            {
-                save_scene();
-                if (!m_session->active_document_id().has_value())
+                cue::Result<cue::editor_core::DocumentCloseState> state =
+                    m_session->respond_to_close(cue::editor_core::CloseDecision::Save);
+                if (!state)
                 {
-                    ImGui::CloseCurrentPopup();
-                    rebuild_presenter();
-                    complete_transition();
+                    report_error(*state.try_error());
+                    canSave = false;
                 }
+            }
+            if (canSave && save_scene())
+            {
+                ImGui::CloseCurrentPopup();
+                continue_transition_after_save();
+            }
+            else if (m_openUncertainSaveDialog || m_openOverwriteDialog)
+            {
+                ImGui::CloseCurrentPopup();
             }
         }
         ImGui::SameLine();
         if (ImGui::Button("破棄"))
         {
-            cue::Result<cue::editor_core::DocumentCloseState> state =
-                m_session->respond_to_close(cue::editor_core::CloseDecision::Discard);
-            if (!state)
+            if (m_pendingTransition == PendingTransition::ReloadScene)
             {
-                report_error(*state.try_error());
+                ImGui::CloseCurrentPopup();
+                perform_reload();
             }
             else
             {
-                ImGui::CloseCurrentPopup();
-                rebuild_presenter();
-                complete_transition();
+                cue::Result<cue::editor_core::DocumentCloseState> state =
+                    m_session->respond_to_close(cue::editor_core::CloseDecision::Discard);
+                if (!state)
+                {
+                    report_error(*state.try_error());
+                }
+                else
+                {
+                    ImGui::CloseCurrentPopup();
+                    complete_transition();
+                }
             }
         }
         ImGui::SameLine();
         if (ImGui::Button("キャンセル"))
         {
-            cue::Result<cue::editor_core::DocumentCloseState> state =
-                m_session->respond_to_close(cue::editor_core::CloseDecision::Cancel);
-            if (!state)
-            {
-                report_error(*state.try_error());
-            }
-            else
+            if (m_pendingTransition == PendingTransition::ReloadScene)
             {
                 m_pendingTransition = PendingTransition::None;
                 ImGui::CloseCurrentPopup();
+            }
+            else
+            {
+                cue::Result<cue::editor_core::DocumentCloseState> state =
+                    m_session->respond_to_close(cue::editor_core::CloseDecision::Cancel);
+                if (!state)
+                {
+                    report_error(*state.try_error());
+                }
+                else
+                {
+                    if (m_session->has_prepared_scene())
+                    {
+                        cue::Result<void> discarded = m_session->discard_prepared_scene();
+                        if (!discarded)
+                        {
+                            report_error(*discarded.try_error());
+                            ImGui::EndPopup();
+                            return;
+                        }
+                    }
+                    m_pendingTransition = PendingTransition::None;
+                    ImGui::CloseCurrentPopup();
+                }
             }
         }
         ImGui::EndPopup();
     }
 
-    /// @brief Active Sceneの確定Saveだけを成功Messageへ変換する
-    void save_scene() noexcept
+    /// @brief 確定Save後に保留中のReload、Scene切替、Project終了を継続する
+    void continue_transition_after_save() noexcept
     {
-        cue::Result<cue::scene::SceneSaveOutcome> saved = m_session->save_active_scene();
+        if (m_pendingTransition == PendingTransition::ReloadScene)
+        {
+            perform_reload();
+            return;
+        }
+        if (m_pendingTransition == PendingTransition::NewScene ||
+            m_pendingTransition == PendingTransition::OpenScene)
+        {
+            if (!m_session->has_prepared_scene())
+            {
+                complete_transition();
+                return;
+            }
+            if (!restore_open_close_state_after_save())
+            {
+                return;
+            }
+            cue::Result<cue::editor_core::DocumentCloseState> state =
+                m_session->request_activate_prepared_scene();
+            if (!state)
+            {
+                report_error(*state.try_error());
+            }
+            else if (*state.try_value() == cue::editor_core::DocumentCloseState::Closed)
+            {
+                complete_transition();
+            }
+            else
+            {
+                m_openCloseDialog = true;
+            }
+            return;
+        }
+        if (m_pendingTransition == PendingTransition::CloseProject)
+        {
+            if (!restore_open_close_state_after_save())
+            {
+                return;
+            }
+            cue::Result<cue::editor_core::DocumentCloseState> state = m_session->request_close();
+            if (!state)
+            {
+                report_error(*state.try_error());
+            }
+            else if (*state.try_value() == cue::editor_core::DocumentCloseState::Closed)
+            {
+                complete_transition();
+            }
+            else
+            {
+                m_openCloseDialog = true;
+            }
+        }
+    }
+
+    /// @brief Save失敗後の判断待ちをOpenへ戻してCloseを再評価可能にする
+    [[nodiscard]] bool restore_open_close_state_after_save() noexcept
+    {
+        const cue::editor_core::EditorDocument *document = active_document();
+        if (document == nullptr || document->close_state() != cue::editor_core::DocumentCloseState::AwaitingDecision)
+        {
+            return true;
+        }
+        cue::Result<cue::editor_core::DocumentCloseState> reopened =
+            m_session->respond_to_close(cue::editor_core::CloseDecision::Cancel);
+        if (!reopened)
+        {
+            report_error(*reopened.try_error());
+            return false;
+        }
+        return true;
+    }
+
+    /// @brief Active Sceneの確定Saveだけを成功として返す
+    [[nodiscard]] bool save_scene(bool a_allowExistingDestination = false) noexcept
+    {
+        cue::Result<cue::scene::SceneSaveOutcome> saved =
+            a_allowExistingDestination ? m_session->save_active_scene_overwriting_existing_destination()
+                                       : m_session->save_active_scene();
         if (!saved)
         {
+            const bool destinationConflict =
+                !a_allowExistingDestination && is_new_destination_conflict(*saved.try_error());
             report_error(*saved.try_error());
-            return;
+            m_openUncertainSaveDialog = active_save_is_uncertain();
+            m_openOverwriteDialog = destinationConflict && !m_openUncertainSaveDialog;
+            return false;
         }
         if (saved.try_value()->status() != cue::scene::SceneSaveStatus::Committed)
         {
@@ -614,9 +769,126 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
             {
                 report_error(*saved.try_value()->try_error());
             }
-            return;
+            m_openUncertainSaveDialog = active_save_is_uncertain();
+            return false;
         }
         report_status("Sceneを保存しました。");
+        return true;
+    }
+
+    /// @brief 未保存Documentの初回Destination競合か判定する
+    [[nodiscard]] bool is_new_destination_conflict(const cue::Error &a_error) const noexcept
+    {
+        const cue::editor_core::EditorDocument *document = active_document();
+        return document != nullptr && !document->has_saved_destination() &&
+               a_error.root_code().domain() == "Cue.EditorCore" &&
+               a_error.root_code().value() ==
+                   static_cast<std::int64_t>(cue::editor_core::EditorCoreError::ExternalConflict);
+    }
+
+    /// @brief Active SceneがSave Uncertain判断待ちか確認する
+    [[nodiscard]] bool active_save_is_uncertain() const noexcept
+    {
+        const cue::editor_core::EditorDocument *document = active_document();
+        return document != nullptr &&
+               document->persistence_state() == cue::editor_core::DocumentPersistenceState::SaveUncertain;
+    }
+
+    /// @brief 初回保存先の既存File置換をUserへ明示確認する
+    void draw_overwrite_dialog() noexcept
+    {
+        if (m_openOverwriteDialog)
+        {
+            ImGui::OpenPopup("既存Sceneの上書き");
+            m_openOverwriteDialog = false;
+        }
+        if (!ImGui::BeginPopupModal("既存Sceneの上書き", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            return;
+        }
+        ImGui::TextUnformatted("初回保存先に既存Fileがあります。");
+        ImGui::TextUnformatted("内容を置換して保存しますか？");
+        if (ImGui::Button("上書きして保存"))
+        {
+            if (save_scene(true))
+            {
+                ImGui::CloseCurrentPopup();
+                continue_transition_after_save();
+            }
+            else if (m_openUncertainSaveDialog)
+            {
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("キャンセル"))
+        {
+            ImGui::CloseCurrentPopup();
+            if (m_pendingTransition != PendingTransition::None)
+            {
+                m_openCloseDialog = true;
+            }
+        }
+        ImGui::EndPopup();
+    }
+
+    /// @brief Save Uncertainを再試行するか記録だけを破棄する判断を描画する
+    void draw_uncertain_save_dialog() noexcept
+    {
+        if (m_openUncertainSaveDialog)
+        {
+            ImGui::OpenPopup("保存結果を確認");
+            m_openUncertainSaveDialog = false;
+        }
+        if (!ImGui::BeginPopupModal("保存結果を確認", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            return;
+        }
+        ImGui::TextUnformatted("保存先への発行結果を確定できませんでした。");
+        ImGui::TextUnformatted("再検証するか、不確定記録だけを破棄してください。");
+        if (ImGui::Button("再検証 / 再試行"))
+        {
+            cue::Result<cue::scene::SceneSaveStatus> retried = m_session->retry_uncertain_save_active_scene();
+            if (!retried)
+            {
+                report_error(*retried.try_error());
+            }
+            else if (*retried.try_value() == cue::scene::SceneSaveStatus::Committed)
+            {
+                ImGui::CloseCurrentPopup();
+                report_status("Sceneの保存結果を確認しました。");
+                continue_transition_after_save();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("不確定記録を破棄"))
+        {
+            cue::Result<void> discarded = m_session->discard_uncertain_save_active_scene();
+            if (!discarded)
+            {
+                report_error(*discarded.try_error());
+            }
+            else
+            {
+                ImGui::CloseCurrentPopup();
+                report_status("保存の不確定記録を破棄しました。Sceneは未保存のままです。");
+                if (m_pendingTransition != PendingTransition::None)
+                {
+                    m_openCloseDialog = true;
+                }
+            }
+        }
+        ImGui::EndPopup();
+    }
+
+    /// @brief Active DocumentをController Sessionから取得する
+    [[nodiscard]] const cue::editor_core::EditorDocument *active_document() const noexcept
+    {
+        if (!m_session->active_document_id().has_value())
+        {
+            return nullptr;
+        }
+        return m_session->controller().session().find_document(*m_session->active_document_id());
     }
 
     /// @brief Recovery Registryを再列挙してProject-only Snapshotへ反映する
@@ -675,12 +947,13 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
     std::unique_ptr<cue::editor::EditorPresenter> m_presenter;
     std::vector<cue::editor_core::RecoveryCandidateInspection> m_recoveryCandidates;
     std::array<char, 512> m_sceneLocator{};
-    std::string m_transitionLocator;
     std::string m_message;
     PendingTransition m_pendingTransition = PendingTransition::None;
     PendingTransition m_locatorMode = PendingTransition::None;
     bool m_openLocatorDialog = false;
     bool m_openCloseDialog = false;
+    bool m_openOverwriteDialog = false;
+    bool m_openUncertainSaveDialog = false;
     bool m_shouldClose = false;
     bool m_hasError = false;
 };
@@ -713,7 +986,8 @@ class EditorToolClient final : public cue::tool_host::ToolHostClient
                             k_sessionInitializationFailed);
     }
     EditorToolClient client(**session.try_value(), a_assertContext);
-    const cue::tool_host::ToolHostDescriptor descriptor{"CueEngine Editor", {1440U, 900U}, 0U};
+    const cue::tool_host::ToolHostDescriptor descriptor{"CueEngine Editor", {1440U, 900U},
+                                                         a_options.maximumFrameCount};
     cue::Result<void> hosted = cue::tool_host::run_windows_d3d12_tool_host(descriptor, client, a_assertContext);
     if (!hosted)
     {

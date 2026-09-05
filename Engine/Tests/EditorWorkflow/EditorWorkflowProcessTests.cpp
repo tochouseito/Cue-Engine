@@ -9,8 +9,10 @@
 #include <Cue/Project/Compatibility.h>
 #include <Cue/Project/Generator.h>
 
+#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -107,8 +109,48 @@ class TestDirectory final
             std::move(a_initialScene)};
 }
 
-/// @brief Project生成からScene保存、Session再構築、Stable ID再Openまでを検証する
-void test_process_round_trip(const cue::AssertContext &a_context)
+/// @brief File全体を既存Destination保護の比較用Byte列として読む
+[[nodiscard]] std::string read_file(const std::filesystem::path &a_path)
+{
+    std::ifstream stream(a_path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+}
+
+/// @brief 実CueEditorToolをVersion付き引数で有限Frame起動して正常終了を待つ
+[[nodiscard]] bool run_editor_process(const std::filesystem::path &a_editorExecutable,
+                                      const std::filesystem::path &a_projectPath)
+{
+    const std::filesystem::path descriptorPath = a_projectPath / L"CueProject.json";
+    std::wstring commandLine = L"\"" + a_editorExecutable.native() + L"\" --protocol-version " +
+                               std::to_wstring(cue::k_editorLaunchProtocolVersion) +
+                               L" --project-descriptor \"" + descriptorPath.native() +
+                               L"\" --expected-project-id 00000000-0000-4000-8000-000000000901" +
+                               L" --engine-compatibility-id \"cue-engine:[1.0.0,2.0.0)\"" +
+                               L" --initial-scene Scenes/Main.cuescene --maximum-frame-count 1";
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (CreateProcessW(a_editorExecutable.c_str(), commandLine.data(), nullptr, nullptr, FALSE, 0U, nullptr, nullptr,
+                       &startup, &process) == FALSE)
+    {
+        return false;
+    }
+    CloseHandle(process.hThread);
+    const DWORD wait = WaitForSingleObject(process.hProcess, 30000U);
+    DWORD exitCode = 1U;
+    const bool completed = wait == WAIT_OBJECT_0 && GetExitCodeProcess(process.hProcess, &exitCode) != FALSE;
+    if (!completed)
+    {
+        TerminateProcess(process.hProcess, 20U);
+        static_cast<void>(WaitForSingleObject(process.hProcess, 5000U));
+    }
+    CloseHandle(process.hProcess);
+    return completed && exitCode == 0U;
+}
+
+/// @brief Project生成からScene保存、実Editor再起動、Stable ID再Openまでを検証する
+void test_process_round_trip(const std::filesystem::path &a_editorExecutable,
+                             const cue::AssertContext &a_context)
 {
     TestDirectory directory;
     auto parent = cue::create_windows_filesystem_root(to_utf8(directory.path(), a_context.fatal_handler()), a_context);
@@ -165,7 +207,89 @@ void test_process_round_trip(const cue::AssertContext &a_context)
     {
         std::_Exit(11);
     }
+    const std::filesystem::path savedScenePath = projectPath / L"SourceAssets" / L"Scenes" / L"Main.cuescene";
+    const std::string savedSceneBytes = read_file(savedScenePath);
+    auto existingLocator = cue::RelativePath::parse("Scenes/Main.cuescene", a_context);
+    auto existingCreate = (*session.try_value())->prepare_new_scene(std::move(*existingLocator.try_value()));
+    if (existingCreate || read_file(savedScenePath) != savedSceneBytes ||
+        (*session.try_value())->active_document_id() != std::optional(*documentId.try_value()))
+    {
+        std::_Exit(20);
+    }
+    auto missingLocator = cue::RelativePath::parse("Scenes/Missing.cuescene", a_context);
+    auto missingOpen = (*session.try_value())->prepare_open_scene(std::move(*missingLocator.try_value()));
+    if (missingOpen || (*session.try_value())->active_document_id() != std::optional(*documentId.try_value()) ||
+        (*session.try_value())->controller().session().documents().size() != 1U)
+    {
+        std::_Exit(21);
+    }
+    cue::editor_core::RenameObjectIntent dirtyBeforeSwitch{document->scene_document().objects().front().id(),
+                                                            "Dirty Before Switch"};
+    auto dirtied = (*session.try_value())
+                       ->controller()
+                       .execute_intent(*documentId.try_value(), std::move(dirtyBeforeSwitch),
+                                       (*session.try_value())->identity_source(), {});
+    auto newLocator = cue::RelativePath::parse("Scenes/New.cuescene", a_context);
+    auto prepared = (*session.try_value())->prepare_new_scene(std::move(*newLocator.try_value()));
+    auto awaitingSwitch = (*session.try_value())->request_activate_prepared_scene();
+    if (!dirtied || !prepared || !awaitingSwitch ||
+        *awaitingSwitch.try_value() != cue::editor_core::DocumentCloseState::AwaitingDecision)
+    {
+        std::_Exit(22);
+    }
+    auto cancelledSwitch = (*session.try_value())->respond_to_close(cue::editor_core::CloseDecision::Cancel);
+    auto discardedPrepared = (*session.try_value())->discard_prepared_scene();
+    document = (*session.try_value())->controller().session().find_document(*documentId.try_value());
+    if (!cancelledSwitch || *cancelledSwitch.try_value() != cue::editor_core::DocumentCloseState::Open ||
+        !discardedPrepared || (*session.try_value())->has_prepared_scene() || document == nullptr ||
+        document->scene_document().objects().front().name() != "Dirty Before Switch" ||
+        (*session.try_value())->controller().session().documents().size() != 1U)
+    {
+        std::_Exit(23);
+    }
+    newLocator = cue::RelativePath::parse("Scenes/New.cuescene", a_context);
+    auto discardCandidate = (*session.try_value())->prepare_new_scene(std::move(*newLocator.try_value()));
+    awaitingSwitch = (*session.try_value())->request_activate_prepared_scene();
+    auto discardedActive = (*session.try_value())->respond_to_close(cue::editor_core::CloseDecision::Discard);
+    if (!discardCandidate || !awaitingSwitch || !discardedActive ||
+        *discardedActive.try_value() != cue::editor_core::DocumentCloseState::Closed ||
+        (*session.try_value())->has_prepared_scene() ||
+        (*session.try_value())->active_document_id() != std::optional(*discardCandidate.try_value()))
+    {
+        std::_Exit(25);
+    }
+    auto candidateClose = (*session.try_value())->request_close();
+    auto candidateDiscard = (*session.try_value())->respond_to_close(cue::editor_core::CloseDecision::Discard);
+    auto originalLocator = cue::RelativePath::parse("Scenes/Main.cuescene", a_context);
+    auto originalReopened = (*session.try_value())->open_scene(std::move(*originalLocator.try_value()));
+    if (!candidateClose || !candidateDiscard || !originalReopened)
+    {
+        std::_Exit(26);
+    }
+    auto cleanLocator = cue::RelativePath::parse("Scenes/CleanSwitch.cuescene", a_context);
+    auto cleanCandidate = (*session.try_value())->prepare_new_scene(std::move(*cleanLocator.try_value()));
+    auto cleanSwitch = (*session.try_value())->request_activate_prepared_scene();
+    if (!cleanCandidate || !cleanSwitch ||
+        *cleanSwitch.try_value() != cue::editor_core::DocumentCloseState::Closed ||
+        (*session.try_value())->active_document_id() != std::optional(*cleanCandidate.try_value()))
+    {
+        std::_Exit(27);
+    }
+    candidateClose = (*session.try_value())->request_close();
+    candidateDiscard = (*session.try_value())->respond_to_close(cue::editor_core::CloseDecision::Discard);
+    originalLocator = cue::RelativePath::parse("Scenes/Main.cuescene", a_context);
+    originalReopened = (*session.try_value())->open_scene(std::move(*originalLocator.try_value()));
+    if (!candidateClose || !candidateDiscard || !originalReopened)
+    {
+        std::_Exit(28);
+    }
     session.try_value()->reset();
+
+    if (!run_editor_process(a_editorExecutable, projectPath) ||
+        !run_editor_process(a_editorExecutable, projectPath))
+    {
+        std::_Exit(24);
+    }
 
     auto reopened = cue::editor::WindowsEditorSession::create(
         make_parameters(projectPath, projectId.try_value()->text(), engineCompatibility, a_context,
@@ -234,16 +358,21 @@ void test_process_round_trip(const cue::AssertContext &a_context)
     {
         std::_Exit(19);
     }
+
 }
 } // namespace
 
-/// @brief Headless Editor制作Workflowを一Process内の再構築境界で検証する
-int main()
+/// @brief Headless制作Workflowと実CueEditorTool再起動境界を検証する
+int wmain(int a_argumentCount, wchar_t **a_arguments)
 {
+    if (a_argumentCount != 2)
+    {
+        return 1;
+    }
     TestFatalHandler handler;
     std::vector<std::unique_ptr<cue::LogSink>> sinks;
     cue::Logger logger(handler, std::move(sinks));
     cue::AssertContext context(logger, handler);
-    test_process_round_trip(context);
+    test_process_round_trip(a_arguments[1], context);
     return 0;
 }

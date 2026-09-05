@@ -88,14 +88,28 @@ class WindowsEditorSession final
     [[nodiscard]] Result<editor_core::EditorDocumentId> create_scene(RelativePath a_locator) noexcept;
     /// @brief Source Assets Rootから既存Sceneを完全Loadして一つ開く
     [[nodiscard]] Result<editor_core::EditorDocumentId> open_scene(RelativePath a_locator) noexcept;
+    /// @brief 現在Sceneを維持したまま未保存Sceneを切替候補として準備する
+    [[nodiscard]] Result<editor_core::EditorDocumentId> prepare_new_scene(RelativePath a_locator) noexcept;
+    /// @brief 現在Sceneを維持したまま既存Sceneを切替候補として完全Loadする
+    [[nodiscard]] Result<editor_core::EditorDocumentId> prepare_open_scene(RelativePath a_locator) noexcept;
+    /// @brief 準備済みSceneへの切替に必要なActive Scene Closeを開始する
+    [[nodiscard]] Result<editor_core::DocumentCloseState> request_activate_prepared_scene() noexcept;
+    /// @brief 準備済みSceneだけを破棄して現在Sceneを維持する
+    [[nodiscard]] Result<void> discard_prepared_scene() noexcept;
     /// @brief Saved Rootの検証済みRecovery候補からSceneを一つ開く
     [[nodiscard]] Result<editor_core::EditorDocumentId> open_recovery_scene(std::string_view a_sceneId) noexcept;
     /// @brief 現在ProjectのRecovery候補とEntry単位診断を列挙する
     [[nodiscard]] Result<std::vector<editor_core::RecoveryCandidateInspection>> list_recovery_candidates() noexcept;
     /// @brief Active Sceneを通常Saveまたは初回Save Asへ接続する
     [[nodiscard]] Result<scene::SceneSaveOutcome> save_active_scene() noexcept;
+    /// @brief User確認済みの既存初回保存先を競合検査付きで置換する
+    [[nodiscard]] Result<scene::SceneSaveOutcome> save_active_scene_overwriting_existing_destination() noexcept;
     /// @brief Active Sceneを外部変更検査付きで再読込する
     [[nodiscard]] Result<editor_core::DocumentStateId> reload_active_scene() noexcept;
+    /// @brief Active SceneのSave Uncertainを再検証または再試行する
+    [[nodiscard]] Result<scene::SceneSaveStatus> retry_uncertain_save_active_scene() noexcept;
+    /// @brief Active SceneのSave Uncertain記録だけを破棄してDirty内容を維持する
+    [[nodiscard]] Result<void> discard_uncertain_save_active_scene() noexcept;
     /// @brief Active SceneのClose状態遷移を開始する
     [[nodiscard]] Result<editor_core::DocumentCloseState> request_close() noexcept;
     /// @brief Active SceneのSave、Discard、Cancel判断を適用する
@@ -110,6 +124,8 @@ class WindowsEditorSession final
     [[nodiscard]] scene::SceneIdentitySource &identity_source() noexcept;
     /// @brief Active SceneがあればProcess-local Document Identityを返す
     [[nodiscard]] const std::optional<editor_core::EditorDocumentId> &active_document_id() const noexcept;
+    /// @brief Scene切替用の準備済みDocumentが存在するか返す
+    [[nodiscard]] bool has_prepared_scene() const noexcept;
     /// @brief 再Open検証とWindow Titleに使用するProject Root Locatorを返す
     [[nodiscard]] std::string_view project_locator() const noexcept;
 
@@ -121,10 +137,13 @@ class WindowsEditorSession final
     /// @brief Registry、Controller、任意の初期SceneをSession所有順で構築する
     [[nodiscard]] Result<void> initialize(ProjectDescriptor a_descriptor,
                                           const std::optional<std::string> &a_initialSceneLocator) noexcept;
-    /// @brief Active Documentが存在しないことを検証する
+    /// @brief Activeまたは準備済みDocumentが存在しないことを検証する
     [[nodiscard]] Result<void> require_project_only_state() const noexcept;
     /// @brief Active Documentが閉じられた場合にSession表示状態を同期する
     void reconcile_active_document() noexcept;
+    /// @brief Active Sceneを初回保存先Policyに従って保存する共通経路
+    [[nodiscard]] Result<scene::SceneSaveOutcome> save_active_scene_impl(
+        bool a_allowExistingDestination) noexcept;
 
     std::string m_projectLocator;
     std::unique_ptr<FilesystemRoot> m_projectRoot;
@@ -138,6 +157,7 @@ class WindowsEditorSession final
     std::unique_ptr<scene::SceneIdentitySource> m_sceneIdentitySource;
     std::unique_ptr<editor_core::EditorController> m_controller;
     std::optional<editor_core::EditorDocumentId> m_activeDocumentId;
+    std::optional<editor_core::EditorDocumentId> m_preparedDocumentId;
     const AssertContext *m_assertContext;
 };
 } // namespace cue::editor

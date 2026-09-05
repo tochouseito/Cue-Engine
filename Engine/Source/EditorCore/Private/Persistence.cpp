@@ -587,18 +587,25 @@ Result<scene::SceneSaveOutcome> EditorController::save_document(EditorDocumentId
             make_editor_document_error(*m_assertContext, EditorCoreError::DocumentNotFound,
                                        "Editor document was not found", a_documentId.value()));
     }
-    return save_document_to(a_documentId, document->m_locator, false);
+    return save_document_to(a_documentId, document->m_locator, false, false);
 }
 
 Result<scene::SceneSaveOutcome> EditorController::save_document_as(EditorDocumentId a_documentId,
                                                                    RelativePath a_locator) noexcept
 {
-    return save_document_to(a_documentId, std::move(a_locator), true);
+    return save_document_to(a_documentId, std::move(a_locator), true, false);
+}
+
+Result<scene::SceneSaveOutcome> EditorController::save_document_as_new(EditorDocumentId a_documentId,
+                                                                       RelativePath a_locator) noexcept
+{
+    return save_document_to(a_documentId, std::move(a_locator), true, true);
 }
 
 Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumentId a_documentId,
                                                                    RelativePath a_locator,
-                                                                   bool a_switchDestination) noexcept
+                                                                   bool a_switchDestination,
+                                                                   bool a_requireMissingDestination) noexcept
 {
     assert_owner_thread();
     EditorDocument *document = find_document(a_documentId);
@@ -658,6 +665,12 @@ Result<scene::SceneSaveOutcome> EditorController::save_document_to(EditorDocumen
     if (!destinationFingerprint)
     {
         return failSave(std::move(*destinationFingerprint.try_error()));
+    }
+    if (a_requireMissingDestination && destinationFingerprint.try_value()->exists)
+    {
+        return failSave(make_editor_document_error(
+            *m_assertContext, EditorCoreError::ExternalConflict,
+            "New scene destination already exists", a_documentId.value()));
     }
     if (!a_switchDestination && (document->m_externalChangeState != ExternalChangeState::None ||
                                  *destinationFingerprint.try_value() != *document->m_baseFingerprint))

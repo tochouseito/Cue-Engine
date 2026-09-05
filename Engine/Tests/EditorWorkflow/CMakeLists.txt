@@ -32,11 +32,13 @@ if(MSVC)
 endif()
 
 add_custom_target(Cue.Editor.Workflow.Tests DEPENDS CueEditorWorkflowProcessTests)
+add_dependencies(CueEditorWorkflowProcessTests CueEditorTool)
 
-add_test(NAME Cue.Editor.Workflow.ProcessRoundTrip COMMAND CueEditorWorkflowProcessTests)
+add_test(NAME Cue.Editor.Workflow.ProcessRoundTrip COMMAND CueEditorWorkflowProcessTests $<TARGET_FILE:CueEditorTool>)
 set_tests_properties(
     Cue.Editor.Workflow.ProcessRoundTrip
     PROPERTIES
         LABELS "Editor;Process"
-        TIMEOUT 30
+        RUN_SERIAL TRUE
+        TIMEOUT 60
 )

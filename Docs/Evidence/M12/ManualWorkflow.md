@@ -41,6 +41,9 @@ Project HubとEditorを別Processとして起動し、Project選択からScene�
 3. Sceneへ別の変更を加えてWindowを閉じ、「破棄」で保存せずにEditorが終了することを確認する。
 4. `../Outside.cuescene`、絶対Path、不正文字をScene Locatorへ入力し、Project Root外を開けないことを確認する。
 5. 存在しないSceneを開き、Editor Processが落ちず、同じProject-only画面から再試行できることを確認する。
+6. Scene編集中に存在しない、または破損したSceneを開き、現在のScene、Selection、History、Dirty状態が維持されることを確認する。
+7. 保存結果が未確定になった場合、成功表示や自動終了をせず、「再検証 / 再試行」と「不確定記録を破棄」を選べることを確認する。
+8. 新規Sceneの初回保存先が既に存在する場合、通常Saveでは置換せず、別の上書き確認を表示することを確認する。
 
 ## Expected Persistence
 
@@ -48,6 +51,12 @@ Project HubとEditorを別Processとして起動し、Project選択からScene�
 - 保存済みSceneの読込失敗時、現在のSessionへ部分的なDocumentを公開しない。
 - 保存失敗または保存未確定時、成功表示と終了を行わず、元Fileを保持して判断画面へ戻る。
 - Project HubはEditorの正常終了、起動失敗、異常終了のいずれでも自身の操作可能状態を回復する。
+
+## Automated Process Boundary
+
+`Cue.Editor.Workflow.ProcessRoundTrip`はTest用Projectと保存済みSceneを作成し、実際の`CueEditorTool.exe`をVersion付き
+Command Lineと`--initial-scene`で二Process連続起動する。各ProcessはTest専用の有限Frame設定で正常終了し、その後に
+Project ID、Scene ID、Object ID、保存Dataが維持されることを検証する。
 
 ## Deferred Default Scene
 

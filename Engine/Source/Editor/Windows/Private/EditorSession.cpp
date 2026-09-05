@@ -380,11 +380,11 @@ Result<void> WindowsEditorSession::initialize(ProjectDescriptor a_descriptor,
 
 Result<void> WindowsEditorSession::require_project_only_state() const noexcept
 {
-    if (m_activeDocumentId.has_value())
+    if (m_activeDocumentId.has_value() || m_preparedDocumentId.has_value())
     {
         return Result<void>::failure(make_session_error(*m_assertContext,
                                                         WindowsEditorSessionError::InvalidSessionState,
-                                                        "Close the active scene before opening another scene"));
+                                                        "Close or discard every session scene before opening another scene"));
     }
     return Result<void>::success();
 }
@@ -396,6 +396,38 @@ Result<editor_core::EditorDocumentId> WindowsEditorSession::create_scene(Relativ
     if (!projectOnly)
     {
         return Result<editor_core::EditorDocumentId>::failure(std::move(*projectOnly.try_error()));
+    }
+    Result<editor_core::EditorDocumentId> prepared = prepare_new_scene(std::move(a_locator));
+    if (!prepared)
+    {
+        return prepared;
+    }
+    m_activeDocumentId = *m_preparedDocumentId;
+    m_preparedDocumentId.reset();
+    return prepared;
+}
+
+Result<editor_core::EditorDocumentId> WindowsEditorSession::prepare_new_scene(RelativePath a_locator) noexcept
+{
+    reconcile_active_document();
+    if (m_preparedDocumentId.has_value())
+    {
+        return Result<editor_core::EditorDocumentId>::failure(make_session_error(
+            *m_assertContext, WindowsEditorSessionError::InvalidSessionState,
+            "A prepared scene must be activated or discarded before preparing another scene"));
+    }
+    Result<EntryType> entry = m_sourceAssetsRoot->query_entry(a_locator);
+    if (!entry)
+    {
+        return Result<editor_core::EditorDocumentId>::failure(reclassify_session_error(
+            *m_assertContext, WindowsEditorSessionError::SceneOpenFailed,
+            "New scene destination could not be inspected", std::move(*entry.try_error())));
+    }
+    if (*entry.try_value() != EntryType::Missing)
+    {
+        return Result<editor_core::EditorDocumentId>::failure(make_session_error(
+            *m_assertContext, WindowsEditorSessionError::SceneOpenFailed,
+            "New scene destination already exists"));
     }
     Result<scene::SceneAssetId> sceneId = scene::SceneAssetId::generate(*m_sceneIdentitySource, *m_assertContext);
     if (!sceneId)
@@ -413,7 +445,7 @@ Result<editor_core::EditorDocumentId> WindowsEditorSession::create_scene(Relativ
             reclassify_session_error(*m_assertContext, WindowsEditorSessionError::SceneOpenFailed,
                                      "New scene could not be opened", std::move(*opened.try_error())));
     }
-    m_activeDocumentId = *opened.try_value();
+    m_preparedDocumentId = *opened.try_value();
     return opened;
 }
 
@@ -425,6 +457,25 @@ Result<editor_core::EditorDocumentId> WindowsEditorSession::open_scene(RelativeP
     {
         return Result<editor_core::EditorDocumentId>::failure(std::move(*projectOnly.try_error()));
     }
+    Result<editor_core::EditorDocumentId> prepared = prepare_open_scene(std::move(a_locator));
+    if (!prepared)
+    {
+        return prepared;
+    }
+    m_activeDocumentId = *m_preparedDocumentId;
+    m_preparedDocumentId.reset();
+    return prepared;
+}
+
+Result<editor_core::EditorDocumentId> WindowsEditorSession::prepare_open_scene(RelativePath a_locator) noexcept
+{
+    reconcile_active_document();
+    if (m_preparedDocumentId.has_value())
+    {
+        return Result<editor_core::EditorDocumentId>::failure(make_session_error(
+            *m_assertContext, WindowsEditorSessionError::InvalidSessionState,
+            "A prepared scene must be activated or discarded before preparing another scene"));
+    }
     Result<editor_core::EditorDocumentId> opened = m_controller->open_document_from_storage(std::move(a_locator));
     if (!opened)
     {
@@ -432,8 +483,60 @@ Result<editor_core::EditorDocumentId> WindowsEditorSession::open_scene(RelativeP
             reclassify_session_error(*m_assertContext, WindowsEditorSessionError::SceneOpenFailed,
                                      "Scene could not be opened from Source Assets", std::move(*opened.try_error())));
     }
-    m_activeDocumentId = *opened.try_value();
+    m_preparedDocumentId = *opened.try_value();
     return opened;
+}
+
+Result<editor_core::DocumentCloseState> WindowsEditorSession::request_activate_prepared_scene() noexcept
+{
+    reconcile_active_document();
+    if (!m_preparedDocumentId.has_value())
+    {
+        return Result<editor_core::DocumentCloseState>::failure(make_session_error(
+            *m_assertContext, WindowsEditorSessionError::InvalidSessionState,
+            "No prepared scene is available to activate"));
+    }
+    if (!m_activeDocumentId.has_value())
+    {
+        m_activeDocumentId = *m_preparedDocumentId;
+        m_preparedDocumentId.reset();
+        return Result<editor_core::DocumentCloseState>::success(editor_core::DocumentCloseState::Closed);
+    }
+    Result<editor_core::DocumentCloseState> state = m_controller->request_close(*m_activeDocumentId);
+    reconcile_active_document();
+    return state;
+}
+
+Result<void> WindowsEditorSession::discard_prepared_scene() noexcept
+{
+    if (!m_preparedDocumentId.has_value())
+    {
+        return Result<void>::failure(make_session_error(*m_assertContext,
+                                                        WindowsEditorSessionError::InvalidSessionState,
+                                                        "No prepared scene is available to discard"));
+    }
+    const editor_core::EditorDocumentId preparedId = *m_preparedDocumentId;
+    Result<editor_core::DocumentCloseState> state = m_controller->request_close(preparedId);
+    if (!state)
+    {
+        return Result<void>::failure(std::move(*state.try_error()));
+    }
+    if (*state.try_value() == editor_core::DocumentCloseState::AwaitingDecision)
+    {
+        state = m_controller->respond_to_close(preparedId, editor_core::CloseDecision::Discard);
+        if (!state)
+        {
+            return Result<void>::failure(std::move(*state.try_error()));
+        }
+    }
+    if (*state.try_value() != editor_core::DocumentCloseState::Closed)
+    {
+        return Result<void>::failure(make_session_error(
+            *m_assertContext, WindowsEditorSessionError::InvalidSessionState,
+            "Prepared scene did not reach the closed state"));
+    }
+    m_preparedDocumentId.reset();
+    return Result<void>::success();
 }
 
 Result<editor_core::EditorDocumentId> WindowsEditorSession::open_recovery_scene(std::string_view a_sceneId) noexcept
@@ -461,6 +564,17 @@ Result<std::vector<editor_core::RecoveryCandidateInspection>> WindowsEditorSessi
 }
 
 Result<scene::SceneSaveOutcome> WindowsEditorSession::save_active_scene() noexcept
+{
+    return save_active_scene_impl(false);
+}
+
+Result<scene::SceneSaveOutcome> WindowsEditorSession::save_active_scene_overwriting_existing_destination() noexcept
+{
+    return save_active_scene_impl(true);
+}
+
+Result<scene::SceneSaveOutcome> WindowsEditorSession::save_active_scene_impl(
+    bool a_allowExistingDestination) noexcept
 {
     reconcile_active_document();
     if (!m_activeDocumentId.has_value())
@@ -494,7 +608,10 @@ Result<scene::SceneSaveOutcome> WindowsEditorSession::save_active_scene() noexce
     Result<scene::SceneSaveOutcome> saved =
         document->has_saved_destination()
             ? m_controller->save_document(*m_activeDocumentId)
-            : m_controller->save_document_as(*m_activeDocumentId, RelativePath(document->scene_locator()));
+            : (a_allowExistingDestination
+                   ? m_controller->save_document_as(*m_activeDocumentId, RelativePath(document->scene_locator()))
+                   : m_controller->save_document_as_new(*m_activeDocumentId,
+                                                        RelativePath(document->scene_locator())));
     reconcile_active_document();
     return saved;
 }
@@ -509,6 +626,34 @@ Result<editor_core::DocumentStateId> WindowsEditorSession::reload_active_scene()
                                "No active scene is available to reload"));
     }
     return m_controller->reload_document(*m_activeDocumentId);
+}
+
+Result<scene::SceneSaveStatus> WindowsEditorSession::retry_uncertain_save_active_scene() noexcept
+{
+    reconcile_active_document();
+    if (!m_activeDocumentId.has_value())
+    {
+        return Result<scene::SceneSaveStatus>::failure(
+            make_session_error(*m_assertContext, WindowsEditorSessionError::InvalidSessionState,
+                               "No active scene has an uncertain save to retry"));
+    }
+    Result<scene::SceneSaveStatus> status = m_controller->retry_uncertain_save(*m_activeDocumentId);
+    reconcile_active_document();
+    return status;
+}
+
+Result<void> WindowsEditorSession::discard_uncertain_save_active_scene() noexcept
+{
+    reconcile_active_document();
+    if (!m_activeDocumentId.has_value())
+    {
+        return Result<void>::failure(make_session_error(
+            *m_assertContext, WindowsEditorSessionError::InvalidSessionState,
+            "No active scene has an uncertain save to discard"));
+    }
+    Result<void> discarded = m_controller->discard_uncertain_save(*m_activeDocumentId);
+    reconcile_active_document();
+    return discarded;
 }
 
 Result<editor_core::DocumentCloseState> WindowsEditorSession::request_close() noexcept
@@ -558,6 +703,11 @@ const std::optional<editor_core::EditorDocumentId> &WindowsEditorSession::active
     return m_activeDocumentId;
 }
 
+bool WindowsEditorSession::has_prepared_scene() const noexcept
+{
+    return m_preparedDocumentId.has_value();
+}
+
 std::string_view WindowsEditorSession::project_locator() const noexcept
 {
     return m_projectLocator;
@@ -568,6 +718,11 @@ void WindowsEditorSession::reconcile_active_document() noexcept
     if (m_activeDocumentId.has_value() && m_controller->session().find_document(*m_activeDocumentId) == nullptr)
     {
         m_activeDocumentId.reset();
+        if (m_preparedDocumentId.has_value())
+        {
+            m_activeDocumentId = *m_preparedDocumentId;
+            m_preparedDocumentId.reset();
+        }
     }
 }
 } // namespace cue::editor
