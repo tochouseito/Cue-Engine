@@ -23,6 +23,7 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <source_location>
@@ -80,11 +81,89 @@ struct PresentationFrameProbeState final
 thread_local PresentationFrameProbeState g_presentationFrameProbeState = {};
 thread_local bool g_deviceRemovalProbeUnavailable = false;
 thread_local bool g_reportDeviceRemovedForProbe = false;
+thread_local ID3D12CommandQueue *g_lifecycleProbeQueue = nullptr;
+
+/// @brief 合成 Device Removal を通知する前に Native Fence の実完了を待機する
+HRESULT wait_for_native_fence_completion_for_probe(ID3D12Fence *a_fence, std::uint64_t a_value) noexcept
+{
+    const cue::D3d12QueueNativeFunctions &functions = cue::default_d3d12_queue_native_functions();
+
+    if (functions.getCompletedValue(a_fence) >= a_value)
+    {
+        return S_OK;
+    }
+
+    HANDLE completionEvent = functions.createEvent(nullptr, FALSE, FALSE, nullptr);
+
+    if (completionEvent == nullptr)
+    {
+        return HRESULT_FROM_WIN32(functions.getLastError());
+    }
+
+    HRESULT result = functions.setEventOnCompletion(a_fence, a_value, completionEvent);
+
+    if (SUCCEEDED(result))
+    {
+        const DWORD waitResult = functions.waitForSingleObject(completionEvent, k_maximumWaitTimeoutMilliseconds);
+
+        if (waitResult == WAIT_TIMEOUT)
+        {
+            result = HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+        }
+        else if (waitResult != WAIT_OBJECT_0)
+        {
+            result = HRESULT_FROM_WIN32(functions.getLastError());
+        }
+    }
+
+    if (!functions.closeHandle(completionEvent) && SUCCEEDED(result))
+    {
+        result = HRESULT_FROM_WIN32(functions.getLastError());
+    }
+
+    return result;
+}
+
+/// @brief 合成 Device Removal 後の解放に備えて Probe Queue の全実Workを完了させる
+HRESULT wait_for_native_queue_idle_for_probe(ID3D12CommandQueue *a_queue) noexcept
+{
+    if (a_queue == nullptr)
+    {
+        return E_POINTER;
+    }
+
+    Microsoft::WRL::ComPtr<ID3D12Device> device;
+    HRESULT result = a_queue->GetDevice(IID_PPV_ARGS(device.ReleaseAndGetAddressOf()));
+
+    if (FAILED(result))
+    {
+        return result;
+    }
+
+    Microsoft::WRL::ComPtr<ID3D12Fence> completionFence;
+    result = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(completionFence.ReleaseAndGetAddressOf()));
+
+    if (FAILED(result))
+    {
+        return result;
+    }
+
+    constexpr std::uint64_t completionValue = 1;
+    result = cue::default_d3d12_queue_native_functions().signal(a_queue, completionFence.Get(), completionValue);
+
+    if (FAILED(result))
+    {
+        return result;
+    }
+
+    return wait_for_native_fence_completion_for_probe(completionFence.Get(), completionValue);
+}
 
 /// @brief D3D12 Backend の Command Lists For Lifecycle Probe を GPU 実行順と Resource State を守って投入する
 void execute_command_lists_for_lifecycle_probe(ID3D12CommandQueue *a_queue, UINT a_count,
                                                ID3D12CommandList *const *a_lists) noexcept
 {
+    g_lifecycleProbeQueue = a_queue;
     cue::default_d3d12_queue_native_functions().executeCommandLists(a_queue, a_count, a_lists);
 }
 
@@ -93,16 +172,25 @@ HRESULT signal_for_lifecycle_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_f
 {
     if (g_queueLifecycleProbeState.removeDeviceBeforeSignal)
     {
-        Microsoft::WRL::ComPtr<ID3D12Device5> device;
+        // Hosted Runner の WARP Device を実際に破棄すると Process 外で Access Violation になる場合があるため、
+        // Fence は完了可能にした上で Production と同じ Device Removed 分類を通す Native 結果を注入する。
+        const HRESULT signalResult = cue::default_d3d12_queue_native_functions().signal(a_queue, a_fence, a_value);
 
-        if (SUCCEEDED(a_queue->GetDevice(IID_PPV_ARGS(&device))))
+        if (FAILED(signalResult))
         {
-            device->RemoveDevice();
+            return signalResult;
         }
-        else
+
+        const HRESULT completionResult = wait_for_native_fence_completion_for_probe(a_fence, a_value);
+
+        if (FAILED(completionResult))
         {
             g_deviceRemovalProbeUnavailable = true;
+            return completionResult;
         }
+
+        g_reportDeviceRemovedForProbe = true;
+        return DXGI_ERROR_DEVICE_REMOVED;
     }
 
     const HRESULT result = cue::default_d3d12_queue_native_functions().signal(a_queue, a_fence, a_value);
@@ -112,6 +200,11 @@ HRESULT signal_for_lifecycle_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_f
 /// @brief Lifecycle Probe が使用する Fence 完了値を Native Queue 経路へ返す
 std::uint64_t completed_value_for_lifecycle_probe(ID3D12Fence *a_fence) noexcept
 {
+    if (g_reportDeviceRemovedForProbe)
+    {
+        return std::numeric_limits<std::uint64_t>::max();
+    }
+
     if (g_queueLifecycleProbeState.hiddenCompletedValueCount > 0)
     {
         --g_queueLifecycleProbeState.hiddenCompletedValueCount;
@@ -214,15 +307,16 @@ HRESULT present_for_lifecycle_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInt
             return presentResult;
         }
 
-        Microsoft::WRL::ComPtr<ID3D12Device5> device;
+        const HRESULT completionResult = wait_for_native_queue_idle_for_probe(g_lifecycleProbeQueue);
 
-        if (FAILED(a_swapChain->GetDevice(IID_PPV_ARGS(&device))))
+        if (FAILED(completionResult))
         {
             g_deviceRemovalProbeUnavailable = true;
-            return E_NOINTERFACE;
+            return completionResult;
         }
 
-        device->RemoveDevice();
+        // Present 自体は実行し、直後の Device Removed 応答だけを注入して Driver 依存の Device 破壊を避ける。
+        g_reportDeviceRemovedForProbe = true;
         return DXGI_ERROR_DEVICE_REMOVED;
     }
 
@@ -2062,6 +2156,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
 {
     g_deviceRemovalProbeUnavailable = false;
     g_reportDeviceRemovedForProbe = false;
+    g_lifecycleProbeQueue = nullptr;
 
     struct ProbeReset final
     {
@@ -2071,6 +2166,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
             g_presentationFrameProbeState = {};
             g_queueLifecycleProbeState = {};
             g_reportDeviceRemovedForProbe = false;
+            g_lifecycleProbeQueue = nullptr;
         }
     } probeReset;
 
@@ -2081,6 +2177,7 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
     {
         g_presentationFrameProbeState = {true, false, false};
         g_queueLifecycleProbeState = {true, false, false, false, false, 0};
+        g_lifecycleProbeQueue = nullptr;
         D3d12BackendDescriptor backendDescriptor = {
             D3d12AdapterPolicy::Warp,
             D3d12ValidationMode::Disabled,
@@ -2400,12 +2497,24 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
             !a_failPresent || !a_removeBeforeSignal ||
             (frameError != nullptr &&
              has_error_contexts_in_order(*frameError, "Cue.RHI.D3D12/46", "Cue.RHI.D3D12/50") &&
-             has_error_context(*frameError, "NativeError=D3D12/"));
+             has_error_context(*frameError, "Secondary shutdown Error Cause NativeError=D3D12/-2005270523"));
+        const NativeError *immediateCauseNativeError = frameError == nullptr || frameError->causes().empty()
+                                                           ? nullptr
+                                                           : frameError->causes().front().try_native_error();
+        const bool directPresentNativeErrorValid =
+            !a_removeBeforePresent ||
+            (immediateCauseNativeError != nullptr &&
+             immediateCauseNativeError->value() == static_cast<std::int64_t>(DXGI_ERROR_DEVICE_REMOVED));
+        const bool regularSignalNativeErrorValid =
+            !a_removeBeforeSignal || a_failPresent ||
+            (immediateCauseNativeError != nullptr &&
+             immediateCauseNativeError->value() == static_cast<std::int64_t>(DXGI_ERROR_DEVICE_REMOVED));
         const bool frameValid =
             removalProbeAvailable && !frameResult && frameError != nullptr &&
             frameError->code().domain() == "Cue.RHI.D3D12" && frameError->code().value() == 52 &&
             frameError->try_native_error() != nullptr && !frameError->causes().empty() &&
             frameError->causes().front().code().value() == a_expectedCauseCode && recoverySignalErrorValid &&
+            directPresentNativeErrorValid && regularSignalNativeErrorValid &&
             presentationStateBeforeShutdown == PresentationContextState::DeviceRemoved &&
             backendStateBeforeShutdown == GraphicsBackendState::DeviceRemoved && report.lastSubmittedFence == 0 &&
             report.frameReuseFences[0] == 0 && report.frameReuseFences[1] == 0 && !report.isAcceptingFrames &&
