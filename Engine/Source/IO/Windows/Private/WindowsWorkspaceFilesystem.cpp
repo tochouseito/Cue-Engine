@@ -5,6 +5,7 @@
 #include <Cue/IO/Error.h>
 
 #include <Windows.h>
+#include <winternl.h>
 
 #include <algorithm>
 #include <array>
@@ -715,6 +716,63 @@ void cleanup_owned_temporary(std::wstring_view a_path, const RootIdentity &a_ide
     {
         return GetLastError();
     }
+    return ERROR_SUCCESS;
+}
+
+/// @brief Parent Handle直下へDirectoryを排他的に作成して同じNative操作でHandleを取得する
+[[nodiscard]] DWORD create_directory_exclusive(HANDLE a_parent, std::wstring_view a_name,
+                                               UniqueHandle &a_createdHandle) noexcept
+{
+    if (a_name.empty() ||
+        a_name.size() > static_cast<std::size_t>(std::numeric_limits<USHORT>::max()) / sizeof(wchar_t))
+    {
+        return ERROR_FILENAME_EXCED_RANGE;
+    }
+
+    using NtCreateFileFunction = NTSTATUS(NTAPI *)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, PIO_STATUS_BLOCK,
+                                                   PLARGE_INTEGER, ULONG, ULONG, ULONG, ULONG, PVOID, ULONG);
+    using RtlNtStatusToDosErrorFunction = ULONG(NTAPI *)(NTSTATUS);
+
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    if (ntdll == nullptr)
+    {
+        return ERROR_CALL_NOT_IMPLEMENTED;
+    }
+    const auto ntCreateFile = reinterpret_cast<NtCreateFileFunction>(GetProcAddress(ntdll, "NtCreateFile"));
+    const auto rtlNtStatusToDosError =
+        reinterpret_cast<RtlNtStatusToDosErrorFunction>(GetProcAddress(ntdll, "RtlNtStatusToDosError"));
+    if (ntCreateFile == nullptr || rtlNtStatusToDosError == nullptr)
+    {
+        return ERROR_CALL_NOT_IMPLEMENTED;
+    }
+
+    UNICODE_STRING name{};
+    name.Length = static_cast<USHORT>(a_name.size() * sizeof(wchar_t));
+    name.MaximumLength = name.Length;
+    name.Buffer = const_cast<PWSTR>(a_name.data());
+
+    OBJECT_ATTRIBUTES attributes{};
+    InitializeObjectAttributes(&attributes, &name, OBJ_CASE_INSENSITIVE | OBJ_DONT_REPARSE, a_parent, nullptr);
+    IO_STATUS_BLOCK statusBlock{};
+    HANDLE created = INVALID_HANDLE_VALUE;
+    const NTSTATUS status = ntCreateFile(
+        &created, DELETE | FILE_READ_ATTRIBUTES | SYNCHRONIZE, &attributes, &statusBlock, nullptr,
+        FILE_ATTRIBUTE_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_CREATE,
+        FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT | FILE_WRITE_THROUGH | FILE_OPEN_REPARSE_POINT, nullptr, 0U);
+    if (status < 0)
+    {
+        return rtlNtStatusToDosError(status);
+    }
+    if (created == nullptr || created == INVALID_HANDLE_VALUE || statusBlock.Information != FILE_CREATED)
+    {
+        if (created != nullptr && created != INVALID_HANDLE_VALUE)
+        {
+            CloseHandle(created);
+        }
+        return ERROR_INVALID_DATA;
+    }
+
+    a_createdHandle.reset(created);
     return ERROR_SUCCESS;
 }
 
@@ -1468,19 +1526,21 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_directory_new(
         return not_committed(std::move(*staging.try_error()));
     }
 
-    if (CreateDirectoryW(staging.try_value()->c_str(), nullptr) == FALSE)
+    const std::size_t stagingNameOffset = staging.try_value()->rfind(L'\\');
+    if (stagingNameOffset == std::wstring::npos || stagingNameOffset + 1U == staging.try_value()->size())
     {
-        return not_committed(
-            make_windows_error(m_assertContext, GetLastError(), "Workspace staging directory creation failed"));
+        return not_committed(cue::make_io_error(m_assertContext, cue::IoError::InvalidPath,
+                                                "Workspace staging directory name is invalid"));
     }
 
-    UniqueHandle stagingHandle(CreateFileW(
-        staging.try_value()->c_str(), DELETE | FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-        OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_WRITE_THROUGH, nullptr));
-    if (!stagingHandle.is_valid())
+    UniqueHandle stagingHandle;
+    const DWORD createCode = create_directory_exclusive(
+        pinned.try_value()->back().get(), std::wstring_view(*staging.try_value()).substr(stagingNameOffset + 1U),
+        stagingHandle);
+    if (createCode != ERROR_SUCCESS)
     {
-        return reconciliation_required(
-            make_windows_error(m_assertContext, GetLastError(), "Workspace staging directory open failed"));
+        return not_committed(
+            make_windows_error(m_assertContext, createCode, "Workspace staging directory creation failed"));
     }
     cue::Result<RootIdentity> identity = read_entry_identity(stagingHandle.get(), m_assertContext);
     if (!identity)

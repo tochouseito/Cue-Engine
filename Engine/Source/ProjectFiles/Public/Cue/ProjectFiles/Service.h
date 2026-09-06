@@ -137,6 +137,8 @@ class ProjectFileService final
     ~ProjectFileService() = default;
 
     /// @brief Descriptor SnapshotとRoot-bound Workspaceを検証し、部分Serviceを公開せず構築する
+    ///
+    /// a_assertContextが参照するLoggerとFatalHandlerは、返されたServiceより長く生存しなければならない
     [[nodiscard]] static Result<ProjectFileService> create(
         const ProjectDescriptor &a_descriptor, std::unique_ptr<WorkspaceFilesystem> a_workspace,
         std::unique_ptr<ProjectFileOperationIdSource> a_operationIdSource,
