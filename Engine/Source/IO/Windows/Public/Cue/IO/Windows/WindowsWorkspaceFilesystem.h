@@ -10,8 +10,8 @@ namespace cue
 {
 class AssertContext;
 
-/// @brief Local Drive上のAbsolute Windows DirectoryへRoot境界付きWorkspace列挙CapabilityをBindingする
-/// @param a_rootPath BindingするLocal Drive上のAbsolute Windows DirectoryのUTF-8 Path。UNCは未対応
+/// @brief File ID Open対応Local Drive上のAbsolute Windows DirectoryへRoot境界付きWorkspace列挙CapabilityをBindingする
+/// @param a_rootPath BindingするLocal Drive上のAbsolute Windows DirectoryのUTF-8 Path。UNCと非対応Filesystemは拒否する
 /// @param a_assertContext Workspaceが所有Copyする診断Context。参照先LoggerとFatalHandlerはWorkspaceより長生きさせる
 [[nodiscard]] Result<std::unique_ptr<WorkspaceFilesystem>> create_windows_workspace_filesystem(
     std::string_view a_rootPath, const AssertContext &a_assertContext) noexcept;

@@ -1158,6 +1158,20 @@ Result<std::unique_ptr<WorkspaceFilesystem>> create_windows_workspace_filesystem
             make_io_error(a_assertContext, IoError::UnsupportedEntry, "Workspace root is a reparse point"));
     }
 
+    DWORD fileSystemFlags = 0U;
+    if (GetVolumeInformationByHandleW(root.get(), nullptr, 0U, nullptr, nullptr, &fileSystemFlags, nullptr, 0U) ==
+        FALSE)
+    {
+        return Result<std::unique_ptr<WorkspaceFilesystem>>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace volume capability query failed"));
+    }
+    if ((fileSystemFlags & FILE_SUPPORTS_OPEN_BY_FILE_ID) == 0U)
+    {
+        return Result<std::unique_ptr<WorkspaceFilesystem>>::failure(
+            make_io_error(a_assertContext, IoError::UnsupportedEntry,
+                          "Workspace volume does not support opening entries by file id"));
+    }
+
     const DWORD finalRequired =
         GetFinalPathNameByHandleW(root.get(), nullptr, 0U, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
     if (finalRequired == 0U)

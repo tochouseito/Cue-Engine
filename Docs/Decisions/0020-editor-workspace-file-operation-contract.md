@@ -572,6 +572,8 @@ Windows AdapterがBindingするProject RootはM13ではLocal Drive上のAbsolute
 `DRIVE_REMOTE`へMapされたDrive Letter Rootは`IoError::UnsupportedEntry`としてFactory時点で拒否する。
 `\\?\\C:\\...`形式のExtended Local Pathは受理する。SMBではRoot境界に使用する`OpenFileById`が利用できないため、
 「Transactionを保証しない」状態で列挙だけを暗黙許可せず、Network Share対応時に別の安全なNative経路を設計する。
+同じ理由で、Local Driveでも`FILE_SUPPORTS_OPEN_BY_FILE_ID`を公開しないFilesystemはFactory時点で
+`IoError::UnsupportedEntry`として拒否する。
 
 ### Headless Test Boundary
 
