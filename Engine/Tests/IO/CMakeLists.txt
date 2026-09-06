@@ -28,7 +28,7 @@ target_link_libraries(CueWorkspaceCoreTests PRIVATE Cue.IO)
 target_compile_features(CueWorkspaceCoreTests PRIVATE cxx_std_20)
 
 add_executable(CueWindowsWorkspaceTests WindowsWorkspaceTests.cpp)
-target_link_libraries(CueWindowsWorkspaceTests PRIVATE Cue.IO.Windows)
+target_link_libraries(CueWindowsWorkspaceTests PRIVATE Cue.IO.Windows Advapi32)
 target_compile_features(CueWindowsWorkspaceTests PRIVATE cxx_std_20)
 
 set(cueIoTestTargets CueIoTests CueIoPublicHeaderTest CueWorkspaceCoreTests CueWindowsWorkspaceTests)

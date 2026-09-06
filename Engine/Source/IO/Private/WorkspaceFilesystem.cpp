@@ -248,7 +248,15 @@ void sort_workspace_entries(std::vector<WorkspaceEntry> &a_entries) noexcept
                   {
                       return a_left.sortKey < a_right.sortKey;
                   }
-                  return a_left.displayName < a_right.displayName;
+                  if (a_left.displayName != a_right.displayName)
+                  {
+                      return a_left.displayName < a_right.displayName;
+                  }
+                  const std::string_view leftLocator =
+                      a_left.locator.has_value() ? a_left.locator->text() : std::string_view{};
+                  const std::string_view rightLocator =
+                      a_right.locator.has_value() ? a_right.locator->text() : std::string_view{};
+                  return leftLocator < rightLocator;
               });
 }
 

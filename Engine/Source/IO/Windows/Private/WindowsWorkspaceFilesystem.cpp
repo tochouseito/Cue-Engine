@@ -92,41 +92,6 @@ class UniqueHandle final
     HANDLE m_handle = INVALID_HANDLE_VALUE;
 };
 
-/// @brief Win32 Find Handleを一意所有する
-class UniqueFindHandle final
-{
-  public:
-    /// @brief Find HandleのClose責務を受け取る
-    explicit UniqueFindHandle(HANDLE a_handle) noexcept : m_handle(a_handle)
-    {
-    }
-    /// @brief Find Handleの二重Closeを防ぐためCopy構築を禁止する
-    UniqueFindHandle(const UniqueFindHandle &) = delete;
-    /// @brief Find Handleの二重Closeを防ぐためCopy代入を禁止する
-    UniqueFindHandle &operator=(const UniqueFindHandle &) = delete;
-    /// @brief Find Handleの移動を禁止する
-    UniqueFindHandle(UniqueFindHandle &&) = delete;
-    /// @brief Find Handleの移動代入を禁止する
-    UniqueFindHandle &operator=(UniqueFindHandle &&) = delete;
-    /// @brief 有効なFind Handleを閉じる
-    ~UniqueFindHandle()
-    {
-        if (m_handle != INVALID_HANDLE_VALUE)
-        {
-            FindClose(m_handle);
-        }
-    }
-
-    /// @brief Native APIへ渡すFind Handleを返す
-    [[nodiscard]] HANDLE get() const noexcept
-    {
-        return m_handle;
-    }
-
-  private:
-    HANDLE m_handle = INVALID_HANDLE_VALUE;
-};
-
 /// @brief noexcept処理中のAllocation失敗をProject Fatal Policyへ接続する
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_assertContext) noexcept
 {
@@ -327,6 +292,14 @@ struct RootIdentity final
     DWORD fileIndexLow = 0U;
 };
 
+/// @brief Pin済みDirectory Handleから取得したEntry MetadataとFile Identity
+struct NativeDirectoryEntry final
+{
+    std::wstring_view name;
+    DWORD attributes = 0U;
+    LARGE_INTEGER fileId{};
+};
+
 /// @brief Windows Root境界内だけを列挙するWorkspace Adapter
 class WindowsWorkspaceFilesystem final : public cue::WorkspaceFilesystem
 {
@@ -370,8 +343,8 @@ class WindowsWorkspaceFilesystem final : public cue::WorkspaceFilesystem
 
     /// @brief Find Data一件を検証済みPortable Entryへ変換する
     [[nodiscard]] cue::Result<cue::WorkspaceEntry> make_entry(const cue::WorkspaceDirectory &a_directory,
-                                                              const std::wstring &a_targetPath,
-                                                              const WIN32_FIND_DATAW &a_data,
+                                                              HANDLE a_directoryHandle,
+                                                              const NativeDirectoryEntry &a_data,
                                                               std::uint64_t a_generation,
                                                               cue::DirectorySnapshot &a_snapshot) const noexcept;
 
@@ -473,10 +446,10 @@ cue::Result<std::vector<UniqueHandle>> WindowsWorkspaceFilesystem::pin_directory
 }
 
 cue::Result<cue::WorkspaceEntry> WindowsWorkspaceFilesystem::make_entry(
-    const cue::WorkspaceDirectory &a_directory, const std::wstring &a_targetPath, const WIN32_FIND_DATAW &a_data,
+    const cue::WorkspaceDirectory &a_directory, HANDLE a_directoryHandle, const NativeDirectoryEntry &a_data,
     std::uint64_t a_generation, cue::DirectorySnapshot &a_snapshot) const noexcept
 {
-    const std::wstring_view nativeName(a_data.cFileName);
+    const std::wstring_view nativeName(a_data.name);
     cue::WorkspaceEntry entry;
     entry.parentGeneration = a_generation;
 
@@ -500,27 +473,13 @@ cue::Result<cue::WorkspaceEntry> WindowsWorkspaceFilesystem::make_entry(
         return cue::Result<cue::WorkspaceEntry>::success(std::move(entry));
     }
 
-    if ((a_data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
-    {
-        copy_display_sort_key(entry, m_assertContext);
-        entry.type = cue::WorkspaceEntryType::UnsupportedEntry;
-        entry.rejection = cue::WorkspaceDiagnosticCode::ReparsePoint;
-        return cue::Result<cue::WorkspaceEntry>::success(std::move(entry));
-    }
-
-    std::wstring childPath;
-    try
-    {
-        childPath = a_targetPath + L"\\" + std::wstring(nativeName);
-    }
-    catch (...)
-    {
-        terminate_allocation(m_assertContext);
-    }
-    const DWORD flags = FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS;
-    UniqueHandle child(CreateFileW(childPath.c_str(), GENERIC_READ,
-                                   FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                                   flags, nullptr));
+    FILE_ID_DESCRIPTOR descriptor{};
+    descriptor.dwSize = sizeof(descriptor);
+    descriptor.Type = FileIdType;
+    descriptor.FileId = a_data.fileId;
+    UniqueHandle child(OpenFileById(a_directoryHandle, &descriptor, FILE_READ_ATTRIBUTES,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                    FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS));
     if (!child.is_valid())
     {
         const DWORD code = GetLastError();
@@ -554,19 +513,26 @@ cue::Result<cue::WorkspaceEntry> WindowsWorkspaceFilesystem::make_entry(
                           static_cast<std::int64_t>(code), m_assertContext);
         return cue::Result<cue::WorkspaceEntry>::success(std::move(entry));
     }
-    const bool findDirectory = (a_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    const bool findDirectory = (a_data.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    const bool findReparse = (a_data.attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
     const bool actualDirectory = (information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-    if (findDirectory != actualDirectory || (information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+    const bool actualReparse = (information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+    if (findDirectory != actualDirectory || findReparse != actualReparse)
     {
         const cue::WorkspaceDiagnosticCode diagnosticCode =
-            (information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
-                ? cue::WorkspaceDiagnosticCode::ReparsePoint
-                : cue::WorkspaceDiagnosticCode::TypeChanged;
+            actualReparse ? cue::WorkspaceDiagnosticCode::ReparsePoint : cue::WorkspaceDiagnosticCode::TypeChanged;
         copy_display_sort_key(entry, m_assertContext);
         entry.type = cue::WorkspaceEntryType::UnsupportedEntry;
         entry.rejection = diagnosticCode;
         a_snapshot.state = cue::WorkspaceSnapshotState::RescanRequired;
         append_diagnostic(a_snapshot, diagnosticCode, entry.displayName, 0, m_assertContext);
+        return cue::Result<cue::WorkspaceEntry>::success(std::move(entry));
+    }
+    if (actualReparse)
+    {
+        copy_display_sort_key(entry, m_assertContext);
+        entry.type = cue::WorkspaceEntryType::UnsupportedEntry;
+        entry.rejection = cue::WorkspaceDiagnosticCode::ReparsePoint;
         return cue::Result<cue::WorkspaceEntry>::success(std::move(entry));
     }
 
@@ -617,31 +583,10 @@ cue::Result<cue::DirectorySnapshot> WindowsWorkspaceFilesystem::list_directory(
         return cue::Result<cue::DirectorySnapshot>::failure(std::move(*pinned.try_error()));
     }
 
-    std::wstring pattern;
-    try
-    {
-        pattern = targetPath + L"\\*";
-    }
-    catch (...)
-    {
-        terminate_allocation(m_assertContext);
-    }
-
-    WIN32_FIND_DATAW data{};
-    const HANDLE rawFind = FindFirstFileExW(pattern.c_str(), FindExInfoBasic, &data, FindExSearchNameMatch, nullptr,
-                                            FIND_FIRST_EX_LARGE_FETCH);
-    if (rawFind == INVALID_HANDLE_VALUE)
-    {
-        const DWORD code = GetLastError();
-        if (code == ERROR_FILE_NOT_FOUND)
-        {
-            return cue::Result<cue::DirectorySnapshot>::success(std::move(snapshot));
-        }
-        return cue::Result<cue::DirectorySnapshot>::failure(
-            make_windows_error(m_assertContext, code, "Workspace directory enumeration failed"));
-    }
-
-    UniqueFindHandle find(rawFind);
+    const HANDLE directoryHandle = pinned.try_value()->empty() ? m_rootHandle.get() : pinned.try_value()->back().get();
+    constexpr std::size_t k_directoryBufferBytes = 64U * 1024U;
+    alignas(FILE_ID_BOTH_DIR_INFO) std::array<std::byte, k_directoryBufferBytes> buffer{};
+    bool restart = true;
     std::size_t metadataBytes = 0U;
     const std::size_t maximumEntries =
         std::min({a_limits.maxVisitedEntries, a_limits.maxResults, k_windowsHardLimits.maxVisitedEntries,
@@ -651,64 +596,87 @@ cue::Result<cue::DirectorySnapshot> WindowsWorkspaceFilesystem::list_directory(
     {
         while (true)
         {
-            const std::wstring_view name(data.cFileName);
-            if (name != L"." && name != L"..")
-            {
-                if (snapshot.entries.size() == maximumEntries)
-                {
-                    return cue::Result<cue::DirectorySnapshot>::failure(cue::make_io_error(
-                        m_assertContext, cue::IoError::CapacityExceeded, "Workspace listing entry limit was exceeded"));
-                }
-                const std::size_t diagnosticCount = snapshot.diagnostics.size();
-                cue::Result<cue::WorkspaceEntry> converted =
-                    make_entry(a_directory, targetPath, data, snapshot.generation, snapshot);
-                if (!converted)
-                {
-                    return cue::Result<cue::DirectorySnapshot>::failure(std::move(*converted.try_error()));
-                }
-                for (std::size_t index = diagnosticCount; index < snapshot.diagnostics.size(); ++index)
-                {
-                    const std::size_t diagnosticBytes = metadata_bytes(snapshot.diagnostics[index]);
-                    if (diagnosticBytes > maximumMetadata - metadataBytes)
-                    {
-                        return cue::Result<cue::DirectorySnapshot>::failure(
-                            cue::make_io_error(m_assertContext, cue::IoError::CapacityExceeded,
-                                               "Workspace listing metadata limit was exceeded"));
-                    }
-                    metadataBytes += diagnosticBytes;
-                }
-                const std::size_t entryBytes = metadata_bytes(*converted.try_value());
-                if (entryBytes > maximumMetadata - metadataBytes)
-                {
-                    return cue::Result<cue::DirectorySnapshot>::failure(
-                        cue::make_io_error(m_assertContext, cue::IoError::CapacityExceeded,
-                                           "Workspace listing metadata limit was exceeded"));
-                }
-                metadataBytes += entryBytes;
-                snapshot.entries.push_back(std::move(*converted.try_value()));
-            }
-
-            if (FindNextFileW(find.get(), &data) == FALSE)
+            const FILE_INFO_BY_HANDLE_CLASS informationClass =
+                restart ? FileIdBothDirectoryRestartInfo : FileIdBothDirectoryInfo;
+            if (GetFileInformationByHandleEx(directoryHandle, informationClass, buffer.data(),
+                                             static_cast<DWORD>(buffer.size())) == FALSE)
             {
                 const DWORD code = GetLastError();
                 if (code == ERROR_NO_MORE_FILES)
                 {
                     break;
                 }
-                constexpr std::size_t k_diagnosticBytes = sizeof(cue::WorkspaceDiagnostic);
-                if (k_diagnosticBytes > maximumMetadata - metadataBytes)
+                return cue::Result<cue::DirectorySnapshot>::failure(
+                    make_windows_error(m_assertContext, code, "Workspace directory enumeration failed"));
+            }
+            restart = false;
+
+            std::size_t offset = 0U;
+            while (true)
+            {
+                constexpr std::size_t k_minimumEntryBytes = offsetof(FILE_ID_BOTH_DIR_INFO, FileName);
+                if (offset > buffer.size() - k_minimumEntryBytes)
                 {
-                    return cue::Result<cue::DirectorySnapshot>::failure(
-                        cue::make_io_error(m_assertContext, cue::IoError::CapacityExceeded,
-                                           "Workspace listing metadata limit was exceeded"));
+                    return cue::Result<cue::DirectorySnapshot>::failure(cue::make_io_error(
+                        m_assertContext, cue::IoError::IoFailure, "Workspace directory metadata is malformed"));
                 }
-                metadataBytes += k_diagnosticBytes;
-                snapshot.state = cue::WorkspaceSnapshotState::RescanRequired;
-                snapshot.diagnostics.push_back(cue::WorkspaceDiagnostic{snapshot.generation,
-                                                                        cue::WorkspaceDiagnosticCode::EnumerationFailed,
-                                                                        {},
-                                                                        static_cast<std::int64_t>(code)});
-                break;
+                const auto *data = reinterpret_cast<const FILE_ID_BOTH_DIR_INFO *>(buffer.data() + offset);
+                if ((data->FileNameLength % sizeof(wchar_t)) != 0U ||
+                    data->FileNameLength > buffer.size() - offset - k_minimumEntryBytes)
+                {
+                    return cue::Result<cue::DirectorySnapshot>::failure(cue::make_io_error(
+                        m_assertContext, cue::IoError::IoFailure, "Workspace directory name metadata is malformed"));
+                }
+
+                const std::wstring_view name(data->FileName, data->FileNameLength / sizeof(wchar_t));
+                if (name != L"." && name != L"..")
+                {
+                    if (snapshot.entries.size() == maximumEntries)
+                    {
+                        return cue::Result<cue::DirectorySnapshot>::failure(
+                            cue::make_io_error(m_assertContext, cue::IoError::CapacityExceeded,
+                                               "Workspace listing entry limit was exceeded"));
+                    }
+                    const std::size_t diagnosticCount = snapshot.diagnostics.size();
+                    const NativeDirectoryEntry nativeEntry{name, data->FileAttributes, data->FileId};
+                    cue::Result<cue::WorkspaceEntry> converted =
+                        make_entry(a_directory, directoryHandle, nativeEntry, snapshot.generation, snapshot);
+                    if (!converted)
+                    {
+                        return cue::Result<cue::DirectorySnapshot>::failure(std::move(*converted.try_error()));
+                    }
+                    for (std::size_t index = diagnosticCount; index < snapshot.diagnostics.size(); ++index)
+                    {
+                        const std::size_t diagnosticBytes = metadata_bytes(snapshot.diagnostics[index]);
+                        if (diagnosticBytes > maximumMetadata - metadataBytes)
+                        {
+                            return cue::Result<cue::DirectorySnapshot>::failure(
+                                cue::make_io_error(m_assertContext, cue::IoError::CapacityExceeded,
+                                                   "Workspace listing metadata limit was exceeded"));
+                        }
+                        metadataBytes += diagnosticBytes;
+                    }
+                    const std::size_t entryBytes = metadata_bytes(*converted.try_value());
+                    if (entryBytes > maximumMetadata - metadataBytes)
+                    {
+                        return cue::Result<cue::DirectorySnapshot>::failure(
+                            cue::make_io_error(m_assertContext, cue::IoError::CapacityExceeded,
+                                               "Workspace listing metadata limit was exceeded"));
+                    }
+                    metadataBytes += entryBytes;
+                    snapshot.entries.push_back(std::move(*converted.try_value()));
+                }
+
+                if (data->NextEntryOffset == 0U)
+                {
+                    break;
+                }
+                if (data->NextEntryOffset < k_minimumEntryBytes || data->NextEntryOffset > buffer.size() - offset)
+                {
+                    return cue::Result<cue::DirectorySnapshot>::failure(cue::make_io_error(
+                        m_assertContext, cue::IoError::IoFailure, "Workspace directory entry chain is malformed"));
+                }
+                offset += data->NextEntryOffset;
             }
         }
     }

@@ -4,6 +4,7 @@
 #include <Cue/IO/Error.h>
 #include <Cue/IO/Windows/WindowsWorkspaceFilesystem.h>
 
+#include <Aclapi.h>
 #include <Windows.h>
 
 #include <algorithm>
@@ -124,6 +125,90 @@ class TestDirectory final
     std::wstring m_outsidePath;
     std::wstring m_movedPath;
     bool m_created = false;
+};
+
+/// @brief Test FileのFILE_READ_ATTRIBUTES拒否DACLを所有して終了時に復元する
+class ScopedAttributeDenial final
+{
+  public:
+    /// @brief EveryoneへFILE_READ_ATTRIBUTES拒否を追加する
+    explicit ScopedAttributeDenial(std::wstring a_path) : m_path(std::move(a_path))
+    {
+        std::array<std::byte, SECURITY_MAX_SID_SIZE> sidStorage{};
+        DWORD sidSize = static_cast<DWORD>(sidStorage.size());
+        if (CreateWellKnownSid(WinWorldSid, nullptr, sidStorage.data(), &sidSize) == FALSE)
+        {
+            return;
+        }
+        const DWORD queried = GetNamedSecurityInfoW(m_path.data(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr,
+                                                    nullptr, &m_originalDacl, nullptr, &m_securityDescriptor);
+        if (queried != ERROR_SUCCESS)
+        {
+            return;
+        }
+
+        EXPLICIT_ACCESSW access{};
+        access.grfAccessPermissions = FILE_READ_ATTRIBUTES;
+        access.grfAccessMode = DENY_ACCESS;
+        access.grfInheritance = NO_INHERITANCE;
+        access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        access.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+        access.Trustee.ptstrName = static_cast<LPWSTR>(static_cast<void *>(sidStorage.data()));
+        const DWORD built = SetEntriesInAclW(1U, &access, m_originalDacl, &m_deniedDacl);
+        if (built != ERROR_SUCCESS)
+        {
+            return;
+        }
+        m_isApplied = SetNamedSecurityInfoW(m_path.data(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr,
+                                            m_deniedDacl, nullptr) == ERROR_SUCCESS;
+    }
+    ScopedAttributeDenial(const ScopedAttributeDenial &) = delete;
+    ScopedAttributeDenial &operator=(const ScopedAttributeDenial &) = delete;
+    ScopedAttributeDenial(ScopedAttributeDenial &&) = delete;
+    ScopedAttributeDenial &operator=(ScopedAttributeDenial &&) = delete;
+    /// @brief 元DACLを復元してSecurity Bufferを解放する
+    ~ScopedAttributeDenial()
+    {
+        (void)restore();
+        if (m_deniedDacl != nullptr)
+        {
+            LocalFree(m_deniedDacl);
+        }
+        if (m_securityDescriptor != nullptr)
+        {
+            LocalFree(m_securityDescriptor);
+        }
+    }
+
+    /// @brief 拒否DACLの適用に成功したか返す
+    [[nodiscard]] bool is_applied() const noexcept
+    {
+        return m_isApplied;
+    }
+
+    /// @brief 元DACLを一度だけ復元する
+    [[nodiscard]] bool restore() noexcept
+    {
+        if (!m_isApplied)
+        {
+            return true;
+        }
+        const DWORD restored = SetNamedSecurityInfoW(m_path.data(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr,
+                                                     nullptr, m_originalDacl, nullptr);
+        if (restored == ERROR_SUCCESS)
+        {
+            m_isApplied = false;
+            return true;
+        }
+        return false;
+    }
+
+  private:
+    std::wstring m_path;
+    PSECURITY_DESCRIPTOR m_securityDescriptor = nullptr;
+    PACL m_originalDacl = nullptr;
+    PACL m_deniedDacl = nullptr;
+    bool m_isApplied = false;
 };
 
 /// @brief Resultが指定Portable IO分類を保持するか判定する
@@ -361,15 +446,18 @@ struct MountPointReparseBuffer final
 [[nodiscard]] bool test_access_denied(cue::WorkspaceFilesystem &a_filesystem, const TestDirectory &a_directory)
 {
     const std::wstring lockedPath = a_directory.child(L"Locked.bin");
-    HANDLE locked = CreateFileW(lockedPath.c_str(), GENERIC_READ | GENERIC_WRITE, 0U, nullptr, CREATE_ALWAYS,
-                                FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (locked == INVALID_HANDLE_VALUE)
+    if (!write_file(lockedPath, "locked"))
+    {
+        return false;
+    }
+    ScopedAttributeDenial denied(lockedPath);
+    if (!denied.is_applied())
     {
         return false;
     }
     auto snapshot =
         a_filesystem.list_directory(cue::WorkspaceDirectory::root(), cue::TraversalLimits{4U, 64U, 64U, 16U * 1024U});
-    CloseHandle(locked);
+    const bool restored = denied.restore();
     if (!snapshot || snapshot.try_value()->state != cue::WorkspaceSnapshotState::RescanRequired)
     {
         return false;
@@ -383,7 +471,7 @@ struct MountPointReparseBuffer final
     {
         if (diagnostic.displayName == "Locked.bin" && diagnostic.code == cue::WorkspaceDiagnosticCode::PermissionDenied)
         {
-            return true;
+            return restored;
         }
     }
     return false;

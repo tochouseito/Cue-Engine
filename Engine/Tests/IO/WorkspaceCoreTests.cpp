@@ -45,14 +45,15 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
                                              std::uint64_t a_generation, const cue::AssertContext &a_assertContext)
 {
     auto locator = cue::RelativePath::parse(a_locator, a_assertContext);
-    if (!locator)
+    auto name = cue::RelativePath::parse(a_name, a_assertContext);
+    if (!locator || !name)
     {
         a_assertContext.fatal_handler().terminate("Workspace test locator parse failed");
     }
     cue::WorkspaceEntry entry;
     entry.parentGeneration = a_generation;
     entry.displayName = a_name;
-    entry.sortKey = locator.try_value()->comparison_key(a_assertContext);
+    entry.sortKey = name.try_value()->comparison_key(a_assertContext);
     auto directory = a_filesystem.bind_directory(std::move(*locator.try_value()), a_assertContext);
     if (!directory || directory.try_value()->locator() == nullptr)
     {
@@ -111,12 +112,18 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
             snapshot.entries.push_back(make_entry(*this, "Nested.txt", "Folder/Nested.txt",
                                                   cue::WorkspaceEntryType::RegularFile, snapshot.generation,
                                                   *m_assertContext));
+            snapshot.entries.push_back(make_entry(*this, "Shared.txt", "Folder/Shared.txt",
+                                                  cue::WorkspaceEntryType::RegularFile, snapshot.generation,
+                                                  *m_assertContext));
             snapshot.entries.push_back(make_entry(*this, "Deep", "Folder/Deep", cue::WorkspaceEntryType::Directory,
                                                   snapshot.generation, *m_assertContext));
         }
         else if (text == "Folder/Deep")
         {
             snapshot.entries.push_back(make_entry(*this, "End.txt", "Folder/Deep/End.txt",
+                                                  cue::WorkspaceEntryType::RegularFile, snapshot.generation,
+                                                  *m_assertContext));
+            snapshot.entries.push_back(make_entry(*this, "Shared.txt", "Folder/Deep/Shared.txt",
                                                   cue::WorkspaceEntryType::RegularFile, snapshot.generation,
                                                   *m_assertContext));
         }
@@ -180,9 +187,11 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
     FakeWorkspaceFilesystem filesystem(a_assertContext);
     const cue::TraversalLimits generous{4U, 16U, 16U, 4096U};
     auto found = cue::search_workspace(filesystem, cue::WorkspaceDirectory::root(), ".txt", generous, a_assertContext);
-    if (!found || found.try_value()->entries.size() != 2U || found.try_value()->visitedEntries != 5U ||
+    if (!found || found.try_value()->entries.size() != 4U || found.try_value()->visitedEntries != 7U ||
         found.try_value()->entries[0].displayName != "End.txt" ||
-        found.try_value()->entries[1].displayName != "Nested.txt")
+        found.try_value()->entries[1].displayName != "Nested.txt" ||
+        found.try_value()->entries[2].locator->text() != "Folder/Deep/Shared.txt" ||
+        found.try_value()->entries[3].locator->text() != "Folder/Shared.txt")
     {
         return false;
     }
@@ -259,8 +268,17 @@ int main()
     std::vector<std::unique_ptr<cue::LogSink>> sinks;
     cue::Logger logger(fatalHandler, std::move(sinks));
     cue::AssertContext assertContext(logger, fatalHandler);
-    return test_sort_and_filter(assertContext) && test_bounded_search(assertContext) &&
-                   test_rescan_diagnostic(assertContext) && test_workspace_binding(assertContext)
-               ? 0
-               : 1;
+    if (!test_sort_and_filter(assertContext))
+    {
+        return 1;
+    }
+    if (!test_bounded_search(assertContext))
+    {
+        return 2;
+    }
+    if (!test_rescan_diagnostic(assertContext))
+    {
+        return 3;
+    }
+    return test_workspace_binding(assertContext) ? 0 : 4;
 }
