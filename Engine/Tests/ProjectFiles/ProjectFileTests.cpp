@@ -211,7 +211,8 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
     }
     std::vector<std::string> ids{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222",
                                  "33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444",
-                                 "55555555-5555-4555-8555-555555555555", "88888888-8888-4888-8888-888888888888"};
+                                 "55555555-5555-4555-8555-555555555555", "88888888-8888-4888-8888-888888888888",
+                                 "99999999-9999-4999-8999-999999999999"};
     auto serviceResult = cue::project_files::ProjectFileService::create(a_descriptor, std::move(*workspace.try_value()),
                                                                         make_id_source(a_assertContext, std::move(ids)),
                                                                         a_assertContext);
@@ -251,6 +252,17 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
     if (!folderConflict ||
         folderConflict.try_value()->outcome() != cue::project_files::ProjectFileOperationOutcome::NotCommitted ||
         !has_project_file_error(folderConflict.try_value()->try_primary_error(),
+                                cue::project_files::ProjectFileError::Conflict))
+    {
+        return false;
+    }
+
+    folderPath = cue::RelativePath::parse("createdfolder", a_assertContext);
+    auto portableCaseConflict =
+        service.create_directory(cue::project_files::ProjectFileArea::SourceAssets, std::move(*folderPath.try_value()));
+    if (!portableCaseConflict ||
+        portableCaseConflict.try_value()->outcome() != cue::project_files::ProjectFileOperationOutcome::NotCommitted ||
+        !has_project_file_error(portableCaseConflict.try_value()->try_primary_error(),
                                 cue::project_files::ProjectFileError::Conflict))
     {
         return false;
