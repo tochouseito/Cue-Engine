@@ -422,8 +422,10 @@ Delete順序を固定する。
 6. Recordを`trashed`へAtomic更新する
 7. Trash CatalogとSource親Directoryを再列挙する
 
-Step 4より前の失敗ではSourceを維持し、Operation-owned Trash DirectoryだけをRollbackできる。Step 4以後はSourceを自動的に
-元へ戻そうとせず、事後状態とRecordを保持してReconciliationへ移る。Process終了等で`prepared`が残った場合は次の規則で再判定する。
+Step 4より前かつRecord未公開の失敗ではSourceを維持し、Operation-owned Trash DirectoryだけをRollbackできる。`allocating`または
+`prepared` Record公開後にDeleteが未Commitで終わる場合は、Source Guard保持中に`aborting`、Guard正常確定後に`aborted`へ進めてから
+Operation-owned Trash DirectoryをCleanupする。Step 4以後はSourceを自動的に元へ戻そうとせず、事後状態とRecordを保持して
+Reconciliationへ移る。Process終了等で`prepared`が残った場合は次の規則で再判定する。
 
 再起動時はTrash Rootを`TraversalLimits`内で列挙し、正確なStaging名またはOperation ID名だけを候補にする。空のStaging Directory、
 Entryを一つも持たない正確なOperation ID名のDirectory、

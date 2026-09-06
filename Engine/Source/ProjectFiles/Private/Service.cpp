@@ -734,11 +734,15 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
     Result<std::vector<std::byte>> allocating = serializeState(project_files_private::TrashRecordState::Allocating);
     Result<std::vector<std::byte>> prepared = serializeState(project_files_private::TrashRecordState::Prepared);
     Result<std::vector<std::byte>> trashed = serializeState(project_files_private::TrashRecordState::Trashed);
-    if (!allocating || !prepared || !trashed)
+    Result<std::vector<std::byte>> aborting = serializeState(project_files_private::TrashRecordState::Aborting);
+    Result<std::vector<std::byte>> aborted = serializeState(project_files_private::TrashRecordState::Aborted);
+    if (!allocating || !prepared || !trashed || !aborting || !aborted)
     {
         Error cause = !allocating ? std::move(*allocating.try_error())
                       : !prepared ? std::move(*prepared.try_error())
-                                  : std::move(*trashed.try_error());
+                      : !trashed  ? std::move(*trashed.try_error())
+                      : !aborting ? std::move(*aborting.try_error())
+                                  : std::move(*aborted.try_error());
         std::vector<Error> secondary;
         const bool guardFinished = finishFailureGuard(secondary);
         return fail(ProjectFileOperationStage::PrepareRecovery, ProjectFileError::RecoveryRequired,
@@ -855,6 +859,54 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
             }
         }
     };
+    /// @brief Mutationの全診断をDelete失敗結果のSecondaryへ移送する
+    const auto appendMutationOutcomeDiagnostics =
+        [&](WorkspaceMutationResult &a_mutation, std::vector<Error> &a_secondary) noexcept
+    {
+        appendMutationDiagnostics(a_mutation, a_secondary);
+        if (a_mutation.primaryError.has_value())
+        {
+            try
+            {
+                a_secondary.push_back(std::move(*a_mutation.primaryError));
+            }
+            catch (...)
+            {
+                terminate_allocation(m_assertContext);
+            }
+        }
+    };
+    /// @brief 既存Recovery RecordをGuard付き中間状態から終端状態へ確定してCleanupする
+    const auto abortAndCleanupContainer = [&](const BoundWorkspacePath &a_recordPath,
+                                              const BoundWorkspacePath &a_directoryPath,
+                                              std::vector<Error> &a_secondary) noexcept -> bool
+    {
+        WorkspaceMutationResult wroteAborting =
+            m_workspace->replace_file_atomic(a_recordPath, *aborting.try_value(), operationId);
+        appendMutationOutcomeDiagnostics(wroteAborting, a_secondary);
+        if (wroteAborting.outcome == WorkspaceMutationOutcome::NotCommitted ||
+            wroteAborting.outcome == WorkspaceMutationOutcome::ReconciliationRequired)
+        {
+            static_cast<void>(finishFailureGuard(a_secondary));
+            return false;
+        }
+
+        if (!finishFailureGuard(a_secondary))
+        {
+            return false;
+        }
+
+        WorkspaceMutationResult wroteAborted =
+            m_workspace->replace_file_atomic(a_recordPath, *aborted.try_value(), operationId);
+        appendMutationOutcomeDiagnostics(wroteAborted, a_secondary);
+        if (wroteAborted.outcome == WorkspaceMutationOutcome::NotCommitted ||
+            wroteAborted.outcome == WorkspaceMutationOutcome::ReconciliationRequired)
+        {
+            return false;
+        }
+        cleanupContainer(a_recordPath, a_directoryPath, a_secondary);
+        return true;
+    };
 
     WorkspaceMutationResult createdDirectory = m_workspace->create_directory_new(*staging.try_value(), operationId);
     if (createdDirectory.outcome == WorkspaceMutationOutcome::NotCommitted ||
@@ -922,10 +974,14 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
         wrotePrepared.outcome == WorkspaceMutationOutcome::ReconciliationRequired)
     {
         std::vector<Error> secondary = std::move(wrotePrepared.secondaryDiagnostics);
-        const bool guardFinished = finishFailureGuard(secondary);
-        if (guardFinished && wrotePrepared.outcome == WorkspaceMutationOutcome::NotCommitted)
+        bool safelyAborted = false;
+        if (wrotePrepared.outcome == WorkspaceMutationOutcome::NotCommitted)
         {
-            cleanupContainer(*finalRecord.try_value(), *operation.try_value(), secondary);
+            safelyAborted = abortAndCleanupContainer(*finalRecord.try_value(), *operation.try_value(), secondary);
+        }
+        else
+        {
+            static_cast<void>(finishFailureGuard(secondary));
         }
         Error cause = wrotePrepared.primaryError.has_value()
                           ? std::move(*wrotePrepared.primaryError)
@@ -934,7 +990,7 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
         const ProjectFileError classification = classify_project_file_error(cause, wrotePrepared.outcome);
         return fail(ProjectFileOperationStage::UpdateRecoveryRecord, classification,
                     "Project trash prepared record write failed", std::move(cause),
-                    guardFinished ? convert_outcome(wrotePrepared.outcome)
+                    safelyAborted ? ProjectFileOperationOutcome::NotCommitted
                                   : ProjectFileOperationOutcome::ReconciliationRequired,
                     std::move(secondary));
     }
@@ -945,11 +1001,8 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
     if (moved.outcome == WorkspaceMutationOutcome::NotCommitted)
     {
         std::vector<Error> secondary = std::move(moved.secondaryDiagnostics);
-        const bool guardFinished = finishFailureGuard(secondary);
-        if (guardFinished)
-        {
-            cleanupContainer(*finalRecord.try_value(), *operation.try_value(), secondary);
-        }
+        const bool safelyAborted =
+            abortAndCleanupContainer(*finalRecord.try_value(), *operation.try_value(), secondary);
         Error cause = moved.primaryError.has_value()
                           ? std::move(*moved.primaryError)
                           : make_project_file_error(m_assertContext, ProjectFileError::StorageFailure,
@@ -957,7 +1010,7 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
         const ProjectFileError classification = classify_project_file_error(cause, moved.outcome);
         return fail(ProjectFileOperationStage::NativePublish, classification, "Project file delete rename failed",
                     std::move(cause),
-                    guardFinished ? ProjectFileOperationOutcome::NotCommitted
+                    safelyAborted ? ProjectFileOperationOutcome::NotCommitted
                                   : ProjectFileOperationOutcome::ReconciliationRequired,
                     std::move(secondary));
     }
