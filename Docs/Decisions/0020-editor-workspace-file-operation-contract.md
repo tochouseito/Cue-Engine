@@ -293,6 +293,9 @@ OS Recycle BinはProject移動、Headless Test、復元Metadata、同一Volume�
 <roots.saved>/Editor/Trash/<OperationId>/
     Record.cuetrash
     Payload
+
+<roots.saved>/Editor/Trash/.<OperationId>.cuetrash-staging/
+    Record.cuetrash
 ```
 
 `Record.cuetrash`はUTF-8 JSONのVersion付きRecordとする。初期`schemaVersion`はJSON Numberの符号なし10進整数`1`へ固定する。
@@ -302,7 +305,7 @@ Readerは`0`、小数、指数表記、負数、`uint32_t`範囲外、`1`以外�
 - `schemaVersion`: 初期値`1`
 - `projectId`: ADR-0013のlowercase 8-4-4-4-12 UUID Version 4
 - `operationId`
-- `state`: `prepared`、`trashed`、`restoring`、`restored`
+- `state`: `allocating`、`prepared`、`trashed`、`restoring`、`restored`
 - `originalArea`: `sourceAssets`
 - `originalPath`: `originalArea`基準の`RelativePath`
 - `entryType`: `regularFile`または`directory`
@@ -376,8 +379,8 @@ Delete順序を固定する。
 
 1. Source、Area、Open Document、Destination Trash不存在、Link Countを検証し、単一Fileの排他または
    `DirectoryTreeMutationGuard`を取得してからFile FingerprintまたはDirectory Manifestを取得する
-2. Trash RootのOperation-owned Siblingへ空DirectoryをCreate-newし、`OperationId` DirectoryへWrite-through Renameして公開する
-3. `prepared` RecordをAtomic Publishする
+2. Trash Rootへ`.<OperationId>.cuetrash-staging` DirectoryをCreate-newし、その中へ`allocating` RecordをAtomic Publishする
+3. Staging Directoryを`OperationId` DirectoryへWrite-through Renameし、Recordを`prepared`へAtomic更新する
 4. Sourceを`Payload`へ同一Volume Renameする
 5. Source不存在、Payload存在、Type、Link Count、FingerprintまたはManifest一致を再検証する
 6. Recordを`trashed`へAtomic更新する
@@ -385,6 +388,11 @@ Delete順序を固定する。
 
 Step 4より前の失敗ではSourceを維持し、Operation-owned Trash DirectoryだけをRollbackできる。Step 4以後はSourceを自動的に
 元へ戻そうとせず、事後状態とRecordを保持してReconciliationへ移る。Process終了等で`prepared`が残った場合は次の規則で再判定する。
+
+再起動時はTrash Rootを`TraversalLimits`内で列挙し、正確なStaging名またはOperation ID名だけを候補にする。空のStaging Directory、
+またはProject ID／Operation IDがDirectory名と一致する有効な`allocating` Recordだけを持ち、`Payload`と他Entryを持たないStaging／
+Operation DirectoryはOperation-owned残骸として削除できる。Record不正、未知Entry、Payload存在、上限超過では再帰削除せず保持して
+診断する。通常Project Entryや名前だけが似たDirectoryをCleanup対象にしない。
 
 | Source | Payload | Reconciliation |
 | --- | --- | --- |
@@ -397,9 +405,10 @@ Step 4より前の失敗ではSourceを維持し、Operation-owned Trash Directo
 検証から`trashed` RecordのAtomic Commit完了まで保持する。排他取得、再検証、または上限確認が失敗した場合は
 `trashed`へ昇格せず、RecordとPayloadを維持して`ReconciliationRequired`を報告する。
 
-RestoreはRecordの`originalPath`を使用し、DestinationがMissingである場合だけ`Payload`を同一Volume Renameで戻す。必要な親Directoryは
-Mutation Area内の通常DirectoryだけをCreate-or-openできる。File／Unsupported Entry衝突、Area外、Root変更、Project ID不一致では
-復元しない。
+RestoreはRecordの`originalPath`を使用し、DestinationがMissingであり、既存の親Directory Chainが全て通常Directoryである場合だけ
+`Payload`を同一Volume Renameで戻す。M13は不足ParentをRestore中に自動作成しない。親が不足する場合はPayloadとRecordを維持して
+`RecoveryRequired`を返し、Userが通常のCreate Folder操作で親を再作成した後にRestoreを再試行できる。File／Unsupported Entry衝突、
+Area外、Root変更、Project ID不一致では復元しない。
 
 File PayloadはRestore直前に`SingleFileMutationGuard`を取得して`restored` RecordのAtomic Commit完了まで保持し、同じHandleから
 RecordのByte SizeとContent Digestへ一致する`RegularFile`であることを検証する。WindowsではLink Countが1であることも要求し、
@@ -428,8 +437,9 @@ Payload不存在、Fingerprint一致を検証して`restored`へ更新する。
 Guard取得、上限確認、内容照合の失敗では状態を昇格せず、Recordと存在するDataを維持して
 `ReconciliationRequired`を返す。既存Destinationを上書きしない。
 
-M13はRecoverable Payloadの自動期限削除と永久削除UIを提供しない。成功済みRestoreの空Operation DirectoryとRecordだけを
-Operation-owned Cleanupとして削除できる。未Restore PayloadはProjectが存在する限り保持し、件数と概算Sizeを診断へ出す。
+M13はRecoverable Payloadの自動期限削除と永久削除UIを提供しない。成功済みRestoreの空Operation DirectoryとRecord、および上記で
+厳密に識別した`allocating`以前の空Staging／Operation DirectoryだけをOperation-owned Cleanupとして削除できる。未Restore Payloadは
+Projectが存在する限り保持し、件数と概算Sizeを診断へ出す。
 保持期限、容量上限を伴う自動Purge、OS Recycle Bin統合は別Research Issueで決定する。
 
 ### Operation Outcome and Error Contract
@@ -475,7 +485,7 @@ Operationごとの必須Barrierを次のとおりとする。
 | Create File／Folder | TemporaryまたはSibling Directoryから最終NameへのWrite-through Publish |
 | Rename／Move | SourceからDestinationへのWrite-through Rename |
 | Copy | 検証済みTemporary／StagingからDestinationへのWrite-through Publish |
-| Delete | Operation DirectoryのWrite-through Publish、`prepared` RecordのAtomic Commit、Payload Renameの文書化済みDurability Barrier、`trashed` RecordのAtomic Commit。Barrierを提供できないWindows Handle-based Renameは`CommittedButDurabilityUnknown` |
+| Delete | `allocating` RecordのAtomic Commit、Operation DirectoryのWrite-through Publish、`prepared` RecordのAtomic Commit、Payload Renameの文書化済みDurability Barrier、`trashed` RecordのAtomic Commit。Barrierを提供できないWindows Handle-based Renameは`CommittedButDurabilityUnknown` |
 | Restore | `restoring` RecordのAtomic Commit、Original Path Renameの文書化済みDurability Barrier、`restored` RecordのAtomic Commit。Barrierを提供できないWindows Handle-based Renameは`CommittedButDurabilityUnknown` |
 
 単一段のNative Publishが失敗しても、事後QueryでSource不存在とDestination存在を一意に確認できる場合は
