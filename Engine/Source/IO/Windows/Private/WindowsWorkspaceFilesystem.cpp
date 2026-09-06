@@ -726,6 +726,60 @@ void cleanup_owned_temporary(UniqueHandle &a_ownedHandle, std::wstring_view a_pa
     return cue::Result<void>::success();
 }
 
+/// @brief Publish後のDestinationがPortable比較で唯一かつ期待Identityか確認する
+[[nodiscard]] cue::Result<void> verify_portable_destination_unique(HANDLE a_parent, std::wstring_view a_destinationName,
+                                                                   const RootIdentity &a_expected,
+                                                                   bool a_expectDirectory,
+                                                                   const cue::AssertContext &a_assertContext) noexcept
+{
+    cue::Result<NativeDirectoryEnumeration> enumeration = enumerate_directory_handle(
+        a_parent, k_windowsHardLimits.maxVisitedEntries, k_windowsHardLimits.maxMetadataBytes, a_assertContext);
+    if (!enumeration)
+    {
+        return cue::Result<void>::failure(std::move(*enumeration.try_error()));
+    }
+    if (enumeration.try_value()->interruptedCode.has_value())
+    {
+        return cue::Result<void>::failure(make_windows_error(a_assertContext, *enumeration.try_value()->interruptedCode,
+                                                             "Workspace published destination check was interrupted"));
+    }
+
+    std::size_t matchingNames = 0U;
+    bool expectedEntryFound = false;
+    for (const NativeDirectoryEntry &entry : enumeration.try_value()->entries)
+    {
+        const int comparison =
+            CompareStringOrdinal(entry.name.data(), static_cast<int>(entry.name.size()), a_destinationName.data(),
+                                 static_cast<int>(a_destinationName.size()), TRUE);
+        if (comparison == 0)
+        {
+            return cue::Result<void>::failure(make_windows_error(a_assertContext, GetLastError(),
+                                                                 "Workspace published destination comparison failed"));
+        }
+        if (comparison != CSTR_EQUAL)
+        {
+            continue;
+        }
+
+        ++matchingNames;
+        const bool isDirectory = (entry.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0U;
+        const bool isReparse = (entry.attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U;
+        const bool exactName = entry.name == a_destinationName;
+        const bool identityMatches = entry.fileId.HighPart == static_cast<LONG>(a_expected.fileIndexHigh) &&
+                                     entry.fileId.LowPart == a_expected.fileIndexLow;
+        expectedEntryFound =
+            expectedEntryFound || (exactName && identityMatches && isDirectory == a_expectDirectory && !isReparse);
+    }
+
+    if (matchingNames != 1U || !expectedEntryFound)
+    {
+        return cue::Result<void>::failure(
+            cue::make_io_error(a_assertContext, cue::IoError::AlreadyExists,
+                               "Workspace published destination is not unique by portable name"));
+    }
+    return cue::Result<void>::success();
+}
+
 /// @brief Identity固定中のEntryを検証済みの未存在PathへRenameする
 [[nodiscard]] DWORD rename_open_entry(HANDLE a_source, std::wstring_view a_destinationPath,
                                       const cue::AssertContext &a_assertContext) noexcept
@@ -1615,6 +1669,14 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_directory_new(
         const NativeEntryObservation observed = observe_native_entry(*destination.try_value(), expected, true);
         if (observed.state == NativeEntryObservationState::Matches)
         {
+            cue::Result<void> uniqueDestination = verify_portable_destination_unique(
+                pinned.try_value()->back().get(),
+                std::wstring_view(*destination.try_value()).substr(destinationNameOffset + 1U), expected, true,
+                m_assertContext);
+            if (!uniqueDestination)
+            {
+                return reconciliation_required(std::move(*uniqueDestination.try_error()));
+            }
             cue::WorkspaceMutationResult result;
             result.outcome = cue::WorkspaceMutationOutcome::CommittedButDurabilityUnknown;
             result.primaryError =
@@ -1631,6 +1693,14 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_directory_new(
     const NativeEntryObservation destinationState = observe_native_entry(*destination.try_value(), expected, true);
     if (destinationState.state == NativeEntryObservationState::Matches)
     {
+        cue::Result<void> uniqueDestination = verify_portable_destination_unique(
+            pinned.try_value()->back().get(),
+            std::wstring_view(*destination.try_value()).substr(destinationNameOffset + 1U), expected, true,
+            m_assertContext);
+        if (!uniqueDestination)
+        {
+            return reconciliation_required(std::move(*uniqueDestination.try_error()));
+        }
         cue::WorkspaceMutationResult result;
         result.outcome = cue::WorkspaceMutationOutcome::CommittedButDurabilityUnknown;
         result.primaryError = cue::make_io_error(m_assertContext, cue::IoError::DurabilityUnknown,
@@ -1775,6 +1845,14 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_file_new_atomic(
         const NativeEntryObservation observed = observe_native_entry(*destination.try_value(), expected, false);
         if (observed.state == NativeEntryObservationState::Matches)
         {
+            cue::Result<void> uniqueDestination = verify_portable_destination_unique(
+                pinned.try_value()->back().get(),
+                std::wstring_view(*destination.try_value()).substr(destinationNameOffset + 1U), expected, false,
+                m_assertContext);
+            if (!uniqueDestination)
+            {
+                return reconciliation_required(std::move(*uniqueDestination.try_error()));
+            }
             cue::WorkspaceMutationResult result;
             result.outcome = cue::WorkspaceMutationOutcome::CommittedButDurabilityUnknown;
             result.primaryError =
@@ -1791,6 +1869,14 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_file_new_atomic(
     const NativeEntryObservation destinationState = observe_native_entry(*destination.try_value(), expected, false);
     if (destinationState.state == NativeEntryObservationState::Matches)
     {
+        cue::Result<void> uniqueDestination = verify_portable_destination_unique(
+            pinned.try_value()->back().get(),
+            std::wstring_view(*destination.try_value()).substr(destinationNameOffset + 1U), expected, false,
+            m_assertContext);
+        if (!uniqueDestination)
+        {
+            return reconciliation_required(std::move(*uniqueDestination.try_error()));
+        }
         cue::WorkspaceMutationResult result;
         result.outcome = cue::WorkspaceMutationOutcome::CommittedButDurabilityUnknown;
         result.primaryError = cue::make_io_error(m_assertContext, cue::IoError::DurabilityUnknown,
