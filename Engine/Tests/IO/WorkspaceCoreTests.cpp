@@ -52,8 +52,8 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     cue::WorkspaceEntry entry;
     entry.parentGeneration = a_generation;
     entry.displayName = a_name;
-    entry.locator = std::move(*locator.try_value());
-    entry.sortKey = entry.locator->comparison_key(a_assertContext);
+    entry.sortKey = locator.try_value()->comparison_key(a_assertContext);
+    entry.locator = cue::BoundWorkspacePath::from_locator(std::move(*locator.try_value()), a_assertContext);
     entry.type = a_type;
     entry.byteSize = a_type == cue::WorkspaceEntryType::RegularFile ? 4U : 0U;
     return entry;
@@ -86,7 +86,7 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
     {
         cue::DirectorySnapshot snapshot;
         snapshot.generation = m_nextGeneration++;
-        const cue::RelativePath *locator = a_directory.locator();
+        const cue::BoundWorkspacePath *locator = a_directory.locator();
         const std::string_view text = locator == nullptr ? std::string_view{} : locator->text();
         if (text.empty())
         {
@@ -199,9 +199,9 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
     {
         return false;
     }
-    auto result =
-        cue::search_workspace(filesystem, cue::WorkspaceDirectory::from_locator(std::move(*locator.try_value())), {},
-                              cue::TraversalLimits{2U, 4U, 4U, 1024U}, a_assertContext);
+    auto result = cue::search_workspace(
+        filesystem, cue::WorkspaceDirectory::from_locator(std::move(*locator.try_value()), a_assertContext), {},
+        cue::TraversalLimits{2U, 4U, 4U, 1024U}, a_assertContext);
     return result && result.try_value()->state == cue::WorkspaceSnapshotState::RescanRequired &&
            result.try_value()->entries.size() == 1U && result.try_value()->diagnostics.size() == 1U &&
            result.try_value()->diagnostics[0].code == cue::WorkspaceDiagnosticCode::EntryDisappeared;

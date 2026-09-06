@@ -120,12 +120,40 @@ bool TraversalLimits::is_valid() const noexcept
     return maxDepth != 0U && maxVisitedEntries != 0U && maxResults != 0U && maxMetadataBytes != 0U;
 }
 
+BoundWorkspacePath BoundWorkspacePath::from_locator(RelativePath a_locator,
+                                                    const AssertContext &a_assertContext) noexcept
+{
+    try
+    {
+        return BoundWorkspacePath(std::string(a_locator.text()));
+    }
+    catch (...)
+    {
+        terminate_allocation(a_assertContext);
+    }
+}
+
+std::string_view BoundWorkspacePath::text() const noexcept
+{
+    return m_text;
+}
+
+BoundWorkspacePath::BoundWorkspacePath(std::string a_text) noexcept : m_text(std::move(a_text))
+{
+}
+
 WorkspaceDirectory WorkspaceDirectory::root() noexcept
 {
     return WorkspaceDirectory(std::nullopt);
 }
 
-WorkspaceDirectory WorkspaceDirectory::from_locator(RelativePath a_locator) noexcept
+WorkspaceDirectory WorkspaceDirectory::from_locator(RelativePath a_locator,
+                                                    const AssertContext &a_assertContext) noexcept
+{
+    return WorkspaceDirectory(BoundWorkspacePath::from_locator(std::move(a_locator), a_assertContext));
+}
+
+WorkspaceDirectory WorkspaceDirectory::from_bound_path(BoundWorkspacePath a_locator) noexcept
 {
     return WorkspaceDirectory(std::move(a_locator));
 }
@@ -135,13 +163,35 @@ bool WorkspaceDirectory::is_root() const noexcept
     return !m_locator.has_value();
 }
 
-const RelativePath *WorkspaceDirectory::locator() const noexcept
+const BoundWorkspacePath *WorkspaceDirectory::locator() const noexcept
 {
     return m_locator.has_value() ? &*m_locator : nullptr;
 }
 
-WorkspaceDirectory::WorkspaceDirectory(std::optional<RelativePath> a_locator) noexcept : m_locator(std::move(a_locator))
+WorkspaceDirectory::WorkspaceDirectory(std::optional<BoundWorkspacePath> a_locator) noexcept
+    : m_locator(std::move(a_locator))
 {
+}
+
+BoundWorkspacePath append_workspace_path(const WorkspaceDirectory &a_parent, RelativePath a_child,
+                                         const AssertContext &a_assertContext) noexcept
+{
+    try
+    {
+        std::string text;
+        const BoundWorkspacePath *parent = a_parent.locator();
+        if (parent != nullptr)
+        {
+            text.assign(parent->text());
+            text.push_back('/');
+        }
+        text.append(a_child.text());
+        return BoundWorkspacePath(std::move(text));
+    }
+    catch (...)
+    {
+        terminate_allocation(a_assertContext);
+    }
 }
 
 bool WorkspaceEntry::is_operable() const noexcept
@@ -286,7 +336,7 @@ Result<WorkspaceSearchResult> search_workspace(WorkspaceFilesystem &a_filesystem
                         return Result<WorkspaceSearchResult>::failure(make_io_error(
                             a_assertContext, IoError::CapacityExceeded, "Workspace search depth limit was exceeded"));
                     }
-                    children.push_back(WorkspaceDirectory::from_locator(*entry.locator));
+                    children.push_back(WorkspaceDirectory::from_bound_path(*entry.locator));
                 }
                 if (matches_filter(entry.displayName, a_filter))
                 {

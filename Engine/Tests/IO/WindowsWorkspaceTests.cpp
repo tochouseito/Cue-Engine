@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -20,6 +21,8 @@
 
 namespace
 {
+constexpr std::string_view k_deepLocator = "D/D/D/D/D/D/D/D/D/D/D/D/D/D/D/D";
+
 /// @brief Test中の回復不能失敗を終了Codeへ変換する
 class TestFatalHandler final : public cue::FatalHandler
 {
@@ -147,6 +150,86 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     return succeeded != FALSE && written == static_cast<DWORD>(a_bytes.size());
 }
 
+/// @brief Junction用Mount Point Reparse BufferのNative Layoutを表す
+struct MountPointReparseBuffer final
+{
+    DWORD reparseTag = IO_REPARSE_TAG_MOUNT_POINT;
+    WORD reparseDataLength = 0U;
+    WORD reserved = 0U;
+    WORD substituteNameOffset = 0U;
+    WORD substituteNameLength = 0U;
+    WORD printNameOffset = 0U;
+    WORD printNameLength = 0U;
+    wchar_t pathBuffer[1]{};
+};
+
+/// @brief 特権不要のDirectory Junctionを作成してReparse Point Fixtureを保証する
+[[nodiscard]] bool create_directory_junction(std::wstring_view a_linkPath, std::wstring_view a_targetPath)
+{
+    const std::wstring linkPath(a_linkPath);
+    if (CreateDirectoryW(linkPath.c_str(), nullptr) == FALSE)
+    {
+        return false;
+    }
+
+    const std::wstring substituteName = L"\\??\\" + std::wstring(a_targetPath);
+    const std::wstring printName(a_targetPath);
+    const std::size_t substituteBytes = substituteName.size() * sizeof(wchar_t);
+    const std::size_t printBytes = printName.size() * sizeof(wchar_t);
+    const std::size_t pathBytes = substituteBytes + sizeof(wchar_t) + printBytes + sizeof(wchar_t);
+    const std::size_t totalBytes = offsetof(MountPointReparseBuffer, pathBuffer) + pathBytes;
+    if (substituteBytes > MAXWORD || printBytes > MAXWORD || pathBytes + 8U > MAXWORD || totalBytes > MAXDWORD)
+    {
+        RemoveDirectoryW(linkPath.c_str());
+        return false;
+    }
+
+    std::vector<std::uint32_t> storage((totalBytes + sizeof(std::uint32_t) - 1U) / sizeof(std::uint32_t), 0U);
+    auto *buffer = reinterpret_cast<MountPointReparseBuffer *>(storage.data());
+    buffer->reparseTag = IO_REPARSE_TAG_MOUNT_POINT;
+    buffer->reparseDataLength = static_cast<WORD>(pathBytes + 8U);
+    buffer->substituteNameOffset = 0U;
+    buffer->substituteNameLength = static_cast<WORD>(substituteBytes);
+    buffer->printNameOffset = static_cast<WORD>(substituteBytes + sizeof(wchar_t));
+    buffer->printNameLength = static_cast<WORD>(printBytes);
+    std::memcpy(buffer->pathBuffer, substituteName.data(), substituteBytes);
+    std::memcpy(reinterpret_cast<std::byte *>(buffer->pathBuffer) + buffer->printNameOffset, printName.data(),
+                printBytes);
+
+    HANDLE link = CreateFileW(linkPath.c_str(), GENERIC_WRITE, 0U, nullptr, OPEN_EXISTING,
+                              FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (link == INVALID_HANDLE_VALUE)
+    {
+        RemoveDirectoryW(linkPath.c_str());
+        return false;
+    }
+    DWORD returned = 0U;
+    const BOOL succeeded = DeviceIoControl(link, FSCTL_SET_REPARSE_POINT, buffer, static_cast<DWORD>(totalBytes),
+                                           nullptr, 0U, &returned, nullptr);
+    CloseHandle(link);
+    if (succeeded == FALSE)
+    {
+        RemoveDirectoryW(linkPath.c_str());
+        return false;
+    }
+    return true;
+}
+
+/// @brief RelativePathの最大Segment数までNative Directory Fixtureを作成する
+[[nodiscard]] bool create_deep_directory_fixture(const TestDirectory &a_directory)
+{
+    std::wstring path = a_directory.path();
+    for (std::size_t index = 0U; index < 16U; ++index)
+    {
+        path += L"\\D";
+        if (CreateDirectoryW(path.c_str(), nullptr) == FALSE)
+        {
+            return false;
+        }
+    }
+    return write_file(path + L"\\Tail.bin", "tail");
+}
+
 /// @brief Snapshotから表示名が一致するEntryを返す
 [[nodiscard]] const cue::WorkspaceEntry *find_entry(const cue::DirectorySnapshot &a_snapshot,
                                                     std::string_view a_name) noexcept
@@ -162,8 +245,7 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
 }
 
 /// @brief Directory、File、Unsupported Entryの決定的列挙を検証する
-[[nodiscard]] bool test_listing(cue::WorkspaceFilesystem &a_filesystem, const cue::AssertContext &a_assertContext,
-                                bool a_hasReparse)
+[[nodiscard]] bool test_listing(cue::WorkspaceFilesystem &a_filesystem, const cue::AssertContext &a_assertContext)
 {
     const cue::TraversalLimits limits{8U, 64U, 64U, 16U * 1024U};
     auto first = a_filesystem.list_directory(cue::WorkspaceDirectory::root(), limits);
@@ -190,8 +272,8 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     if (folder == nullptr || alpha == nullptr || zeta == nullptr || hidden == nullptr || !folder->is_operable() ||
         folder->type != cue::WorkspaceEntryType::Directory || alpha->byteSize != 5U || zeta->byteSize != 4U ||
         hidden->is_operable() || hidden->rejection != cue::WorkspaceDiagnosticCode::UnsupportedName ||
-        (a_hasReparse && (reparse == nullptr || reparse->is_operable() ||
-                          reparse->rejection != cue::WorkspaceDiagnosticCode::ReparsePoint)))
+        reparse == nullptr || reparse->is_operable() ||
+        reparse->rejection != cue::WorkspaceDiagnosticCode::ReparsePoint)
     {
         return false;
     }
@@ -218,17 +300,16 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
         return false;
     }
     auto nested = a_filesystem.list_directory(
-        cue::WorkspaceDirectory::from_locator(std::move(*folderLocator.try_value())), limits);
+        cue::WorkspaceDirectory::from_locator(std::move(*folderLocator.try_value()), a_assertContext), limits);
     return nested && nested.try_value()->entries.size() == 1U &&
            nested.try_value()->entries[0].displayName == "Needle.txt";
 }
 
 /// @brief Bounded SearchがReparse PointをTraversalせず各上限を拒否するか検証する
-[[nodiscard]] bool test_search(cue::WorkspaceFilesystem &a_filesystem, const cue::AssertContext &a_assertContext,
-                               bool a_hasReparse)
+[[nodiscard]] bool test_search(cue::WorkspaceFilesystem &a_filesystem, const cue::AssertContext &a_assertContext)
 {
     auto found = cue::search_workspace(a_filesystem, cue::WorkspaceDirectory::root(), "needle",
-                                       cue::TraversalLimits{8U, 64U, 64U, 16U * 1024U}, a_assertContext);
+                                       cue::TraversalLimits{32U, 64U, 64U, 16U * 1024U}, a_assertContext);
     if (!found || found.try_value()->entries.size() != 1U || found.try_value()->entries[0].displayName != "Needle.txt")
     {
         return false;
@@ -248,22 +329,19 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     {
         return false;
     }
-    if (a_hasReparse)
+    auto outside = cue::search_workspace(a_filesystem, cue::WorkspaceDirectory::root(), "OutsideSecret",
+                                         cue::TraversalLimits{32U, 64U, 64U, 16U * 1024U}, a_assertContext);
+    if (!outside || !outside.try_value()->entries.empty())
     {
-        auto outside = cue::search_workspace(a_filesystem, cue::WorkspaceDirectory::root(), "OutsideSecret",
-                                             cue::TraversalLimits{8U, 64U, 64U, 16U * 1024U}, a_assertContext);
-        if (!outside || !outside.try_value()->entries.empty())
-        {
-            return false;
-        }
-        auto linkLocator = cue::RelativePath::parse("ReparseLink", a_assertContext);
-        auto escaped =
-            a_filesystem.list_directory(cue::WorkspaceDirectory::from_locator(std::move(*linkLocator.try_value())),
-                                        cue::TraversalLimits{2U, 4U, 4U, 1024U});
-        if (!has_io_error(escaped, cue::IoError::UnsupportedEntry))
-        {
-            return false;
-        }
+        return false;
+    }
+    auto linkLocator = cue::RelativePath::parse("ReparseLink", a_assertContext);
+    auto escaped = a_filesystem.list_directory(
+        cue::WorkspaceDirectory::from_locator(std::move(*linkLocator.try_value()), a_assertContext),
+        cue::TraversalLimits{2U, 4U, 4U, 1024U});
+    if (!has_io_error(escaped, cue::IoError::UnsupportedEntry))
+    {
+        return false;
     }
     return true;
 }
@@ -313,6 +391,35 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     return has_io_error(relative, cue::IoError::InvalidPath) && has_io_error(file, cue::IoError::TypeMismatch) &&
            has_io_error(nul, cue::IoError::InvalidPath);
 }
+
+/// @brief User Locator上限のDirectory直下を内部Bound Pathで列挙できるか検証する
+[[nodiscard]] bool test_deep_bound_path(cue::WorkspaceFilesystem &a_filesystem,
+                                        const cue::AssertContext &a_assertContext)
+{
+    auto locator = cue::RelativePath::parse(k_deepLocator, a_assertContext);
+    if (!locator)
+    {
+        return false;
+    }
+    auto listed = a_filesystem.list_directory(
+        cue::WorkspaceDirectory::from_locator(std::move(*locator.try_value()), a_assertContext),
+        cue::TraversalLimits{2U, 8U, 8U, 4096U});
+    if (!listed || listed.try_value()->entries.size() != 1U)
+    {
+        return false;
+    }
+    const cue::WorkspaceEntry &entry = listed.try_value()->entries[0];
+    const std::string expected = std::string(k_deepLocator) + "/Tail.bin";
+    return entry.is_operable() && entry.locator->text() == expected;
+}
+
+/// @brief Factory引数のAssertContext破棄後もWorkspaceが所有Copyを使用できるか検証する
+[[nodiscard]] cue::Result<std::unique_ptr<cue::WorkspaceFilesystem>> create_with_temporary_context(
+    std::string_view a_rootPath, cue::Logger &a_logger, cue::FatalHandler &a_fatalHandler) noexcept
+{
+    cue::AssertContext temporaryContext(a_logger, a_fatalHandler);
+    return cue::create_windows_workspace_filesystem(a_rootPath, temporaryContext);
+}
 } // namespace
 
 /// @brief Windows Workspace列挙、Reparse拒否、競合診断、Root Pinを統合検証する
@@ -326,23 +433,16 @@ int main()
     if (!directory.is_created() || CreateDirectoryW(directory.child(L"Folder").c_str(), nullptr) == FALSE ||
         !write_file(directory.child(L"Folder\\Needle.txt"), "needle") ||
         !write_file(directory.child(L"alpha.bin"), "alpha") || !write_file(directory.child(L"Zeta.bin"), "zeta") ||
-        !write_file(directory.child(L".Hidden"), "hidden") ||
+        !write_file(directory.child(L".Hidden"), "hidden") || !create_deep_directory_fixture(directory) ||
         !write_file(directory.outside_path() + L"\\OutsideSecret.bin", "secret"))
     {
         return 1;
     }
 
     const std::wstring linkPath = directory.child(L"ReparseLink");
-    const bool hasReparse =
-        CreateSymbolicLinkW(linkPath.c_str(), directory.outside_path().c_str(),
-                            SYMBOLIC_LINK_FLAG_DIRECTORY | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE) != FALSE;
-    if (!hasReparse)
+    if (!create_directory_junction(linkPath, directory.outside_path()))
     {
-        const DWORD code = GetLastError();
-        if (code != ERROR_PRIVILEGE_NOT_HELD && code != ERROR_INVALID_PARAMETER && code != ERROR_NOT_SUPPORTED)
-        {
-            return 2;
-        }
+        return 2;
     }
 
     if (!test_factory_validation(directory, assertContext))
@@ -354,11 +454,11 @@ int main()
     {
         return 4;
     }
-    if (!test_listing(**filesystem.try_value(), assertContext, hasReparse))
+    if (!test_listing(**filesystem.try_value(), assertContext))
     {
         return 5;
     }
-    if (!test_search(**filesystem.try_value(), assertContext, hasReparse))
+    if (!test_search(**filesystem.try_value(), assertContext))
     {
         return 6;
     }
@@ -366,19 +466,36 @@ int main()
     {
         return 7;
     }
+    if (!test_deep_bound_path(**filesystem.try_value(), assertContext))
+    {
+        return 8;
+    }
+
+    auto temporaryContextFilesystem = create_with_temporary_context(directory.utf8_path(), logger, fatalHandler);
+    if (!temporaryContextFilesystem)
+    {
+        return 9;
+    }
+    auto temporaryContextSnapshot =
+        (**temporaryContextFilesystem.try_value())
+            .list_directory(cue::WorkspaceDirectory::root(), cue::TraversalLimits{2U, 64U, 64U, 32U * 1024U});
+    if (!temporaryContextSnapshot)
+    {
+        return 10;
+    }
 
     auto limited = (**filesystem.try_value())
                        .list_directory(cue::WorkspaceDirectory::root(), cue::TraversalLimits{2U, 64U, 1U, 16U * 1024U});
     if (!has_io_error(limited, cue::IoError::CapacityExceeded))
     {
-        return 8;
+        return 11;
     }
 
     if (MoveFileExW(directory.path().c_str(), directory.moved_path().c_str(), 0U) != FALSE)
     {
         MoveFileExW(directory.moved_path().c_str(), directory.path().c_str(), 0U);
-        return 9;
+        return 12;
     }
     const DWORD replacementCode = GetLastError();
-    return replacementCode == ERROR_SHARING_VIOLATION || replacementCode == ERROR_ACCESS_DENIED ? 0 : 10;
+    return replacementCode == ERROR_SHARING_VIOLATION || replacementCode == ERROR_ACCESS_DENIED ? 0 : 13;
 }
