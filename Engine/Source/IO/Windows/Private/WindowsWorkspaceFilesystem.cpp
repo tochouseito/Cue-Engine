@@ -1731,6 +1731,46 @@ cue::Result<std::vector<std::byte>> WindowsWorkspaceFilesystem::read_file_bounde
         return cue::Result<std::vector<std::byte>>::failure(cue::make_io_error(
             m_assertContext, cue::IoError::PreconditionFailed, "Workspace file identity or type changed"));
     }
+
+    cue::Result<NativeDirectoryEnumeration> verifiedParent = enumerate_directory_handle_stable(
+        parentHandle, k_windowsHardLimits.maxVisitedEntries, k_windowsHardLimits.maxMetadataBytes, m_assertContext);
+    if (!verifiedParent)
+    {
+        return cue::Result<std::vector<std::byte>>::failure(std::move(*verifiedParent.try_error()));
+    }
+    if (verifiedParent.try_value()->interruptedCode.has_value())
+    {
+        return cue::Result<std::vector<std::byte>>::failure(
+            make_windows_error(m_assertContext, *verifiedParent.try_value()->interruptedCode,
+                               "Workspace file identity verification was interrupted"));
+    }
+    matchingNames = 0U;
+    bool identityStillBoundToName = false;
+    for (const NativeDirectoryEntry &entry : verifiedParent.try_value()->entries)
+    {
+        const int comparison =
+            CompareStringOrdinal(entry.name.data(), static_cast<int>(entry.name.size()), nativeName.try_value()->data(),
+                                 static_cast<int>(nativeName.try_value()->size()), TRUE);
+        if (comparison == 0)
+        {
+            return cue::Result<std::vector<std::byte>>::failure(
+                make_windows_error(m_assertContext, GetLastError(), "Workspace file identity name comparison failed"));
+        }
+        if (comparison == CSTR_EQUAL)
+        {
+            ++matchingNames;
+            identityStillBoundToName = identityStillBoundToName ||
+                                       (entry.name == *nativeName.try_value() && same_file_id(entry.fileId, actualId) &&
+                                        (entry.attributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0U &&
+                                        (entry.attributes & FILE_ATTRIBUTE_DIRECTORY) == 0U);
+        }
+    }
+    if (matchingNames != 1U || !identityStillBoundToName)
+    {
+        return cue::Result<std::vector<std::byte>>::failure(
+            cue::make_io_error(m_assertContext, cue::IoError::PreconditionFailed,
+                               "Workspace file identity is no longer bound to the requested parent entry"));
+    }
     if (size.QuadPart < 0 || static_cast<unsigned long long>(size.QuadPart) > a_maxBytes)
     {
         return cue::Result<std::vector<std::byte>>::failure(cue::make_io_error(
