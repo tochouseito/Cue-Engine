@@ -368,7 +368,8 @@ std::span<const Error> ProjectFileService::recovery_diagnostics() const noexcept
     return m_recoveryDiagnostics;
 }
 
-Result<void> ProjectFileService::ensure_trash_root(std::string_view a_operationId) noexcept
+Result<void> ProjectFileService::ensure_trash_root(std::string_view a_operationId,
+                                                   std::vector<Error> &a_committedDiagnostics) noexcept
 {
     constexpr std::array<std::string_view, 2U> k_directories{"Editor", "Editor/Trash"};
     for (const std::string_view text : k_directories)
@@ -389,11 +390,40 @@ Result<void> ProjectFileService::ensure_trash_root(std::string_view a_operationI
             created.primaryError.has_value() && is_io_error(*created.primaryError, IoError::AlreadyExists);
         if (created.outcome == WorkspaceMutationOutcome::NotCommitted && !alreadyExists)
         {
+            try
+            {
+                for (Error &diagnostic : created.secondaryDiagnostics)
+                {
+                    a_committedDiagnostics.push_back(std::move(diagnostic));
+                }
+            }
+            catch (...)
+            {
+                terminate_allocation(m_assertContext);
+            }
             return Result<void>::failure(created.primaryError.has_value()
                                              ? std::move(*created.primaryError)
                                              : make_project_file_error(m_assertContext,
                                                                        ProjectFileError::StorageFailure,
                                                                        "Project trash directory creation failed"));
+        }
+        if (!alreadyExists)
+        {
+            try
+            {
+                if (created.primaryError.has_value())
+                {
+                    a_committedDiagnostics.push_back(std::move(*created.primaryError));
+                }
+                for (Error &diagnostic : created.secondaryDiagnostics)
+                {
+                    a_committedDiagnostics.push_back(std::move(diagnostic));
+                }
+            }
+            catch (...)
+            {
+                terminate_allocation(m_assertContext);
+            }
         }
         WorkspaceDirectory directory = WorkspaceDirectory::from_bound_path(std::move(*bound.try_value()));
         Result<void> verified = m_workspace->verify_directory(directory);
@@ -605,7 +635,7 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
                     "Project file delete source verification failed", std::move(cause),
                     ProjectFileOperationOutcome::NotCommitted);
     }
-    Result<void> trashRoot = ensure_trash_root(operationId);
+    Result<void> trashRoot = ensure_trash_root(operationId, committedDiagnostics);
     if (!trashRoot)
     {
         return fail(ProjectFileOperationStage::PrepareRecovery, ProjectFileError::StorageFailure,
@@ -1248,7 +1278,8 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
     BusyReset busy(m_isBusy);
 
     constexpr std::string_view k_catalogOperationId = "00000000-0000-4000-8000-000000000001";
-    Result<void> trashRoot = ensure_trash_root(k_catalogOperationId);
+    std::vector<Error> trashRootDiagnostics;
+    Result<void> trashRoot = ensure_trash_root(k_catalogOperationId, trashRootDiagnostics);
     if (!trashRoot)
     {
         return Result<void>::failure(reclassify_project_file_error(m_assertContext, ProjectFileError::StorageFailure,
@@ -1297,6 +1328,10 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
             terminate_allocation(m_assertContext);
         }
     };
+    for (Error &diagnostic : trashRootDiagnostics)
+    {
+        addDiagnostic("Project trash root preparation was not durable", std::move(diagnostic));
+    }
     if (snapshot.try_value()->state != WorkspaceSnapshotState::Complete)
     {
         addDiagnostic("Project trash catalog enumeration requires a rescan");
@@ -1500,6 +1535,27 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
             {
                 hasUnknownEntry = true;
             }
+        }
+        if (operationSnapshot.try_value()->entries.empty())
+        {
+            WorkspaceMutationResult removedOperation =
+                m_workspace->remove_file_or_empty_directory(*operation.try_value());
+            if (removedOperation.primaryError.has_value())
+            {
+                addDiagnostic("Project trash empty operation cleanup was not durable",
+                              std::move(*removedOperation.primaryError));
+            }
+            for (Error &diagnostic : removedOperation.secondaryDiagnostics)
+            {
+                addDiagnostic("Project trash empty operation cleanup reported a secondary failure",
+                              std::move(diagnostic));
+            }
+            if (removedOperation.outcome == WorkspaceMutationOutcome::NotCommitted ||
+                removedOperation.outcome == WorkspaceMutationOutcome::ReconciliationRequired)
+            {
+                addDiagnostic("Project trash empty operation container could not be removed");
+            }
+            continue;
         }
         if (recordEntry == nullptr || hasUnknownEntry)
         {

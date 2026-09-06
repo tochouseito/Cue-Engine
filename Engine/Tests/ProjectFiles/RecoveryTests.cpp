@@ -588,7 +588,7 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
            GetFileAttributesW(recordPath.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
-/// @brief Crashで残った空またはAllocating RecordだけのTrash StagingをCatalog更新時にCleanupする
+/// @brief Crashで残った空ContainerとAllocating RecordだけのTrash StagingをCatalog更新時にCleanupする
 [[nodiscard]] bool test_empty_staging_cleanup(const TestDirectory &a_directory,
                                               const cue::ProjectDescriptor &a_descriptor,
                                               const cue::AssertContext &a_assertContext)
@@ -602,12 +602,15 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
     const std::wstring allocatingStagingDirectory =
         a_directory.child(L"Saved\\Editor\\Trash\\.77777777-7777-4777-8777-777777777777.cuetrash-staging");
     const std::wstring allocatingRecord = allocatingStagingDirectory + L"\\Record.cuetrash";
+    const std::wstring emptyOperationDirectory =
+        a_directory.child(L"Saved\\Editor\\Trash\\99999999-9999-4999-8999-999999999999");
     constexpr std::string_view k_allocatingJson =
         R"({"schemaVersion":1,"projectId":"12345678-1234-4234-8234-123456789abc","operationId":"77777777-7777-4777-8777-777777777777","state":"allocating","originalArea":"sourceAssets","originalPath":"Unused.bin","entryType":"regularFile","byteSize":"0","contentDigest":"0000000000000000"})";
     if (CreateDirectoryW(editorDirectory.c_str(), nullptr) == FALSE ||
         CreateDirectoryW(trashDirectory.c_str(), nullptr) == FALSE ||
         CreateDirectoryW(stagingDirectory.c_str(), nullptr) == FALSE ||
         CreateDirectoryW(allocatingStagingDirectory.c_str(), nullptr) == FALSE ||
+        CreateDirectoryW(emptyOperationDirectory.c_str(), nullptr) == FALSE ||
         !write_file(allocatingRecord, std::as_bytes(std::span(k_allocatingJson.data(), k_allocatingJson.size()))))
     {
         return false;
@@ -617,6 +620,7 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
     return service && service.try_value()->refresh_recovery_catalog(k_traversal, k_content) &&
            GetFileAttributesW(stagingDirectory.c_str()) == INVALID_FILE_ATTRIBUTES &&
            GetFileAttributesW(allocatingStagingDirectory.c_str()) == INVALID_FILE_ATTRIBUTES &&
+           GetFileAttributesW(emptyOperationDirectory.c_str()) == INVALID_FILE_ATTRIBUTES &&
            service.try_value()->recovery_entries().empty();
 }
 } // namespace

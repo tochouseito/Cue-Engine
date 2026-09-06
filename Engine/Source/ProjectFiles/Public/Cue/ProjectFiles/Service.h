@@ -270,7 +270,8 @@ class ProjectFileService final
     [[nodiscard]] const RelativePath &area_root(ProjectFileArea a_area) const noexcept;
 
     /// @brief Saved Root内のTrash Directory Chainを存在確認付きで準備する
-    [[nodiscard]] Result<void> ensure_trash_root(std::string_view a_operationId) noexcept;
+    [[nodiscard]] Result<void> ensure_trash_root(std::string_view a_operationId,
+                                                 std::vector<Error> &a_committedDiagnostics) noexcept;
     /// @brief Operation IDに対応するRecord Byte列を上限付きで読み込む
     [[nodiscard]] Result<std::vector<std::byte>> read_trash_record_bytes(std::string_view a_operationId) noexcept;
 
