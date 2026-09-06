@@ -309,7 +309,7 @@ Readerは`0`、小数、指数表記、負数、`uint32_t`範囲外、`1`以外�
 
 - `schemaVersion`: 初期値`1`
 - `projectId`: ADR-0013のlowercase 8-4-4-4-12 UUID Version 4
-- `operationId`
+- `operationId`: lowercase 8-4-4-4-12 UUID Version 4 JSON String
 - `state`: `allocating`、`prepared`、`trashed`、`restoring`、`restored`
 - `originalArea`: `sourceAssets`
 - `originalPath`: `originalArea`基準の`RelativePath`
@@ -355,8 +355,9 @@ Digest読込み前に検査する。単一FileはFile単位上限、Directoryは
 `CapacityExceeded`とし、SourceまたはPayloadをMoveせず、部分Fingerprintまたは部分Manifestを完全結果として保存しない。
 Sparse FileもLogical Sizeで判定し、CallerがAdapter Hard Limitを拡張できないようにする。
 
-`OperationId`はProject File操作ごとに新しく生成するlowercase UUID Version 4とし、Process再起動後もDirectory名とRecordを
-一意に対応させる。nil UUID、Version／Variant不正、Directory名とRecord値の不一致を拒否する。
+`OperationId`はProject File操作ごとに新しく生成するUUID Version 4とし、JSONではlowercase 8-4-4-4-12 Stringで保存する。
+Brace、Hyphen省略、大文字、nil UUID、Version／Variant不正、余分な文字、Directory名とRecord値の不一致を拒否し、Process再起動後も
+Directory名とRecordを一意に対応させる。
 
 未知Version、Project ID不一致、Operation ID不一致、Path不正、重複Field、Resource Limit超過を推測して読まず、Entryを自動削除しない。
 既知の将来Migrationは`N -> N + 1`をMemory上で完了して再検証し、明示更新まで元Recordを維持する。
@@ -395,6 +396,7 @@ Step 4より前の失敗ではSourceを維持し、Operation-owned Trash Directo
 元へ戻そうとせず、事後状態とRecordを保持してReconciliationへ移る。Process終了等で`prepared`が残った場合は次の規則で再判定する。
 
 再起動時はTrash Rootを`TraversalLimits`内で列挙し、正確なStaging名またはOperation ID名だけを候補にする。空のStaging Directory、
+Entryを一つも持たない正確なOperation ID名のDirectory、
 またはProject ID／Operation IDがDirectory名と一致する有効な`allocating` Recordだけを持ち、`Payload`と他Entryを持たないStaging／
 Operation DirectoryはOperation-owned残骸として削除できる。Record不正、未知Entry、Payload存在、上限超過では再帰削除せず保持して
 診断する。通常Project Entryや名前だけが似たDirectoryをCleanup対象にしない。
@@ -441,6 +443,18 @@ Payload不存在、Fingerprint一致を検証して`restored`へ更新する。
 保持する。再起動後のNative IdentityはVolume移動に耐える永続値ではないためRecordへ保存せず、Process内Planの競合検出にだけ使用する。
 Guard取得、上限確認、内容照合の失敗では状態を昇格せず、Recordと存在するDataを維持して
 `ReconciliationRequired`を返す。既存Destinationを上書きしない。
+
+再起動時は`prepared`と`restoring`だけでなく、`trashed`と`restored` Recordも必ず次の期待状態へ照合する。
+
+| Record State | Original | Payload | Reconciliation |
+| --- | --- | --- | --- |
+| `trashed` | Missing | Exists | PayloadへGuardを取得し、Recordと完全一致する場合だけ正常なTrashとしてCatalogへ公開する |
+| `trashed` | Exists | Missing | OriginalへGuardを取得し、Recordと完全一致する場合だけRename巻き戻し済みとしてRecordと空Operation DirectoryをCleanupする |
+| `restored` | Exists | Missing | OriginalへGuardを取得し、Recordと完全一致する場合だけ正常RestoreとしてRecordと空Operation DirectoryをCleanupする |
+| `restored` | Missing | Exists | PayloadへGuardを取得し、Recordと完全一致する場合だけRename巻き戻し済みとして`trashed`へAtomic更新する |
+
+上表以外のExists／Missing組合せ、Guard取得失敗、Type、Link Count、Fingerprint／Manifest不一致では自動遷移またはCleanupを行わず、
+Recordと存在するDataを維持して`ReconciliationRequired`を返す。検証からRecord更新またはCleanup完了までGuardを保持する。
 
 M13はRecoverable Payloadの自動期限削除と永久削除UIを提供しない。成功済みRestoreの空Operation DirectoryとRecord、および上記で
 厳密に識別した`allocating`以前の空Staging／Operation DirectoryだけをOperation-owned Cleanupとして削除できる。未Restore Payloadは
