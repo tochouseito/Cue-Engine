@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -59,6 +60,23 @@ enum class WorkspaceSnapshotState : std::uint8_t
 {
     Complete,
     RescanRequired
+};
+
+/// @brief Namespace Mutation後に確定したPortableな観測結果
+enum class WorkspaceMutationOutcome : std::uint8_t
+{
+    Committed,
+    NotCommitted,
+    CommittedButDurabilityUnknown,
+    ReconciliationRequired
+};
+
+/// @brief Workspace Adapterが返すMutation結果とCleanup診断
+struct WorkspaceMutationResult final
+{
+    WorkspaceMutationOutcome outcome = WorkspaceMutationOutcome::ReconciliationRequired;
+    std::optional<Error> primaryError;
+    std::vector<Error> secondaryDiagnostics;
 };
 
 /// @brief 再帰処理のCaller上限を全て非Zero値で保持する
@@ -158,9 +176,22 @@ class WorkspaceFilesystem
     [[nodiscard]] Result<WorkspaceDirectory> bind_directory(RelativePath a_locator,
                                                             const AssertContext &a_assertContext) const noexcept;
 
+    /// @brief 個別検証済みArea Rootと利用者Locatorを内部Pathへ合成する
+    [[nodiscard]] Result<BoundWorkspacePath> bind_path(RelativePath a_areaRoot, RelativePath a_locator,
+                                                       const AssertContext &a_assertContext) const noexcept;
+
     /// @brief Directory直下を決定的に列挙する
     [[nodiscard]] virtual Result<DirectorySnapshot> list_directory(const WorkspaceDirectory &a_directory,
                                                                    TraversalLimits a_limits) noexcept = 0;
+
+    /// @brief Operation所有Sibling Directoryを経由し、既存Entryを上書きせずDirectoryを公開する
+    [[nodiscard]] virtual WorkspaceMutationResult create_directory_new(const BoundWorkspacePath &a_destination,
+                                                                       std::string_view a_operationId) noexcept = 0;
+
+    /// @brief Operation所有Temporary Fileを経由し、既存Entryを上書きせずFileをAtomic公開する
+    [[nodiscard]] virtual WorkspaceMutationResult create_file_new_atomic(const BoundWorkspacePath &a_destination,
+                                                                         std::span<const std::byte> a_bytes,
+                                                                         std::string_view a_operationId) noexcept = 0;
 
   protected:
     /// @brief 発行可能なRoot相対Path長を固定してCapabilityを初期化する
@@ -168,6 +199,13 @@ class WorkspaceFilesystem
 
     /// @brief DirectoryがRootまたはこのWorkspaceから発行済みか判定する
     [[nodiscard]] bool owns_directory(const WorkspaceDirectory &a_directory) const noexcept;
+
+    /// @brief 内部PathがこのWorkspaceから発行済みか判定する
+    [[nodiscard]] bool owns_path(const BoundWorkspacePath &a_path) const noexcept;
+
+    /// @brief このWorkspaceが発行した内部Pathから親Directory Capabilityを構築する
+    [[nodiscard]] Result<WorkspaceDirectory> parent_directory(const BoundWorkspacePath &a_path,
+                                                              const AssertContext &a_assertContext) const noexcept;
 
     /// @brief 親内部Pathへ個別検証済みChild Locatorを合成する
     [[nodiscard]] Result<BoundWorkspacePath> append_path(const WorkspaceDirectory &a_parent, RelativePath a_child,

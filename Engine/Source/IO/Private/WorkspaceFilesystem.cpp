@@ -186,10 +186,52 @@ Result<WorkspaceDirectory> WorkspaceFilesystem::bind_directory(RelativePath a_lo
     }
 }
 
+Result<BoundWorkspacePath> WorkspaceFilesystem::bind_path(RelativePath a_areaRoot, RelativePath a_locator,
+                                                          const AssertContext &a_assertContext) const noexcept
+{
+    Result<WorkspaceDirectory> area = bind_directory(std::move(a_areaRoot), a_assertContext);
+    if (!area)
+    {
+        return Result<BoundWorkspacePath>::failure(std::move(*area.try_error()));
+    }
+    return append_path(*area.try_value(), std::move(a_locator), a_assertContext);
+}
+
 bool WorkspaceFilesystem::owns_directory(const WorkspaceDirectory &a_directory) const noexcept
 {
     const BoundWorkspacePath *locator = a_directory.locator();
     return locator == nullptr || locator->m_bindingToken == m_bindingToken;
+}
+
+bool WorkspaceFilesystem::owns_path(const BoundWorkspacePath &a_path) const noexcept
+{
+    return a_path.m_bindingToken == m_bindingToken;
+}
+
+Result<WorkspaceDirectory> WorkspaceFilesystem::parent_directory(const BoundWorkspacePath &a_path,
+                                                                 const AssertContext &a_assertContext) const noexcept
+{
+    if (!owns_path(a_path))
+    {
+        return Result<WorkspaceDirectory>::failure(
+            make_io_error(a_assertContext, IoError::OutsideRoot, "Workspace path belongs to another root binding"));
+    }
+
+    const std::size_t separator = a_path.text().rfind('/');
+    if (separator == std::string_view::npos)
+    {
+        return Result<WorkspaceDirectory>::success(WorkspaceDirectory::root());
+    }
+    try
+    {
+        std::string parent(a_path.text().substr(0U, separator));
+        return Result<WorkspaceDirectory>::success(
+            WorkspaceDirectory::from_bound_path(BoundWorkspacePath(std::move(parent), m_bindingToken)));
+    }
+    catch (...)
+    {
+        terminate_allocation(a_assertContext);
+    }
 }
 
 Result<BoundWorkspacePath> WorkspaceFilesystem::append_path(const WorkspaceDirectory &a_parent, RelativePath a_child,

@@ -144,6 +144,29 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
         return cue::Result<cue::DirectorySnapshot>::success(std::move(snapshot));
     }
 
+    /// @brief この列挙専用Test DoubleではMutationを未対応として返す
+    [[nodiscard]] cue::WorkspaceMutationResult create_directory_new(const cue::BoundWorkspacePath &,
+                                                                    std::string_view) noexcept override
+    {
+        cue::WorkspaceMutationResult result;
+        result.outcome = cue::WorkspaceMutationOutcome::NotCommitted;
+        result.primaryError = cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
+                                                 "Workspace core test double does not support mutation");
+        return result;
+    }
+
+    /// @brief この列挙専用Test DoubleではMutationを未対応として返す
+    [[nodiscard]] cue::WorkspaceMutationResult create_file_new_atomic(const cue::BoundWorkspacePath &,
+                                                                      std::span<const std::byte>,
+                                                                      std::string_view) noexcept override
+    {
+        cue::WorkspaceMutationResult result;
+        result.outcome = cue::WorkspaceMutationOutcome::NotCommitted;
+        result.primaryError = cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
+                                                 "Workspace core test double does not support mutation");
+        return result;
+    }
+
   private:
     const cue::AssertContext *m_assertContext;
     std::uint64_t m_nextGeneration = 1U;
