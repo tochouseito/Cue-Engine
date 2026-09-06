@@ -23,6 +23,7 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <source_location>
@@ -93,16 +94,17 @@ HRESULT signal_for_lifecycle_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_f
 {
     if (g_queueLifecycleProbeState.removeDeviceBeforeSignal)
     {
-        Microsoft::WRL::ComPtr<ID3D12Device5> device;
+        // Hosted Runner の WARP Device を実際に破棄すると Process 外で Access Violation になる場合があるため、
+        // Fence は完了可能にした上で Production と同じ Device Removed 分類を通す Native 結果を注入する。
+        const HRESULT signalResult = cue::default_d3d12_queue_native_functions().signal(a_queue, a_fence, a_value);
 
-        if (SUCCEEDED(a_queue->GetDevice(IID_PPV_ARGS(&device))))
+        if (FAILED(signalResult))
         {
-            device->RemoveDevice();
+            return signalResult;
         }
-        else
-        {
-            g_deviceRemovalProbeUnavailable = true;
-        }
+
+        g_reportDeviceRemovedForProbe = true;
+        return g_queueLifecycleProbeState.failSignalAfterForwarding ? E_FAIL : DXGI_ERROR_DEVICE_REMOVED;
     }
 
     const HRESULT result = cue::default_d3d12_queue_native_functions().signal(a_queue, a_fence, a_value);
@@ -112,6 +114,11 @@ HRESULT signal_for_lifecycle_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_f
 /// @brief Lifecycle Probe が使用する Fence 完了値を Native Queue 経路へ返す
 std::uint64_t completed_value_for_lifecycle_probe(ID3D12Fence *a_fence) noexcept
 {
+    if (g_reportDeviceRemovedForProbe)
+    {
+        return std::numeric_limits<std::uint64_t>::max();
+    }
+
     if (g_queueLifecycleProbeState.hiddenCompletedValueCount > 0)
     {
         --g_queueLifecycleProbeState.hiddenCompletedValueCount;
@@ -214,15 +221,8 @@ HRESULT present_for_lifecycle_probe(IDXGISwapChain3 *a_swapChain, UINT a_syncInt
             return presentResult;
         }
 
-        Microsoft::WRL::ComPtr<ID3D12Device5> device;
-
-        if (FAILED(a_swapChain->GetDevice(IID_PPV_ARGS(&device))))
-        {
-            g_deviceRemovalProbeUnavailable = true;
-            return E_NOINTERFACE;
-        }
-
-        device->RemoveDevice();
+        // Present 自体は実行し、直後の Device Removed 応答だけを注入して Driver 依存の Device 破壊を避ける。
+        g_reportDeviceRemovedForProbe = true;
         return DXGI_ERROR_DEVICE_REMOVED;
     }
 
