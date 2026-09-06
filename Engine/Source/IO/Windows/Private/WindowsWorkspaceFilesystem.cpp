@@ -1336,7 +1336,10 @@ cue::Result<std::vector<UniqueHandle>> WindowsWorkspaceFilesystem::pin_directory
                                              static_cast<int>(nativeComponent.try_value()->size()), TRUE) == CSTR_EQUAL)
                     {
                         ++matchingNames;
-                        match = &entry;
+                        if (entry.name == *nativeComponent.try_value())
+                        {
+                            match = &entry;
+                        }
                     }
                 }
                 return matchingNames == 1U ? match : nullptr;

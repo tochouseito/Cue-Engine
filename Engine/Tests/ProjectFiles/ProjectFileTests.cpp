@@ -624,6 +624,30 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
     return !service &&
            has_project_file_error(service.try_error(), cue::project_files::ProjectFileError::InvalidRequest);
 }
+
+/// @brief Source Root親Componentの大小文字Spelling不一致をService公開前に拒否することを検証する
+[[nodiscard]] bool test_source_root_spelling_mismatch(const cue::ProjectDescriptor &a_descriptor,
+                                                      const cue::AssertContext &a_assertContext)
+{
+    TestDirectory directory(true);
+    if (!directory.is_created() || !write_project_descriptor(directory, a_descriptor, a_assertContext) ||
+        MoveFileExW(directory.child(L"Assets").c_str(), directory.child(L"assets").c_str(), MOVEFILE_WRITE_THROUGH) ==
+            FALSE)
+    {
+        return false;
+    }
+    auto workspace = cue::create_windows_workspace_filesystem(directory.utf8_path(), a_assertContext);
+    if (!workspace)
+    {
+        return false;
+    }
+    std::vector<std::string> ids{"dddddddd-dddd-4ddd-8ddd-dddddddddddd"};
+    auto service = cue::project_files::ProjectFileService::create(a_descriptor, std::move(*workspace.try_value()),
+                                                                  make_id_source(a_assertContext, std::move(ids)),
+                                                                  a_assertContext);
+    return !service &&
+           has_project_file_error(service.try_error(), cue::project_files::ProjectFileError::InvalidRequest);
+}
 } // namespace
 
 /// @brief ProjectFilesの全Integration Caseを実行する
@@ -671,5 +695,9 @@ int main()
     {
         return 8;
     }
-    return test_source_root_parent_alias(*descriptor.try_value(), assertContext) ? 0 : 9;
+    if (!test_source_root_parent_alias(*descriptor.try_value(), assertContext))
+    {
+        return 9;
+    }
+    return test_source_root_spelling_mismatch(*descriptor.try_value(), assertContext) ? 0 : 10;
 }
