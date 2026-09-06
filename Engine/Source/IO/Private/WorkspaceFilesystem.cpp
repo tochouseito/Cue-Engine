@@ -4,6 +4,7 @@
 #include <Cue/IO/Error.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <limits>
 #include <utility>
@@ -120,37 +121,19 @@ bool TraversalLimits::is_valid() const noexcept
     return maxDepth != 0U && maxVisitedEntries != 0U && maxResults != 0U && maxMetadataBytes != 0U;
 }
 
-BoundWorkspacePath BoundWorkspacePath::from_locator(RelativePath a_locator,
-                                                    const AssertContext &a_assertContext) noexcept
-{
-    try
-    {
-        return BoundWorkspacePath(std::string(a_locator.text()));
-    }
-    catch (...)
-    {
-        terminate_allocation(a_assertContext);
-    }
-}
-
 std::string_view BoundWorkspacePath::text() const noexcept
 {
     return m_text;
 }
 
-BoundWorkspacePath::BoundWorkspacePath(std::string a_text) noexcept : m_text(std::move(a_text))
+BoundWorkspacePath::BoundWorkspacePath(std::string a_text, std::uint64_t a_bindingToken) noexcept
+    : m_text(std::move(a_text)), m_bindingToken(a_bindingToken)
 {
 }
 
 WorkspaceDirectory WorkspaceDirectory::root() noexcept
 {
     return WorkspaceDirectory(std::nullopt);
-}
-
-WorkspaceDirectory WorkspaceDirectory::from_locator(RelativePath a_locator,
-                                                    const AssertContext &a_assertContext) noexcept
-{
-    return WorkspaceDirectory(BoundWorkspacePath::from_locator(std::move(a_locator), a_assertContext));
 }
 
 WorkspaceDirectory WorkspaceDirectory::from_bound_path(BoundWorkspacePath a_locator) noexcept
@@ -173,20 +156,71 @@ WorkspaceDirectory::WorkspaceDirectory(std::optional<BoundWorkspacePath> a_locat
 {
 }
 
-BoundWorkspacePath append_workspace_path(const WorkspaceDirectory &a_parent, RelativePath a_child,
-                                         const AssertContext &a_assertContext) noexcept
+WorkspaceFilesystem::WorkspaceFilesystem(std::size_t a_maxBoundPathCharacters) noexcept
+    : m_bindingToken(0U), m_maxBoundPathCharacters(a_maxBoundPathCharacters)
 {
+    static std::atomic<std::uint64_t> nextToken{1U};
+    m_bindingToken = nextToken.fetch_add(1U, std::memory_order_relaxed);
+    if (m_bindingToken == 0U)
+    {
+        std::abort();
+    }
+}
+
+Result<WorkspaceDirectory> WorkspaceFilesystem::bind_directory(RelativePath a_locator,
+                                                               const AssertContext &a_assertContext) const noexcept
+{
+    if (a_locator.text().size() > m_maxBoundPathCharacters)
+    {
+        return Result<WorkspaceDirectory>::failure(make_io_error(a_assertContext, IoError::CapacityExceeded,
+                                                                 "Workspace directory exceeds the native path limit"));
+    }
+    try
+    {
+        return Result<WorkspaceDirectory>::success(
+            WorkspaceDirectory::from_bound_path(BoundWorkspacePath(std::string(a_locator.text()), m_bindingToken)));
+    }
+    catch (...)
+    {
+        terminate_allocation(a_assertContext);
+    }
+}
+
+bool WorkspaceFilesystem::owns_directory(const WorkspaceDirectory &a_directory) const noexcept
+{
+    const BoundWorkspacePath *locator = a_directory.locator();
+    return locator == nullptr || locator->m_bindingToken == m_bindingToken;
+}
+
+Result<BoundWorkspacePath> WorkspaceFilesystem::append_path(const WorkspaceDirectory &a_parent, RelativePath a_child,
+                                                            const AssertContext &a_assertContext) const noexcept
+{
+    if (!owns_directory(a_parent))
+    {
+        return Result<BoundWorkspacePath>::failure(make_io_error(
+            a_assertContext, IoError::OutsideRoot, "Workspace directory belongs to another root binding"));
+    }
+
+    const BoundWorkspacePath *parent = a_parent.locator();
+    const std::size_t parentLength = parent == nullptr ? 0U : parent->text().size();
+    const std::size_t separatorLength = parent == nullptr ? 0U : 1U;
+    if (parentLength > m_maxBoundPathCharacters ||
+        separatorLength + a_child.text().size() > m_maxBoundPathCharacters - parentLength)
+    {
+        return Result<BoundWorkspacePath>::failure(
+            make_io_error(a_assertContext, IoError::CapacityExceeded, "Workspace path exceeds the native path limit"));
+    }
+
     try
     {
         std::string text;
-        const BoundWorkspacePath *parent = a_parent.locator();
         if (parent != nullptr)
         {
             text.assign(parent->text());
             text.push_back('/');
         }
         text.append(a_child.text());
-        return BoundWorkspacePath(std::move(text));
+        return Result<BoundWorkspacePath>::success(BoundWorkspacePath(std::move(text), m_bindingToken));
     }
     catch (...)
     {

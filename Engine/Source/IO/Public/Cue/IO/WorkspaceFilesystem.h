@@ -15,27 +15,24 @@ namespace cue
 {
 class AssertContext;
 class WorkspaceDirectory;
+class WorkspaceFilesystem;
 
 /// @brief 検証済みUser Locatorと列挙結果からだけ生成できるRoot相対内部Path
 class BoundWorkspacePath final
 {
   public:
-    /// @brief 検証済みUser LocatorをWorkspace内部PathへBindingする
-    [[nodiscard]] static BoundWorkspacePath from_locator(RelativePath a_locator,
-                                                         const AssertContext &a_assertContext) noexcept;
-
     /// @brief Root相対のPortable Path文字列を返す
     [[nodiscard]] std::string_view text() const noexcept;
 
   private:
     friend class WorkspaceDirectory;
-    friend BoundWorkspacePath append_workspace_path(const WorkspaceDirectory &a_parent, RelativePath a_child,
-                                                    const AssertContext &a_assertContext) noexcept;
+    friend class WorkspaceFilesystem;
 
-    /// @brief 検証済みの合成済みPath文字列を所有する
-    explicit BoundWorkspacePath(std::string a_text) noexcept;
+    /// @brief 検証済みの合成済みPath文字列と発行元Workspaceを所有する
+    BoundWorkspacePath(std::string a_text, std::uint64_t a_bindingToken) noexcept;
 
     std::string m_text;
+    std::uint64_t m_bindingToken;
 };
 
 /// @brief Workspace列挙で公開するPortable Entry種別
@@ -83,10 +80,6 @@ class WorkspaceDirectory final
     /// @brief Workspace Root自体を列挙対象として返す
     [[nodiscard]] static WorkspaceDirectory root() noexcept;
 
-    /// @brief 検証済みRoot相対Locatorを列挙対象として所有する
-    [[nodiscard]] static WorkspaceDirectory from_locator(RelativePath a_locator,
-                                                         const AssertContext &a_assertContext) noexcept;
-
     /// @brief 列挙で生成済みの合成PathをDirectory Locatorとして所有する
     [[nodiscard]] static WorkspaceDirectory from_bound_path(BoundWorkspacePath a_locator) noexcept;
 
@@ -102,10 +95,6 @@ class WorkspaceDirectory final
 
     std::optional<BoundWorkspacePath> m_locator;
 };
-
-/// @brief 親内部Pathへ個別検証済みChild Locatorを合成し、全体上限を再適用せず返す
-[[nodiscard]] BoundWorkspacePath append_workspace_path(const WorkspaceDirectory &a_parent, RelativePath a_child,
-                                                       const AssertContext &a_assertContext) noexcept;
 
 /// @brief Entry単位で発生した列挙競合または拒否理由を保持する
 struct WorkspaceDiagnostic final
@@ -165,17 +154,28 @@ class WorkspaceFilesystem
     /// @brief Adapter固有Hard Limitを返す
     [[nodiscard]] virtual TraversalLimits hard_limits() const noexcept = 0;
 
+    /// @brief 検証済みUser LocatorをこのWorkspace固有のDirectory CapabilityへBindingする
+    [[nodiscard]] Result<WorkspaceDirectory> bind_directory(RelativePath a_locator,
+                                                            const AssertContext &a_assertContext) const noexcept;
+
     /// @brief Directory直下を決定的に列挙する
     [[nodiscard]] virtual Result<DirectorySnapshot> list_directory(const WorkspaceDirectory &a_directory,
                                                                    TraversalLimits a_limits) noexcept = 0;
 
   protected:
-    /// @brief Abstract Capabilityの初期化だけをDerived実装へ許可する
-    WorkspaceFilesystem() noexcept = default;
-    /// @brief Abstract Capabilityを直接移動させずDerived所有権で管理する
-    WorkspaceFilesystem(WorkspaceFilesystem &&) noexcept = default;
-    /// @brief Abstract Capabilityを直接移動代入させずDerived所有権で管理する
-    WorkspaceFilesystem &operator=(WorkspaceFilesystem &&) noexcept = default;
+    /// @brief 発行可能なRoot相対Path長を固定してCapabilityを初期化する
+    explicit WorkspaceFilesystem(std::size_t a_maxBoundPathCharacters) noexcept;
+
+    /// @brief DirectoryがRootまたはこのWorkspaceから発行済みか判定する
+    [[nodiscard]] bool owns_directory(const WorkspaceDirectory &a_directory) const noexcept;
+
+    /// @brief 親内部Pathへ個別検証済みChild Locatorを合成する
+    [[nodiscard]] Result<BoundWorkspacePath> append_path(const WorkspaceDirectory &a_parent, RelativePath a_child,
+                                                         const AssertContext &a_assertContext) const noexcept;
+
+  private:
+    std::uint64_t m_bindingToken;
+    std::size_t m_maxBoundPathCharacters;
 };
 
 /// @brief Snapshot EntryをDirectory、File、UnsupportedのPortable順へ整列する

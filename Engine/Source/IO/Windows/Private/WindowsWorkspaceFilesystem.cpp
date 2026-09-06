@@ -333,9 +333,10 @@ class WindowsWorkspaceFilesystem final : public cue::WorkspaceFilesystem
   public:
     /// @brief 検証済みRoot Path、Handle、Identityを所有する
     WindowsWorkspaceFilesystem(const cue::AssertContext &a_assertContext, std::wstring a_rootPath,
-                               UniqueHandle a_rootHandle, RootIdentity a_identity) noexcept
-        : m_assertContext(a_assertContext), m_rootPath(std::move(a_rootPath)), m_rootHandle(std::move(a_rootHandle)),
-          m_identity(a_identity)
+                               UniqueHandle a_rootHandle, RootIdentity a_identity,
+                               std::size_t a_maxBoundPathCharacters) noexcept
+        : cue::WorkspaceFilesystem(a_maxBoundPathCharacters), m_assertContext(a_assertContext),
+          m_rootPath(std::move(a_rootPath)), m_rootHandle(std::move(a_rootHandle)), m_identity(a_identity)
     {
     }
     /// @brief Native Rootの一意所有を保つためCopy構築を禁止する
@@ -570,7 +571,13 @@ cue::Result<cue::WorkspaceEntry> WindowsWorkspaceFilesystem::make_entry(
     }
 
     entry.sortKey = childLocator.try_value()->comparison_key(m_assertContext);
-    entry.locator = cue::append_workspace_path(a_directory, std::move(*childLocator.try_value()), m_assertContext);
+    cue::Result<cue::BoundWorkspacePath> locator =
+        append_path(a_directory, std::move(*childLocator.try_value()), m_assertContext);
+    if (!locator)
+    {
+        return cue::Result<cue::WorkspaceEntry>::failure(std::move(*locator.try_error()));
+    }
+    entry.locator = std::move(*locator.try_value());
     entry.type = actualDirectory ? cue::WorkspaceEntryType::Directory : cue::WorkspaceEntryType::RegularFile;
     if (!actualDirectory)
     {
@@ -585,6 +592,11 @@ cue::Result<cue::WorkspaceEntry> WindowsWorkspaceFilesystem::make_entry(
 cue::Result<cue::DirectorySnapshot> WindowsWorkspaceFilesystem::list_directory(
     const cue::WorkspaceDirectory &a_directory, cue::TraversalLimits a_limits) noexcept
 {
+    if (!owns_directory(a_directory))
+    {
+        return cue::Result<cue::DirectorySnapshot>::failure(cue::make_io_error(
+            m_assertContext, cue::IoError::OutsideRoot, "Workspace directory belongs to another root binding"));
+    }
     if (!a_limits.is_valid())
     {
         return cue::Result<cue::DirectorySnapshot>::failure(cue::make_io_error(
@@ -817,12 +829,20 @@ Result<std::unique_ptr<WorkspaceFilesystem>> create_windows_workspace_filesystem
     }
     finalPath.resize(finalWritten);
 
+    constexpr std::size_t k_directoryPatternCharacters = 4U;
+    if (finalPath.size() > k_maxWindowsPathLength - k_directoryPatternCharacters)
+    {
+        return Result<std::unique_ptr<WorkspaceFilesystem>>::failure(make_io_error(
+            a_assertContext, IoError::CapacityExceeded, "Workspace root leaves no capacity for directory paths"));
+    }
+    const std::size_t maxBoundPathCharacters = k_maxWindowsPathLength - finalPath.size() - k_directoryPatternCharacters;
+
     const RootIdentity identity{information.dwVolumeSerialNumber, information.nFileIndexHigh,
                                 information.nFileIndexLow};
     try
     {
         std::unique_ptr<WorkspaceFilesystem> filesystem = std::make_unique<WindowsWorkspaceFilesystem>(
-            a_assertContext, std::move(finalPath), std::move(root), identity);
+            a_assertContext, std::move(finalPath), std::move(root), identity, maxBoundPathCharacters);
         return Result<std::unique_ptr<WorkspaceFilesystem>>::success(std::move(filesystem));
     }
     catch (...)

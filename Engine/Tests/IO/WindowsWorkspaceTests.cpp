@@ -299,8 +299,12 @@ struct MountPointReparseBuffer final
     {
         return false;
     }
-    auto nested = a_filesystem.list_directory(
-        cue::WorkspaceDirectory::from_locator(std::move(*folderLocator.try_value()), a_assertContext), limits);
+    auto folderDirectory = a_filesystem.bind_directory(std::move(*folderLocator.try_value()), a_assertContext);
+    if (!folderDirectory)
+    {
+        return false;
+    }
+    auto nested = a_filesystem.list_directory(*folderDirectory.try_value(), limits);
     return nested && nested.try_value()->entries.size() == 1U &&
            nested.try_value()->entries[0].displayName == "Needle.txt";
 }
@@ -336,9 +340,16 @@ struct MountPointReparseBuffer final
         return false;
     }
     auto linkLocator = cue::RelativePath::parse("ReparseLink", a_assertContext);
-    auto escaped = a_filesystem.list_directory(
-        cue::WorkspaceDirectory::from_locator(std::move(*linkLocator.try_value()), a_assertContext),
-        cue::TraversalLimits{2U, 4U, 4U, 1024U});
+    if (!linkLocator)
+    {
+        return false;
+    }
+    auto linkDirectory = a_filesystem.bind_directory(std::move(*linkLocator.try_value()), a_assertContext);
+    if (!linkDirectory)
+    {
+        return false;
+    }
+    auto escaped = a_filesystem.list_directory(*linkDirectory.try_value(), cue::TraversalLimits{2U, 4U, 4U, 1024U});
     if (!has_io_error(escaped, cue::IoError::UnsupportedEntry))
     {
         return false;
@@ -401,9 +412,12 @@ struct MountPointReparseBuffer final
     {
         return false;
     }
-    auto listed = a_filesystem.list_directory(
-        cue::WorkspaceDirectory::from_locator(std::move(*locator.try_value()), a_assertContext),
-        cue::TraversalLimits{2U, 8U, 8U, 4096U});
+    auto directory = a_filesystem.bind_directory(std::move(*locator.try_value()), a_assertContext);
+    if (!directory)
+    {
+        return false;
+    }
+    auto listed = a_filesystem.list_directory(*directory.try_value(), cue::TraversalLimits{2U, 8U, 8U, 4096U});
     if (!listed || listed.try_value()->entries.size() != 1U)
     {
         return false;
@@ -411,6 +425,27 @@ struct MountPointReparseBuffer final
     const cue::WorkspaceEntry &entry = listed.try_value()->entries[0];
     const std::string expected = std::string(k_deepLocator) + "/Tail.bin";
     return entry.is_operable() && entry.locator->text() == expected;
+}
+
+/// @brief 別Rootから発行されたDirectory Capabilityを拒否するか検証する
+[[nodiscard]] bool test_binding_origin(cue::WorkspaceFilesystem &a_filesystem, const TestDirectory &a_directory,
+                                       const cue::AssertContext &a_assertContext)
+{
+    auto otherFilesystem = cue::create_windows_workspace_filesystem(
+        std::filesystem::path(a_directory.outside_path()).string(), a_assertContext);
+    auto locator = cue::RelativePath::parse("Folder", a_assertContext);
+    if (!otherFilesystem || !locator)
+    {
+        return false;
+    }
+    auto directory = a_filesystem.bind_directory(std::move(*locator.try_value()), a_assertContext);
+    if (!directory)
+    {
+        return false;
+    }
+    auto listed =
+        (**otherFilesystem.try_value()).list_directory(*directory.try_value(), cue::TraversalLimits{2U, 8U, 8U, 4096U});
+    return has_io_error(listed, cue::IoError::OutsideRoot);
 }
 
 /// @brief Factory引数のAssertContext破棄後もWorkspaceが所有Copyを使用できるか検証する
@@ -470,32 +505,36 @@ int main()
     {
         return 8;
     }
+    if (!test_binding_origin(**filesystem.try_value(), directory, assertContext))
+    {
+        return 9;
+    }
 
     auto temporaryContextFilesystem = create_with_temporary_context(directory.utf8_path(), logger, fatalHandler);
     if (!temporaryContextFilesystem)
     {
-        return 9;
+        return 10;
     }
     auto temporaryContextSnapshot =
         (**temporaryContextFilesystem.try_value())
             .list_directory(cue::WorkspaceDirectory::root(), cue::TraversalLimits{2U, 64U, 64U, 32U * 1024U});
     if (!temporaryContextSnapshot)
     {
-        return 10;
+        return 11;
     }
 
     auto limited = (**filesystem.try_value())
                        .list_directory(cue::WorkspaceDirectory::root(), cue::TraversalLimits{2U, 64U, 1U, 16U * 1024U});
     if (!has_io_error(limited, cue::IoError::CapacityExceeded))
     {
-        return 11;
+        return 12;
     }
 
     if (MoveFileExW(directory.path().c_str(), directory.moved_path().c_str(), 0U) != FALSE)
     {
         MoveFileExW(directory.moved_path().c_str(), directory.path().c_str(), 0U);
-        return 12;
+        return 13;
     }
     const DWORD replacementCode = GetLastError();
-    return replacementCode == ERROR_SHARING_VIOLATION || replacementCode == ERROR_ACCESS_DENIED ? 0 : 13;
+    return replacementCode == ERROR_SHARING_VIOLATION || replacementCode == ERROR_ACCESS_DENIED ? 0 : 14;
 }

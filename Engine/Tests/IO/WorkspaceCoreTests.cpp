@@ -40,9 +40,9 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
 }
 
 /// @brief Test用の操作可能Entryを構築する
-[[nodiscard]] cue::WorkspaceEntry make_entry(std::string_view a_name, std::string_view a_locator,
-                                             cue::WorkspaceEntryType a_type, std::uint64_t a_generation,
-                                             const cue::AssertContext &a_assertContext)
+[[nodiscard]] cue::WorkspaceEntry make_entry(cue::WorkspaceFilesystem &a_filesystem, std::string_view a_name,
+                                             std::string_view a_locator, cue::WorkspaceEntryType a_type,
+                                             std::uint64_t a_generation, const cue::AssertContext &a_assertContext)
 {
     auto locator = cue::RelativePath::parse(a_locator, a_assertContext);
     if (!locator)
@@ -53,7 +53,12 @@ template <typename T> [[nodiscard]] bool has_io_error(cue::Result<T> &a_result, 
     entry.parentGeneration = a_generation;
     entry.displayName = a_name;
     entry.sortKey = locator.try_value()->comparison_key(a_assertContext);
-    entry.locator = cue::BoundWorkspacePath::from_locator(std::move(*locator.try_value()), a_assertContext);
+    auto directory = a_filesystem.bind_directory(std::move(*locator.try_value()), a_assertContext);
+    if (!directory || directory.try_value()->locator() == nullptr)
+    {
+        a_assertContext.fatal_handler().terminate("Workspace test binding failed");
+    }
+    entry.locator = *directory.try_value()->locator();
     entry.type = a_type;
     entry.byteSize = a_type == cue::WorkspaceEntryType::RegularFile ? 4U : 0U;
     return entry;
@@ -64,8 +69,9 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
 {
   public:
     /// @brief Test Data生成に必要なAssert Contextを保持する
-    explicit FakeWorkspaceFilesystem(const cue::AssertContext &a_assertContext) noexcept
-        : m_assertContext(&a_assertContext)
+    explicit FakeWorkspaceFilesystem(const cue::AssertContext &a_assertContext,
+                                     std::size_t a_maxBoundPathCharacters = 4096U) noexcept
+        : cue::WorkspaceFilesystem(a_maxBoundPathCharacters), m_assertContext(&a_assertContext)
     {
     }
     FakeWorkspaceFilesystem(const FakeWorkspaceFilesystem &) = delete;
@@ -84,28 +90,33 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
     [[nodiscard]] cue::Result<cue::DirectorySnapshot> list_directory(const cue::WorkspaceDirectory &a_directory,
                                                                      cue::TraversalLimits) noexcept override
     {
+        if (!owns_directory(a_directory))
+        {
+            return cue::Result<cue::DirectorySnapshot>::failure(cue::make_io_error(
+                *m_assertContext, cue::IoError::OutsideRoot, "Workspace directory belongs to another root binding"));
+        }
         cue::DirectorySnapshot snapshot;
         snapshot.generation = m_nextGeneration++;
         const cue::BoundWorkspacePath *locator = a_directory.locator();
         const std::string_view text = locator == nullptr ? std::string_view{} : locator->text();
         if (text.empty())
         {
-            snapshot.entries.push_back(make_entry("Beta.bin", "Beta.bin", cue::WorkspaceEntryType::RegularFile,
+            snapshot.entries.push_back(make_entry(*this, "Beta.bin", "Beta.bin", cue::WorkspaceEntryType::RegularFile,
                                                   snapshot.generation, *m_assertContext));
-            snapshot.entries.push_back(make_entry("Folder", "Folder", cue::WorkspaceEntryType::Directory,
+            snapshot.entries.push_back(make_entry(*this, "Folder", "Folder", cue::WorkspaceEntryType::Directory,
                                                   snapshot.generation, *m_assertContext));
         }
         else if (text == "Folder")
         {
-            snapshot.entries.push_back(make_entry("Nested.txt", "Folder/Nested.txt",
+            snapshot.entries.push_back(make_entry(*this, "Nested.txt", "Folder/Nested.txt",
                                                   cue::WorkspaceEntryType::RegularFile, snapshot.generation,
                                                   *m_assertContext));
-            snapshot.entries.push_back(make_entry("Deep", "Folder/Deep", cue::WorkspaceEntryType::Directory,
+            snapshot.entries.push_back(make_entry(*this, "Deep", "Folder/Deep", cue::WorkspaceEntryType::Directory,
                                                   snapshot.generation, *m_assertContext));
         }
         else if (text == "Folder/Deep")
         {
-            snapshot.entries.push_back(make_entry("End.txt", "Folder/Deep/End.txt",
+            snapshot.entries.push_back(make_entry(*this, "End.txt", "Folder/Deep/End.txt",
                                                   cue::WorkspaceEntryType::RegularFile, snapshot.generation,
                                                   *m_assertContext));
         }
@@ -134,12 +145,13 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
 /// @brief Portable Sort、Filter、操作可否を検証する
 [[nodiscard]] bool test_sort_and_filter(const cue::AssertContext &a_assertContext)
 {
+    FakeWorkspaceFilesystem filesystem(a_assertContext);
     cue::DirectorySnapshot snapshot;
     snapshot.generation = 7U;
     snapshot.entries.push_back(
-        make_entry("zeta.bin", "zeta.bin", cue::WorkspaceEntryType::RegularFile, 7U, a_assertContext));
+        make_entry(filesystem, "zeta.bin", "zeta.bin", cue::WorkspaceEntryType::RegularFile, 7U, a_assertContext));
     snapshot.entries.push_back(
-        make_entry("FolderB", "FolderB", cue::WorkspaceEntryType::Directory, 7U, a_assertContext));
+        make_entry(filesystem, "FolderB", "FolderB", cue::WorkspaceEntryType::Directory, 7U, a_assertContext));
     cue::WorkspaceEntry unsupported;
     unsupported.parentGeneration = 7U;
     unsupported.displayName = ".Hidden";
@@ -148,7 +160,7 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
     unsupported.rejection = cue::WorkspaceDiagnosticCode::UnsupportedName;
     snapshot.entries.push_back(std::move(unsupported));
     snapshot.entries.push_back(
-        make_entry("folderA", "folderA", cue::WorkspaceEntryType::Directory, 7U, a_assertContext));
+        make_entry(filesystem, "folderA", "folderA", cue::WorkspaceEntryType::Directory, 7U, a_assertContext));
 
     cue::sort_workspace_entries(snapshot.entries);
     auto filtered = cue::filter_workspace_snapshot(snapshot, "FOLDER", 2U, a_assertContext);
@@ -199,12 +211,44 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
     {
         return false;
     }
-    auto result = cue::search_workspace(
-        filesystem, cue::WorkspaceDirectory::from_locator(std::move(*locator.try_value()), a_assertContext), {},
-        cue::TraversalLimits{2U, 4U, 4U, 1024U}, a_assertContext);
+    auto directory = filesystem.bind_directory(std::move(*locator.try_value()), a_assertContext);
+    if (!directory)
+    {
+        return false;
+    }
+    auto result = cue::search_workspace(filesystem, *directory.try_value(), {}, cue::TraversalLimits{2U, 4U, 4U, 1024U},
+                                        a_assertContext);
     return result && result.try_value()->state == cue::WorkspaceSnapshotState::RescanRequired &&
            result.try_value()->entries.size() == 1U && result.try_value()->diagnostics.size() == 1U &&
            result.try_value()->diagnostics[0].code == cue::WorkspaceDiagnosticCode::EntryDisappeared;
+}
+
+/// @brief Bindingが発行元WorkspaceとAdapterのPath上限を越えて流用されないか検証する
+[[nodiscard]] bool test_workspace_binding(const cue::AssertContext &a_assertContext)
+{
+    FakeWorkspaceFilesystem first(a_assertContext);
+    FakeWorkspaceFilesystem second(a_assertContext);
+    auto locator = cue::RelativePath::parse("Folder", a_assertContext);
+    if (!locator)
+    {
+        return false;
+    }
+    auto firstDirectory = first.bind_directory(std::move(*locator.try_value()), a_assertContext);
+    if (!firstDirectory)
+    {
+        return false;
+    }
+    auto crossWorkspace = second.list_directory(*firstDirectory.try_value(), second.hard_limits());
+
+    FakeWorkspaceFilesystem limited(a_assertContext, 4U);
+    auto tooLongLocator = cue::RelativePath::parse("Folder", a_assertContext);
+    if (!tooLongLocator)
+    {
+        return false;
+    }
+    auto tooLong = limited.bind_directory(std::move(*tooLongLocator.try_value()), a_assertContext);
+    return has_io_error(crossWorkspace, cue::IoError::OutsideRoot) &&
+           has_io_error(tooLong, cue::IoError::CapacityExceeded);
 }
 } // namespace
 
@@ -216,7 +260,7 @@ int main()
     cue::Logger logger(fatalHandler, std::move(sinks));
     cue::AssertContext assertContext(logger, fatalHandler);
     return test_sort_and_filter(assertContext) && test_bounded_search(assertContext) &&
-                   test_rescan_diagnostic(assertContext)
+                   test_rescan_diagnostic(assertContext) && test_workspace_binding(assertContext)
                ? 0
                : 1;
 }
