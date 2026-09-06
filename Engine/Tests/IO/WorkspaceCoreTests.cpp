@@ -170,6 +170,15 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
                                "Workspace core test double does not support file reading"));
     }
 
+    /// @brief この列挙専用Test DoubleではFingerprintを未対応として返す
+    [[nodiscard]] cue::Result<cue::WorkspaceEntryFingerprint> fingerprint_entry(
+        const cue::BoundWorkspacePath &, cue::TraversalLimits, cue::ContentVerificationLimits) noexcept override
+    {
+        return cue::Result<cue::WorkspaceEntryFingerprint>::failure(
+            cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
+                               "Workspace core test double does not support fingerprinting"));
+    }
+
     /// @brief この列挙専用Test DoubleではMutationを未対応として返す
     [[nodiscard]] cue::WorkspaceMutationResult create_directory_new(const cue::BoundWorkspacePath &,
                                                                     std::string_view) noexcept override
@@ -193,6 +202,18 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
         return result;
     }
 
+    /// @brief この列挙専用Test Doubleでは置換を未対応として返す
+    [[nodiscard]] cue::WorkspaceMutationResult replace_file_atomic(const cue::BoundWorkspacePath &,
+                                                                   std::span<const std::byte>,
+                                                                   std::string_view) noexcept override
+    {
+        cue::WorkspaceMutationResult result;
+        result.outcome = cue::WorkspaceMutationOutcome::NotCommitted;
+        result.primaryError = cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
+                                                 "Workspace core test double does not support replacement");
+        return result;
+    }
+
     /// @brief この列挙専用Test DoubleではRenameを未対応として返す
     [[nodiscard]] cue::WorkspaceMutationResult rename_entry(const cue::BoundWorkspacePath &,
                                                             const cue::BoundWorkspacePath &,
@@ -202,6 +223,20 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
         result.outcome = cue::WorkspaceMutationOutcome::NotCommitted;
         result.primaryError = cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
                                                  "Workspace core test double does not support rename");
+        return result;
+    }
+
+    /// @brief この列挙専用Test DoubleではFingerprint条件付きRenameを未対応として返す
+    [[nodiscard]] cue::WorkspaceMutationResult rename_entry_if_matches(const cue::BoundWorkspacePath &,
+                                                                       const cue::BoundWorkspacePath &,
+                                                                       const cue::WorkspaceEntryFingerprint &,
+                                                                       cue::TraversalLimits,
+                                                                       cue::ContentVerificationLimits) noexcept override
+    {
+        cue::WorkspaceMutationResult result;
+        result.outcome = cue::WorkspaceMutationOutcome::NotCommitted;
+        result.primaryError = cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
+                                                 "Workspace core test double does not support verified rename");
         return result;
     }
 
@@ -215,6 +250,17 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
         result.outcome = cue::WorkspaceMutationOutcome::NotCommitted;
         result.primaryError = cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
                                                  "Workspace core test double does not support copy");
+        return result;
+    }
+
+    /// @brief この列挙専用Test Doubleでは削除を未対応として返す
+    [[nodiscard]] cue::WorkspaceMutationResult remove_file_or_empty_directory(
+        const cue::BoundWorkspacePath &) noexcept override
+    {
+        cue::WorkspaceMutationResult result;
+        result.outcome = cue::WorkspaceMutationOutcome::NotCommitted;
+        result.primaryError = cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
+                                                 "Workspace core test double does not support removal");
         return result;
     }
 
