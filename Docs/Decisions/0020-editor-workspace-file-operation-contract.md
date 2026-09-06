@@ -324,6 +324,11 @@ FileとDirectory ManifestのByte Size Field名は`byteSize`へ固定し、`0`か
 符号なし10進整数で保存する。`0`以外の先頭Zero、符号、空文字、小数点、指数表記、Whitespace、範囲外を拒否する。JSON Numberを
 浮動小数点へ変換して受理せず、表現変更は`schemaVersion` Migrationの対象とする。
 
+v1の`TrashRecordParseLimits`はRecord File全体16 MiB、JSON Nesting Depth 8、単一Decoded String 4096 byte、単一Array 32768 Element、
+単一Object 16 Member、合計JSON Value 262144をAdapter Hard Limitとする。File Metadataで16 MiB超過をParse前に拒否し、Readerは
+Hard Limitを超えるByte列を確保または全読込みしない。Caller Limitは各値を縮小できるが拡張できない。Manifestの意味上の
+`TraversalLimits`と`ContentVerificationLimits`はParse後にも別途適用し、Syntax Limit通過を完全Recordの保証としない。
+
 Directory Recordの`manifest`はJSON Arrayとし、Root自身を含まないEntry Objectを並べる。各Objectの必須Memberは
 `path`と`entryType`であり、`path`はPayload Root基準の`RelativePath`を表すJSON String、`entryType`は`directory`または
 `regularFile`のJSON Stringとする。`directory` Objectはこの2 Memberだけを持ち、`regularFile` Objectは加えて`byteSize`と
@@ -371,7 +376,7 @@ Delete順序を固定する。
 
 1. Source、Area、Open Document、Destination Trash不存在、Link Countを検証し、単一Fileの排他または
    `DirectoryTreeMutationGuard`を取得してからFile FingerprintまたはDirectory Manifestを取得する
-2. Operation DirectoryをCreate-newで作成する
+2. Trash RootのOperation-owned Siblingへ空DirectoryをCreate-newし、`OperationId` DirectoryへWrite-through Renameして公開する
 3. `prepared` RecordをAtomic Publishする
 4. Sourceを`Payload`へ同一Volume Renameする
 5. Source不存在、Payload存在、Type、Link Count、FingerprintまたはManifest一致を再検証する
@@ -414,12 +419,13 @@ Payload不存在、Fingerprint一致を検証して`restored`へ更新する。
 | Original | Payload | Restore Reconciliation |
 | --- | --- | --- |
 | Missing | Exists | PayloadへGuardを再取得し、Recordと一致する場合だけ`trashed`へ戻してRestore再試行を許可する |
-| Exists | Missing | OriginalへGuardを再取得し、Type、Identity、Link Count、FingerprintまたはManifestがRecordと完全一致する場合だけ`restored`へ昇格する |
+| Exists | Missing | OriginalへGuardを再取得し、Type、Link Count、FingerprintまたはManifestがRecordと完全一致する場合だけ`restored`へ昇格する |
 | Exists | Exists | 外部競合として両方を維持し、User判断を要求する |
 | Missing | Missing | Data所在不明としてRecordを維持し、Errorを報告する |
 
 単一Fileは`SingleFileMutationGuard`、Directoryは`DirectoryTreeMutationGuard`を再取得し、検証開始からRecordのAtomic Commit完了まで
-保持する。Guard取得、上限確認、内容照合の失敗またはIdentity不一致では状態を昇格せず、Recordと存在するDataを維持して
+保持する。再起動後のNative IdentityはVolume移動に耐える永続値ではないためRecordへ保存せず、Process内Planの競合検出にだけ使用する。
+Guard取得、上限確認、内容照合の失敗では状態を昇格せず、Recordと存在するDataを維持して
 `ReconciliationRequired`を返す。既存Destinationを上書きしない。
 
 M13はRecoverable Payloadの自動期限削除と永久削除UIを提供しない。成功済みRestoreの空Operation DirectoryとRecordだけを
@@ -469,7 +475,7 @@ Operationごとの必須Barrierを次のとおりとする。
 | Create File／Folder | TemporaryまたはSibling Directoryから最終NameへのWrite-through Publish |
 | Rename／Move | SourceからDestinationへのWrite-through Rename |
 | Copy | 検証済みTemporary／StagingからDestinationへのWrite-through Publish |
-| Delete | `prepared` RecordのAtomic Commit、Payload Renameの文書化済みDurability Barrier、`trashed` RecordのAtomic Commit。Barrierを提供できないWindows Handle-based Renameは`CommittedButDurabilityUnknown` |
+| Delete | Operation DirectoryのWrite-through Publish、`prepared` RecordのAtomic Commit、Payload Renameの文書化済みDurability Barrier、`trashed` RecordのAtomic Commit。Barrierを提供できないWindows Handle-based Renameは`CommittedButDurabilityUnknown` |
 | Restore | `restoring` RecordのAtomic Commit、Original Path Renameの文書化済みDurability Barrier、`restored` RecordのAtomic Commit。Barrierを提供できないWindows Handle-based Renameは`CommittedButDurabilityUnknown` |
 
 単一段のNative Publishが失敗しても、事後QueryでSource不存在とDestination存在を一意に確認できる場合は
