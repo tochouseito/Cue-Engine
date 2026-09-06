@@ -683,6 +683,41 @@ void cleanup_owned_temporary(std::wstring_view a_path, const RootIdentity &a_ide
     }
 }
 
+/// @brief Identity固定中のEntryを検証済みの未存在PathへRenameする
+[[nodiscard]] DWORD rename_open_entry(HANDLE a_source, std::wstring_view a_destinationPath,
+                                      const cue::AssertContext &a_assertContext) noexcept
+{
+    if (a_destinationPath.empty() ||
+        a_destinationPath.size() > static_cast<std::size_t>(std::numeric_limits<DWORD>::max()) / sizeof(wchar_t))
+    {
+        return ERROR_FILENAME_EXCED_RANGE;
+    }
+
+    const std::size_t nameBytes = a_destinationPath.size() * sizeof(wchar_t);
+    const std::size_t informationBytes = sizeof(FILE_RENAME_INFO) + nameBytes;
+    std::vector<std::byte> storage;
+    try
+    {
+        storage.resize(informationBytes);
+    }
+    catch (...)
+    {
+        terminate_allocation(a_assertContext);
+    }
+
+    auto *information = reinterpret_cast<FILE_RENAME_INFO *>(storage.data());
+    information->ReplaceIfExists = FALSE;
+    information->RootDirectory = nullptr;
+    information->FileNameLength = static_cast<DWORD>(nameBytes);
+    std::copy(a_destinationPath.begin(), a_destinationPath.end(), information->FileName);
+    if (SetFileInformationByHandle(a_source, FileRenameInfo, information, static_cast<DWORD>(informationBytes)) ==
+        FALSE)
+    {
+        return GetLastError();
+    }
+    return ERROR_SUCCESS;
+}
+
 /// @brief Windows Root境界内だけを列挙するWorkspace Adapter
 class WindowsWorkspaceFilesystem final : public cue::WorkspaceFilesystem
 {
@@ -1440,8 +1475,8 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_directory_new(
     }
 
     UniqueHandle stagingHandle(CreateFileW(
-        staging.try_value()->c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        staging.try_value()->c_str(), DELETE | FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+        OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_WRITE_THROUGH, nullptr));
     if (!stagingHandle.is_valid())
     {
         return reconciliation_required(
@@ -1453,9 +1488,9 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_directory_new(
         return reconciliation_required(std::move(*identity.try_error()));
     }
     const RootIdentity expected = *identity.try_value();
-    stagingHandle.reset();
 
-    if (MoveFileExW(staging.try_value()->c_str(), destination.try_value()->c_str(), MOVEFILE_WRITE_THROUGH) != FALSE)
+    const DWORD publishCode = rename_open_entry(stagingHandle.get(), *destination.try_value(), m_assertContext);
+    if (publishCode == ERROR_SUCCESS)
     {
         const NativeEntryObservation observed = observe_native_entry(*destination.try_value(), expected, true);
         if (observed.state == NativeEntryObservationState::Matches)
@@ -1470,7 +1505,6 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_directory_new(
             make_windows_error(m_assertContext, code, "Workspace published directory verification failed"));
     }
 
-    const DWORD publishCode = GetLastError();
     const NativeEntryObservation destinationState = observe_native_entry(*destination.try_value(), expected, true);
     if (destinationState.state == NativeEntryObservationState::Matches)
     {
@@ -1482,11 +1516,15 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_directory_new(
         return result;
     }
 
+    stagingHandle.reset();
     cue::WorkspaceMutationResult result =
         destinationState.state == NativeEntryObservationState::QueryFailed
             ? reconciliation_required(make_windows_error(m_assertContext, destinationState.nativeCode,
                                                          "Workspace destination verification failed"))
-            : not_committed(make_windows_error(m_assertContext, publishCode, "Workspace directory publish failed"));
+            : not_committed(make_windows_error(
+                  m_assertContext,
+                  destinationState.state == NativeEntryObservationState::Different ? ERROR_ALREADY_EXISTS : publishCode,
+                  "Workspace directory publish failed"));
     cleanup_owned_temporary(*staging.try_value(), expected, true, result, m_assertContext);
     return result;
 }
@@ -1540,9 +1578,9 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_file_new_atomic(
         return not_committed(std::move(*staging.try_error()));
     }
 
-    UniqueHandle stagingHandle(CreateFileW(staging.try_value()->c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ,
-                                           nullptr, CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_WRITE_THROUGH,
-                                           nullptr));
+    UniqueHandle stagingHandle(CreateFileW(staging.try_value()->c_str(), GENERIC_READ | GENERIC_WRITE | DELETE,
+                                           FILE_SHARE_READ, nullptr, CREATE_NEW,
+                                           FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_WRITE_THROUGH, nullptr));
     if (!stagingHandle.is_valid())
     {
         return not_committed(
@@ -1593,9 +1631,8 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_file_new_atomic(
         cleanup_owned_temporary(*staging.try_value(), expected, false, result, m_assertContext);
         return result;
     }
-    stagingHandle.reset();
-
-    if (MoveFileExW(staging.try_value()->c_str(), destination.try_value()->c_str(), MOVEFILE_WRITE_THROUGH) != FALSE)
+    const DWORD publishCode = rename_open_entry(stagingHandle.get(), *destination.try_value(), m_assertContext);
+    if (publishCode == ERROR_SUCCESS)
     {
         const NativeEntryObservation observed = observe_native_entry(*destination.try_value(), expected, false);
         if (observed.state == NativeEntryObservationState::Matches)
@@ -1610,7 +1647,6 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_file_new_atomic(
             make_windows_error(m_assertContext, code, "Workspace published file verification failed"));
     }
 
-    const DWORD publishCode = GetLastError();
     const NativeEntryObservation destinationState = observe_native_entry(*destination.try_value(), expected, false);
     if (destinationState.state == NativeEntryObservationState::Matches)
     {
@@ -1622,11 +1658,15 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_file_new_atomic(
         return result;
     }
 
+    stagingHandle.reset();
     cue::WorkspaceMutationResult result =
         destinationState.state == NativeEntryObservationState::QueryFailed
             ? reconciliation_required(make_windows_error(m_assertContext, destinationState.nativeCode,
                                                          "Workspace destination verification failed"))
-            : not_committed(make_windows_error(m_assertContext, publishCode, "Workspace file publish failed"));
+            : not_committed(make_windows_error(
+                  m_assertContext,
+                  destinationState.state == NativeEntryObservationState::Different ? ERROR_ALREADY_EXISTS : publishCode,
+                  "Workspace file publish failed"));
     cleanup_owned_temporary(*staging.try_value(), expected, false, result, m_assertContext);
     return result;
 }
