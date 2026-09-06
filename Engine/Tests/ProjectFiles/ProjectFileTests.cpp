@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <barrier>
 #include <cstddef>
 #include <cstdint>
@@ -54,9 +55,11 @@ class TestDirectory final
         {
             return;
         }
+        static std::atomic_uint64_t sequence{0U};
+        const std::uint64_t instance = sequence.fetch_add(1U, std::memory_order_relaxed);
         m_path = temporary.data();
         m_path += L"CueProjectFilesTests-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
-                  std::to_wstring(GetTickCount64());
+                  std::to_wstring(GetTickCount64()) + L"-" + std::to_wstring(instance);
         m_created = CreateDirectoryW(m_path.c_str(), nullptr) != FALSE;
         if (m_created && a_caseSensitiveRoot)
         {

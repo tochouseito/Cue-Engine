@@ -3398,6 +3398,63 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
         return result;
     };
 
+    /// @brief Publish失敗時に親とStaging Identityを確定できた場合だけ候補DataをCleanupする
+    const auto cleanupConfirmedStagingAfterPublishFailure =
+        [&](DWORD a_publishCode, std::string_view a_publishMessage) noexcept
+    {
+        cue::Result<void> parentStable = finish_mutation_parent_guards(*destinationParentGuards.try_value());
+        if (!parentStable)
+        {
+            cue::WorkspaceMutationResult result =
+                reconciliation_required(make_windows_error(m_assertContext, a_publishCode, a_publishMessage));
+            append_secondary(result, std::move(*parentStable.try_error()), m_assertContext);
+            if (sourceTreeGuard)
+            {
+                cue::Result<void> sourceStable = finish_directory_change_guard(*sourceTreeGuard, m_assertContext);
+                sourceTreeGuard.reset();
+                if (!sourceStable)
+                {
+                    append_secondary(result, std::move(*sourceStable.try_error()), m_assertContext);
+                }
+            }
+            return result;
+        }
+
+        const NativeEntryObservation stagingObserved =
+            observe_native_entry(*stagingPath.try_value(), stagingIdentity, source.try_value()->isDirectory);
+        if (stagingObserved.state == NativeEntryObservationState::Matches)
+        {
+            return cleanupFailure(make_windows_error(m_assertContext, a_publishCode, a_publishMessage));
+        }
+
+        cue::WorkspaceMutationResult result =
+            reconciliation_required(make_windows_error(m_assertContext, a_publishCode, a_publishMessage));
+        if (stagingObserved.state == NativeEntryObservationState::Different)
+        {
+            append_secondary(result,
+                             cue::make_io_error(m_assertContext, cue::IoError::PreconditionFailed,
+                                                "Workspace copy staging identity changed after publish failure"),
+                             m_assertContext);
+        }
+        else
+        {
+            append_secondary(result,
+                             make_windows_error(m_assertContext, stagingObserved.nativeCode,
+                                                "Workspace copy staging location could not be confirmed"),
+                             m_assertContext);
+        }
+        if (sourceTreeGuard)
+        {
+            cue::Result<void> sourceStable = finish_directory_change_guard(*sourceTreeGuard, m_assertContext);
+            sourceTreeGuard.reset();
+            if (!sourceStable)
+            {
+                append_secondary(result, std::move(*sourceStable.try_error()), m_assertContext);
+            }
+        }
+        return result;
+    };
+
     if (!source.try_value()->isDirectory)
     {
         cue::Result<std::vector<std::byte>> sourceBytes =
@@ -3701,64 +3758,106 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
             return cleanupFailure(std::move(error));
         }
 
-        cue::Result<void> sourceStableBeforePublish =
-            verify_directory_change_guard_pending(*sourceTreeGuard, m_assertContext);
+        cue::Result<std::unique_ptr<DirectoryChangeGuard>> stagingPublishGuard = begin_directory_change_guard(
+            stagingHandle.get(), m_assertContext, true,
+            FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_SIZE |
+                FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_CREATION);
+        if (!stagingPublishGuard)
+        {
+            cue::Result<void> ignoredGuard = finish_directory_change_guard(**stagingGuard.try_value(), m_assertContext);
+            (void)ignoredGuard;
+            return cleanupFailure(std::move(*stagingPublishGuard.try_error()));
+        }
+
+        cue::Result<void> sourceStableBeforePublish = finish_directory_change_guard(*sourceTreeGuard, m_assertContext);
         if (!sourceStableBeforePublish)
         {
             sourceTreeGuard.reset();
             cue::Result<void> ignoredStagingGuard =
                 finish_directory_change_guard(**stagingGuard.try_value(), m_assertContext);
             (void)ignoredStagingGuard;
+            cue::Result<void> ignoredPublishGuard =
+                finish_directory_change_guard(**stagingPublishGuard.try_value(), m_assertContext);
+            (void)ignoredPublishGuard;
             stagingGuard.try_value()->reset();
+            stagingPublishGuard.try_value()->reset();
             return cleanupFailure(std::move(*sourceStableBeforePublish.try_error()));
         }
+        sourceTreeGuard.reset();
         cue::Result<void> stagingStableBeforePublish =
-            verify_directory_change_guard_pending(**stagingGuard.try_value(), m_assertContext);
+            finish_directory_change_guard(**stagingGuard.try_value(), m_assertContext);
         if (!stagingStableBeforePublish)
         {
             stagingGuard.try_value()->reset();
+            cue::Result<void> ignoredPublishGuard =
+                finish_directory_change_guard(**stagingPublishGuard.try_value(), m_assertContext);
+            (void)ignoredPublishGuard;
+            stagingPublishGuard.try_value()->reset();
             return cleanupFailure(std::move(*stagingStableBeforePublish.try_error()));
         }
-
-        for (UniqueHandle &child : stagingChildren)
-        {
-            child.reset();
-        }
-        stagingChildren.clear();
+        stagingGuard.try_value()->reset();
 
         destinationAvailable = verify_portable_destination_absent(destinationPinned.try_value()->back().get(),
                                                                   *destinationName.try_value(), m_assertContext);
         if (!destinationAvailable)
         {
-            cue::Result<void> ignoredGuard = finish_directory_change_guard(**stagingGuard.try_value(), m_assertContext);
-            (void)ignoredGuard;
+            cue::Result<void> stagingPublishStable =
+                finish_directory_change_guard(**stagingPublishGuard.try_value(), m_assertContext);
+            stagingPublishGuard.try_value()->reset();
+            if (!stagingPublishStable)
+            {
+                cue::WorkspaceMutationResult result =
+                    reconciliation_required(std::move(*stagingPublishStable.try_error()));
+                append_secondary(result, std::move(*destinationAvailable.try_error()), m_assertContext);
+                cue::Result<void> parentStable = finish_mutation_parent_guards(*destinationParentGuards.try_value());
+                if (!parentStable)
+                {
+                    append_secondary(result, std::move(*parentStable.try_error()), m_assertContext);
+                }
+                return result;
+            }
             return cleanupFailure(std::move(*destinationAvailable.try_error()));
         }
+        for (UniqueHandle &child : stagingChildren)
+        {
+            child.reset();
+        }
+        stagingChildren.clear();
+        cue::Result<void> stagingPublishStableBeforePublish =
+            verify_directory_change_guard_pending(**stagingPublishGuard.try_value(), m_assertContext);
+        if (!stagingPublishStableBeforePublish)
+        {
+            stagingPublishGuard.try_value()->reset();
+            return cleanupFailure(std::move(*stagingPublishStableBeforePublish.try_error()));
+        }
         const DWORD publishCode = rename_open_entry(stagingHandle.get(), *destinationPath.try_value(), m_assertContext);
-        cue::Result<void> stagingStable = finish_directory_change_guard(**stagingGuard.try_value(), m_assertContext);
-        cue::Result<void> sourceStable = finish_directory_change_guard(*sourceTreeGuard, m_assertContext);
-        sourceTreeGuard.reset();
+        cue::Result<void> stagingPublishStable =
+            finish_directory_change_guard(**stagingPublishGuard.try_value(), m_assertContext);
+        stagingPublishGuard.try_value()->reset();
         if (publishCode != ERROR_SUCCESS)
         {
             const NativeEntryObservation observed =
                 observe_native_entry(*destinationPath.try_value(), stagingIdentity, true);
-            if (observed.state == NativeEntryObservationState::QueryFailed)
+            if (!stagingPublishStable || observed.state == NativeEntryObservationState::QueryFailed)
             {
-                return reconcilePublishFailure(publishCode, observed.nativeCode,
-                                               "Workspace directory copy publish failed",
-                                               "Workspace directory copy publish result could not be observed");
+                cue::WorkspaceMutationResult result =
+                    reconcilePublishFailure(publishCode, observed.nativeCode, "Workspace directory copy publish failed",
+                                            "Workspace directory copy publish result could not be observed");
+                if (!stagingPublishStable)
+                {
+                    append_secondary(result, std::move(*stagingPublishStable.try_error()), m_assertContext);
+                }
+                return result;
             }
             if (observed.state != NativeEntryObservationState::Matches)
             {
-                return cleanupFailure(
-                    make_windows_error(m_assertContext, publishCode, "Workspace directory copy publish failed"));
+                return cleanupConfirmedStagingAfterPublishFailure(publishCode,
+                                                                  "Workspace directory copy publish failed");
             }
         }
-        if (!stagingStable || !sourceStable)
+        else if (!stagingPublishStable)
         {
-            cue::Error error =
-                !stagingStable ? std::move(*stagingStable.try_error()) : std::move(*sourceStable.try_error());
-            cue::WorkspaceMutationResult result = reconciliation_required(std::move(error));
+            cue::WorkspaceMutationResult result = reconciliation_required(std::move(*stagingPublishStable.try_error()));
             cue::Result<void> parentStable = finish_mutation_parent_guards(*destinationParentGuards.try_value());
             if (!parentStable)
             {
@@ -3788,8 +3887,7 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
             }
             if (observed.state != NativeEntryObservationState::Matches)
             {
-                return cleanupFailure(
-                    make_windows_error(m_assertContext, publishCode, "Workspace file copy publish failed"));
+                return cleanupConfirmedStagingAfterPublishFailure(publishCode, "Workspace file copy publish failed");
             }
         }
     }
