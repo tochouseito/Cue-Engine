@@ -256,8 +256,10 @@ Asset Identity導入後は、File MoveとMetadata Transactionを別Research Issu
 
 File Copyは事前検査でSource Native IdentityとTypeをPlanへ固定し、SourceをRead Data／Read Attributes、`FILE_SHARE_READ`だけ、
 `FILE_FLAG_OPEN_REPARSE_POINT`で開く`SingleFileCopyGuard`を取得する。読取り開始前にGuard HandleのIdentity、Type、Reparse Point不存在を
-Planと再照合し、同じHandleからDestinationのSibling TemporaryへCreate-newでCopyする。Source FingerprintをCopy前後で照合し、TemporaryのSizeとFingerprintも
-Sourceに一致する場合だけ、Guardを保持したままDestinationへ公開する。Directory Copyは全Regular FileをRead専用かつ
+Planと再照合し、同じHandleからDestinationのSibling TemporaryへCreate-newでCopyする。Temporaryへの全書込み後に
+`FlushFileBuffers`を成功させてからSource FingerprintをCopy前後で照合し、TemporaryのSizeとFingerprintもSourceに一致する場合だけ、
+Guardを保持したままDestinationへ公開する。Temporary Flush失敗ではDestinationを公開せず、Operation所有TemporaryだけをCleanupする。
+Directory Copyは全Regular FileをRead専用かつ
 Write／Delete非共有Handleで固定し、全DirectoryのOplock Breakを監視する`DirectoryCopySourceGuard`を取得する。Source Rootと全Childは
 `FILE_FLAG_OPEN_REPARSE_POINT`相当で開き、読取り前に事前ManifestのNative Identity、Type、Reparse Point不存在を再照合する。Guard取得後のSource
 Manifestを基準に、同じFile HandleからDestinationのSiblingにあるOperation-owned Staging Directoryへ全EntryをLimit内でCopy、Flush、
@@ -294,16 +296,24 @@ OS Recycle BinはProject移動、Headless Test、復元Metadata、同一Volume�
 ```
 
 `Record.cuetrash`はUTF-8 JSONのVersion付きRecordとする。初期`schemaVersion`はJSON Numberの符号なし10進整数`1`へ固定する。
-Readerは`0`、小数、指数表記、負数、`uint32_t`範囲外、`1`以外の値を現行Schemaとして受理しない。少なくとも次を保持する。
+Readerは`0`、小数、指数表記、負数、`uint32_t`範囲外、`1`以外の値を現行Schemaとして受理しない。v1 Record Objectは
+次のCommon Memberを正確に一つずつ保持する。
 
 - `schemaVersion`: 初期値`1`
-- `projectId`
+- `projectId`: ADR-0013のlowercase 8-4-4-4-12 UUID Version 4
 - `operationId`
 - `state`: `prepared`、`trashed`、`restoring`、`restored`
-- Project Root基準の`originalPath`
-- `entryType`
-- Fileの場合は削除開始時のByte SizeとContent Digest
-- Directoryの場合は、Payload Root基準Path、Entry Type、File Byte Size、Content Digestを持つBounded Manifest
+- `originalArea`: `sourceAssets`
+- `originalPath`: `originalArea`基準の`RelativePath`
+- `entryType`: `regularFile`または`directory`
+
+`regularFile` RecordはCommon Memberに`byteSize`と`contentDigest`だけを追加する。`directory` RecordはCommon Memberに`manifest`だけを
+追加する。Record ObjectはDuplicate Member、欠落Member、Entry Typeと一致しないMember、未知Memberを拒否する。
+
+M13で回復可能DeleteできるAreaはSource Assetsだけなので、`originalArea`のv1値はJSON Stringの`sourceAssets`だけを受理する。
+`originalPath`はArea基準のPortable UTF-8 PathをJSON Stringで保持し、Record読込み時に`RelativePath`として個別に検証する。
+Project DescriptorのSource Assets Rootも別に検証した後、`WorkspaceFilesystem`だけが両者から`BoundWorkspacePath`を再構築する。
+Project Root基準の合成文字列を永続化または直接Parseせず、Area Rootと利用者Locatorの上限を再起動後も個別に適用する。
 
 `schemaVersion` 1のContent DigestはFNV-1a 64-bitへ固定する。Offset Basisは`14695981039346656037`、Primeは
 `1099511628211`とし、File Byteを先頭から符号なし8-bit値として処理する。JSONの`contentDigest`は`0x` Prefixを持たない正確に16文字の
@@ -314,8 +324,15 @@ FileとDirectory ManifestのByte Size Field名は`byteSize`へ固定し、`0`か
 符号なし10進整数で保存する。`0`以外の先頭Zero、符号、空文字、小数点、指数表記、Whitespace、範囲外を拒否する。JSON Numberを
 浮動小数点へ変換して受理せず、表現変更は`schemaVersion` Migrationの対象とする。
 
-Directory ManifestはRoot自身を含まず、全ての通常DirectoryとRegular FileをPortable Comparison Key、Entry Type、元UTF-8 Byte列の順で
-並べる。Directory EntryにSizeとDigestを持たせず、Regular File Entryだけに両方を必須とする。作成時と読込み時に
+Directory Recordの`manifest`はJSON Arrayとし、Root自身を含まないEntry Objectを並べる。各Objectの必須Memberは
+`path`と`entryType`であり、`path`はPayload Root基準の`RelativePath`を表すJSON String、`entryType`は`directory`または
+`regularFile`のJSON Stringとする。`directory` Objectはこの2 Memberだけを持ち、`regularFile` Objectは加えて`byteSize`と
+`contentDigest`を必須とする。RecordとManifest Entry ObjectはDuplicate Member、欠落Member、未知Member、型不一致を拒否する。
+WriterはCommon Memberを上記Record一覧の順、Manifest Entry Memberを`path`、`entryType`、`byteSize`、`contentDigest`の順で出力するが、
+ReaderはMember順に依存しない。
+
+Manifest Entryは全ての通常DirectoryとRegular FileをPortable Comparison Key、Entry Type、元UTF-8 Byte列の順で並べる。
+Directory EntryにSizeとDigestを持たせず、Regular File Entryだけに両方を必須とする。作成時と読込み時に
 `TraversalLimits`のDepth、Entry数、Metadata Byte数を適用し、重複Path、Case Collision、欠落Parent、Reparse Point、
 Unsupported Entry、上限超過を拒否する。ManifestはDelete後のPayload検証とRestore直前の内容照合に使用する。
 
@@ -392,7 +409,18 @@ Directory Payloadの検証は`DirectoryTreeMutationGuard`取得後に行い、Gu
 Moveする。Move後はOriginal Path側でLink CountとManifestを再検証し、Guard Breakがなく完全一致する場合だけ`restored`へ更新する。
 単一Fileも上記検証後にRecordを`restoring`へ更新し、`SingleFileMutationGuard`のHandleでPayloadをMoveする。Move後にSource存在、
 Payload不存在、Fingerprint一致を検証して`restored`へ更新する。
-途中終了は同じ存在行列でReconciliationする。既存Destinationを上書きしない。
+`restoring`で途中終了した場合はRestore専用の存在行列でReconciliationする。
+
+| Original | Payload | Restore Reconciliation |
+| --- | --- | --- |
+| Missing | Exists | PayloadへGuardを再取得し、Recordと一致する場合だけ`trashed`へ戻してRestore再試行を許可する |
+| Exists | Missing | OriginalへGuardを再取得し、Type、Identity、Link Count、FingerprintまたはManifestがRecordと完全一致する場合だけ`restored`へ昇格する |
+| Exists | Exists | 外部競合として両方を維持し、User判断を要求する |
+| Missing | Missing | Data所在不明としてRecordを維持し、Errorを報告する |
+
+単一Fileは`SingleFileMutationGuard`、Directoryは`DirectoryTreeMutationGuard`を再取得し、検証開始からRecordのAtomic Commit完了まで
+保持する。Guard取得、上限確認、内容照合の失敗またはIdentity不一致では状態を昇格せず、Recordと存在するDataを維持して
+`ReconciliationRequired`を返す。既存Destinationを上書きしない。
 
 M13はRecoverable Payloadの自動期限削除と永久削除UIを提供しない。成功済みRestoreの空Operation DirectoryとRecordだけを
 Operation-owned Cleanupとして削除できる。未Restore PayloadはProjectが存在する限り保持し、件数と概算Sizeを診断へ出す。
