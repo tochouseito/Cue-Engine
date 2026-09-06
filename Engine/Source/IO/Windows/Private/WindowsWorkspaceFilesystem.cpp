@@ -1052,10 +1052,15 @@ Result<std::unique_ptr<WorkspaceFilesystem>> create_windows_workspace_filesystem
     const bool driveAbsolute = input.size() >= 3U && std::iswalpha(input[0]) != 0 && input[1] == L':' &&
                                (input[2] == L'\\' || input[2] == L'/');
     const bool uncAbsolute = input.starts_with(L"\\\\");
-    if (!driveAbsolute && !uncAbsolute)
+    if (uncAbsolute)
     {
         return Result<std::unique_ptr<WorkspaceFilesystem>>::failure(
-            make_io_error(a_assertContext, IoError::InvalidPath, "Workspace root path must be absolute"));
+            make_io_error(a_assertContext, IoError::UnsupportedEntry, "UNC workspace roots are not supported"));
+    }
+    if (!driveAbsolute)
+    {
+        return Result<std::unique_ptr<WorkspaceFilesystem>>::failure(
+            make_io_error(a_assertContext, IoError::InvalidPath, "Workspace root path must be local-drive absolute"));
     }
 
     const DWORD required = GetFullPathNameW(converted.try_value()->c_str(), 0U, nullptr, nullptr);
