@@ -742,6 +742,17 @@ cue::Result<cue::DirectorySnapshot> WindowsWorkspaceFilesystem::list_directory(
         return cue::Result<void>::success();
     };
 
+    const auto reject_unverified_entries = [&]() noexcept
+    {
+        for (cue::WorkspaceEntry &entry : snapshot.entries)
+        {
+            if (entry.is_operable())
+            {
+                reject_stale_entry(entry, cue::WorkspaceDiagnosticCode::EnumerationFailed, m_assertContext);
+            }
+        }
+    };
+
     for (const NativeDirectoryEntry &nativeEntry : initial.try_value()->entries)
     {
         const std::size_t diagnosticCount = snapshot.diagnostics.size();
@@ -774,6 +785,7 @@ cue::Result<cue::DirectorySnapshot> WindowsWorkspaceFilesystem::list_directory(
     if (initial.try_value()->interruptedCode.has_value())
     {
         snapshot.state = cue::WorkspaceSnapshotState::RescanRequired;
+        reject_unverified_entries();
         cue::Result<void> recorded =
             append_bounded_diagnostic(cue::WorkspaceDiagnosticCode::EnumerationFailed, {},
                                       static_cast<std::int64_t>(*initial.try_value()->interruptedCode));
@@ -803,6 +815,7 @@ cue::Result<cue::DirectorySnapshot> WindowsWorkspaceFilesystem::list_directory(
                 nativeCode = native->value();
             }
             snapshot.state = cue::WorkspaceSnapshotState::RescanRequired;
+            reject_unverified_entries();
             cue::Result<void> recorded =
                 append_bounded_diagnostic(cue::WorkspaceDiagnosticCode::EnumerationFailed, {}, nativeCode);
             if (!recorded)
@@ -813,6 +826,7 @@ cue::Result<cue::DirectorySnapshot> WindowsWorkspaceFilesystem::list_directory(
         else if (verification.try_value()->interruptedCode.has_value())
         {
             snapshot.state = cue::WorkspaceSnapshotState::RescanRequired;
+            reject_unverified_entries();
             cue::Result<void> recorded =
                 append_bounded_diagnostic(cue::WorkspaceDiagnosticCode::EnumerationFailed, {},
                                           static_cast<std::int64_t>(*verification.try_value()->interruptedCode));
