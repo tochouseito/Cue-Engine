@@ -401,14 +401,14 @@ Operation DirectoryはOperation-owned残骸として削除できる。Record不�
 
 | Source | Payload | Reconciliation |
 | --- | --- | --- |
-| Exists | Missing | Delete未CommitとしてRecordと空Operation DirectoryをCleanup可能にする |
+| Exists | Missing | SourceがType、Link Count、FingerprintまたはManifestでRecordと完全一致する場合だけDelete未CommitとしてRecordと空Operation DirectoryをCleanup可能にする |
 | Missing | Exists | Type、Link Count、FingerprintまたはManifestをStep 5と同じ上限で再検証し、一致時だけ`trashed`へ昇格できる |
 | Exists | Exists | 外部競合として両方を維持し、User判断を要求する |
 | Missing | Missing | Data所在不明としてRecordを維持し、Errorを報告する |
 
-`Missing / Exists`の再検証前に、単一Fileは`SingleFileMutationGuard`、Directoryは`DirectoryTreeMutationGuard`を取得し、
-検証から`trashed` RecordのAtomic Commit完了まで保持する。排他取得、再検証、または上限確認が失敗した場合は
-`trashed`へ昇格せず、RecordとPayloadを維持して`ReconciliationRequired`を報告する。
+`Exists / Missing`と`Missing / Exists`の再検証前に、存在する側へ単一Fileは`SingleFileMutationGuard`、Directoryは
+`DirectoryTreeMutationGuard`を取得し、検証からRecordのCleanupまたは`trashed` Atomic Commit完了まで保持する。Guard取得、再検証、
+または上限確認が失敗した場合はCleanupも`trashed`昇格も行わず、Recordと存在するDataを維持して`ReconciliationRequired`を報告する。
 
 RestoreはRecordの`originalPath`を使用し、DestinationがMissingであり、既存の親Directory Chainが全て通常Directoryである場合だけ
 `Payload`を同一Volume Renameで戻す。M13は不足ParentをRestore中に自動作成しない。親が不足する場合はPayloadとRecordを維持して
