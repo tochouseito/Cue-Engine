@@ -271,6 +271,13 @@ Manifestを基準に、同じFile HandleからDestinationのSiblingにあるOper
 再列挙する。Source Manifestの再照合、Oplock Break不存在、Staging Manifestの完全一致を確認してから、Guardを保持したまま一度の
 同一Volume Renameで公開する。
 
+WindowsのDirectoryに対するRead-Handle Oplockは、Directory自身のRename／Deleteでは確認応答まで要求元を待機させるが、Child追加、削除、
+Size／Timestamp変更など列挙内容を変える操作に対するBreakはadvisory-onlyであり、変更を待機させない。したがってM13のDirectory Copyは、
+全Source DirectoryのRead-Handle Oplockと再帰変更監視を重ね、Native Publish直前までに観測したBreakまたは変更を拒否するが、Source Tree全体を
+Filesystem Transactionとして凍結する保証は持たない。Source SnapshotのLinearization Pointは、固定済みRegular File Handleからの読取り、
+Source Manifest再照合、全Oplockと変更監視のPublish直前確認が成功した時点とする。この時点より後の非協調Child追加は次のSnapshot変更であり、
+Copy済みSnapshotの部分公開とは扱わない。Publish完了まで保持した監視が変更を検出した場合は成功へ丸めず`ReconciliationRequired`を返す。
+
 WindowsのDirectory Copy Publishでは、Operation-owned Staging配下のChild Handleを保持したまま親Directoryを
 `SetFileInformationByHandle`でRenameすると、Child Handleが`FILE_SHARE_DELETE`を許可していても`ERROR_ACCESS_DENIED`となる。
 `FileRenameInfoEx`と`FILE_RENAME_FLAG_POSIX_SEMANTICS`もこの制約を解除しないため、Staging Child Handleによる排他を
@@ -283,7 +290,7 @@ Listingへ出さず、Instance内のMutationを直列化する。対応するWin
 この保証はCueEngineの公開操作境界、同一Service Instance内の競合、通常のFilesystem失敗を対象とする。同一User権限の外部Processが
 非公開のStaging名を探索して直接改変するHostile Mutationを、User ModeだけでAtomic Renameと同時に阻止する保証はM13の対象外とする。
 Antivirus、Indexer、File Watcher等による非協調Accessは監視とIdentity／Manifest再照合で検出し、完全性を確定できない場合は成功へ
-丸めない。将来この脅威境界を拡張する場合は、Directory Oplock、Filesystem Filter、または別Publish形式をResearch Issueで比較する。
+丸めない。将来この脅威境界を拡張する場合は、Filesystem Filter、Volume Snapshot、または別Publish形式をResearch Issueで比較する。
 
 途中Dataを最終Destination名で見せず、既存DestinationをMergeまたは上書きしない。Cross-volume Copy、Project外Copy、Hard Link作成、
 Symbolic Link複製へFallbackしない。失敗時はOperation所有Temporary／StagingだけをRollbackし、Sourceと既存Destinationを変更しない。
@@ -507,6 +514,7 @@ Windows契約の根拠:
 - [Microsoft: SetFileInformationByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfileinformationbyhandle)
 - [Microsoft: FILE_RENAME_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info)
 - [Microsoft: CREATEFILE2_EXTENDED_PARAMETERS](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/ns-fileapi-createfile2_extended_parameters)
+- [Microsoft: FSCTL_REQUEST_OPLOCK](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ni-winioctl-fsctl_request_oplock)
 
 直接作成したDirectoryをBarrier済みとみなさず、Create FolderはOperation-owned Sibling DirectoryをCreate-newしてWrite-through Renameで
 公開する。Restoreは不足Parentを作成せず`RecoveryRequired`とする。

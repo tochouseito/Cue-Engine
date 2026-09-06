@@ -5,6 +5,7 @@
 #include <Cue/IO/Error.h>
 
 #include <Windows.h>
+#include <winioctl.h>
 #include <winternl.h>
 
 #include <algorithm>
@@ -764,6 +765,192 @@ class DirectoryChangeGuard final
     bool m_pending = false;
 };
 
+/// @brief Directory内容変更のOplock BreakをPublish完了まで監視する
+class DirectoryOplockGuard final
+{
+  public:
+    /// @brief 未開始のOplock Guardを生成する
+    DirectoryOplockGuard() noexcept = default;
+    /// @brief Overlapped Resourceの一意所有を保つためCopy構築を禁止する
+    DirectoryOplockGuard(const DirectoryOplockGuard &) = delete;
+    /// @brief Overlapped Resourceの一意所有を保つためCopy代入を禁止する
+    DirectoryOplockGuard &operator=(const DirectoryOplockGuard &) = delete;
+    /// @brief 発行済みOverlapped Addressを固定するためMove構築を禁止する
+    DirectoryOplockGuard(DirectoryOplockGuard &&) = delete;
+    /// @brief 発行済みOverlapped Addressを固定するためMove代入を禁止する
+    DirectoryOplockGuard &operator=(DirectoryOplockGuard &&) = delete;
+    /// @brief 未完了のOplock要求を取消し、完了を待ってからResourceを解放する
+    ~DirectoryOplockGuard()
+    {
+        if (m_pending)
+        {
+            CancelIoEx(m_directory, &m_overlapped);
+            DWORD transferred = 0U;
+            GetOverlappedResult(m_directory, &m_overlapped, &transferred, TRUE);
+        }
+    }
+
+    HANDLE m_directory = INVALID_HANDLE_VALUE;
+    UniqueHandle m_event;
+    REQUEST_OPLOCK_INPUT_BUFFER m_input{};
+    REQUEST_OPLOCK_OUTPUT_BUFFER m_output{};
+    OVERLAPPED m_overlapped{};
+    bool m_pending = false;
+};
+
+/// @brief Overlapped Directory HandleへRead-Handle Oplock監視を開始する
+[[nodiscard]] cue::Result<std::unique_ptr<DirectoryOplockGuard>> begin_directory_oplock_guard(
+    HANDLE a_directoryHandle, const cue::AssertContext &a_assertContext) noexcept
+{
+    std::unique_ptr<DirectoryOplockGuard> guard;
+    try
+    {
+        guard = std::make_unique<DirectoryOplockGuard>();
+    }
+    catch (...)
+    {
+        terminate_allocation(a_assertContext);
+    }
+
+    guard->m_directory = a_directoryHandle;
+    guard->m_event.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    if (!guard->m_event.is_valid())
+    {
+        return cue::Result<std::unique_ptr<DirectoryOplockGuard>>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace directory oplock event creation failed"));
+    }
+    guard->m_overlapped.hEvent = guard->m_event.get();
+    guard->m_input.StructureVersion = REQUEST_OPLOCK_CURRENT_VERSION;
+    guard->m_input.StructureLength = sizeof(guard->m_input);
+    guard->m_input.RequestedOplockLevel = OPLOCK_LEVEL_CACHE_READ | OPLOCK_LEVEL_CACHE_HANDLE;
+    guard->m_input.Flags = REQUEST_OPLOCK_INPUT_FLAG_REQUEST;
+    if (DeviceIoControl(a_directoryHandle, FSCTL_REQUEST_OPLOCK, &guard->m_input, sizeof(guard->m_input),
+                        &guard->m_output, sizeof(guard->m_output), nullptr, &guard->m_overlapped) != FALSE)
+    {
+        return cue::Result<std::unique_ptr<DirectoryOplockGuard>>::failure(cue::make_io_error(
+            a_assertContext, cue::IoError::Busy, "Workspace directory oplock completed without becoming pending"));
+    }
+    const DWORD requestCode = GetLastError();
+    if (requestCode != ERROR_IO_PENDING)
+    {
+        return cue::Result<std::unique_ptr<DirectoryOplockGuard>>::failure(
+            make_windows_error(a_assertContext, requestCode, "Workspace directory oplock request failed"));
+    }
+    guard->m_pending = true;
+    return cue::Result<std::unique_ptr<DirectoryOplockGuard>>::success(std::move(guard));
+}
+
+/// @brief Oplock Breakの有無を確定し、監視要求を安全に完了する
+[[nodiscard]] cue::Result<void> finish_directory_oplock_guard(DirectoryOplockGuard &a_guard,
+                                                              const cue::AssertContext &a_assertContext) noexcept
+{
+    if (!a_guard.m_pending)
+    {
+        return cue::Result<void>::success();
+    }
+
+    DWORD transferred = 0U;
+    if (GetOverlappedResult(a_guard.m_directory, &a_guard.m_overlapped, &transferred, FALSE) != FALSE)
+    {
+        a_guard.m_pending = false;
+        return cue::Result<void>::failure(cue::make_io_error(a_assertContext, cue::IoError::Busy,
+                                                             "Workspace source directory oplock broke during copy"));
+    }
+    DWORD completionCode = GetLastError();
+    if (completionCode != ERROR_IO_INCOMPLETE)
+    {
+        a_guard.m_pending = false;
+        return cue::Result<void>::failure(
+            make_windows_error(a_assertContext, completionCode, "Workspace directory oplock query failed"));
+    }
+
+    const bool cancellationSucceeded = CancelIoEx(a_guard.m_directory, &a_guard.m_overlapped) != FALSE;
+    const DWORD cancellationCode = cancellationSucceeded ? ERROR_SUCCESS : GetLastError();
+    const bool cancellationUnavailable = !cancellationSucceeded && cancellationCode != ERROR_NOT_FOUND;
+    const BOOL completionSucceeded =
+        GetOverlappedResult(a_guard.m_directory, &a_guard.m_overlapped, &transferred, TRUE);
+    completionCode = completionSucceeded != FALSE ? ERROR_SUCCESS : GetLastError();
+    a_guard.m_pending = false;
+    if (cancellationUnavailable)
+    {
+        return cue::Result<void>::failure(
+            make_windows_error(a_assertContext, cancellationCode, "Workspace directory oplock cancellation failed"));
+    }
+    if (completionSucceeded != FALSE)
+    {
+        return cue::Result<void>::failure(cue::make_io_error(a_assertContext, cue::IoError::Busy,
+                                                             "Workspace source directory oplock broke during copy"));
+    }
+    if (completionCode == ERROR_OPERATION_ABORTED && cancellationSucceeded)
+    {
+        return cue::Result<void>::success();
+    }
+    return cue::Result<void>::failure(
+        make_windows_error(a_assertContext, completionCode, "Workspace directory oplock completion failed"));
+}
+
+/// @brief 複数Directory Oplockを完了し、最初のBreakまたはNative Errorを返す
+[[nodiscard]] cue::Result<void> finish_directory_oplock_guards(
+    std::vector<std::unique_ptr<DirectoryOplockGuard>> &a_guards, const cue::AssertContext &a_assertContext) noexcept
+{
+    std::optional<cue::Error> firstError;
+    for (std::unique_ptr<DirectoryOplockGuard> &guard : a_guards)
+    {
+        cue::Result<void> finished = finish_directory_oplock_guard(*guard, a_assertContext);
+        if (!finished && !firstError.has_value())
+        {
+            firstError.emplace(std::move(*finished.try_error()));
+        }
+    }
+    a_guards.clear();
+    if (firstError.has_value())
+    {
+        return cue::Result<void>::failure(std::move(*firstError));
+    }
+    return cue::Result<void>::success();
+}
+
+/// @brief Directory Oplockが未完了であり、現時点までBreakされていないことを確認する
+[[nodiscard]] cue::Result<void> verify_directory_oplock_guard_pending(
+    DirectoryOplockGuard &a_guard, const cue::AssertContext &a_assertContext) noexcept
+{
+    if (!a_guard.m_pending)
+    {
+        return cue::Result<void>::failure(
+            cue::make_io_error(a_assertContext, cue::IoError::Busy, "Workspace directory oplock is no longer pending"));
+    }
+    DWORD transferred = 0U;
+    if (GetOverlappedResult(a_guard.m_directory, &a_guard.m_overlapped, &transferred, FALSE) != FALSE)
+    {
+        a_guard.m_pending = false;
+        return cue::Result<void>::failure(cue::make_io_error(
+            a_assertContext, cue::IoError::Busy, "Workspace source directory oplock broke before copy publish"));
+    }
+    const DWORD completionCode = GetLastError();
+    if (completionCode == ERROR_IO_INCOMPLETE)
+    {
+        return cue::Result<void>::success();
+    }
+    a_guard.m_pending = false;
+    return cue::Result<void>::failure(
+        make_windows_error(a_assertContext, completionCode, "Workspace directory oplock pre-publish query failed"));
+}
+
+/// @brief 全Directory OplockがPublish直前まで未Breakであることを確認する
+[[nodiscard]] cue::Result<void> verify_directory_oplock_guards_pending(
+    std::vector<std::unique_ptr<DirectoryOplockGuard>> &a_guards, const cue::AssertContext &a_assertContext) noexcept
+{
+    for (std::unique_ptr<DirectoryOplockGuard> &guard : a_guards)
+    {
+        cue::Result<void> pending = verify_directory_oplock_guard_pending(*guard, a_assertContext);
+        if (!pending)
+        {
+            return cue::Result<void>::failure(std::move(*pending.try_error()));
+        }
+    }
+    return cue::Result<void>::success();
+}
+
 /// @brief 同一Directory IdentityへOverlapped Namespace変更監視を開始する
 [[nodiscard]] cue::Result<std::unique_ptr<DirectoryChangeGuard>> begin_directory_change_guard(
     HANDLE a_directoryHandle, const cue::AssertContext &a_assertContext, bool a_watchSubtree = false,
@@ -1132,7 +1319,8 @@ struct OpenedNativeEntry final
 /// @brief 親Handle直下のPortable一意かつ完全一致EntryをFile IDで開いて再照合する
 [[nodiscard]] cue::Result<OpenedNativeEntry> open_exact_entry(HANDLE a_parent, std::wstring_view a_name, DWORD a_access,
                                                               DWORD a_shareMode,
-                                                              const cue::AssertContext &a_assertContext) noexcept
+                                                              const cue::AssertContext &a_assertContext,
+                                                              bool a_overlapped = false) noexcept
 {
     cue::Result<NativeDirectoryEnumeration> before = enumerate_directory_handle_stable(
         a_parent, k_windowsHardLimits.maxVisitedEntries, k_windowsHardLimits.maxMetadataBytes, a_assertContext);
@@ -1183,7 +1371,8 @@ struct OpenedNativeEntry final
     descriptor.dwSize = sizeof(descriptor);
     descriptor.Type = FileIdType;
     descriptor.FileId = matched->fileId;
-    const DWORD flags = FILE_FLAG_OPEN_REPARSE_POINT | (isDirectory ? FILE_FLAG_BACKUP_SEMANTICS : 0U);
+    const DWORD flags = FILE_FLAG_OPEN_REPARSE_POINT | (isDirectory ? FILE_FLAG_BACKUP_SEMANTICS : 0U) |
+                        (a_overlapped ? FILE_FLAG_OVERLAPPED : 0U);
     UniqueHandle handle(OpenFileById(a_parent, &descriptor, a_access, a_shareMode, nullptr, flags));
     if (!handle.is_valid())
     {
@@ -1922,10 +2111,10 @@ cue::Result<std::vector<UniqueHandle>> WindowsWorkspaceFilesystem::prepare_mutat
     }
 
     pinned.try_value()->back().reset();
-    UniqueHandle mutationParent(
-        CreateFileW(nativeParent.try_value()->c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    UniqueHandle mutationParent(CreateFileW(nativeParent.try_value()->c_str(),
+                                            FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+                                            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                                            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
     if (!mutationParent.is_valid())
     {
         return cue::Result<std::vector<UniqueHandle>>::failure(
@@ -3494,6 +3683,17 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
     {
         return not_committed(std::move(*source.try_error()));
     }
+    if (source.try_value()->isDirectory)
+    {
+        cue::Result<OpenedNativeEntry> overlappedSource = open_exact_entry(
+            sourceParentHandle, *sourceName.try_value(), GENERIC_READ | FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY,
+            FILE_SHARE_READ, m_assertContext, true);
+        if (!overlappedSource)
+        {
+            return not_committed(std::move(*overlappedSource.try_error()));
+        }
+        source = std::move(overlappedSource);
+    }
     cue::Result<void> destinationAvailable = verify_portable_destination_absent(
         destinationPinned.try_value()->back().get(), *destinationName.try_value(), m_assertContext);
     if (!destinationAvailable)
@@ -3538,10 +3738,16 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
 
     UniqueHandle stagingHandle;
     RootIdentity stagingIdentity{};
+    std::vector<UniqueHandle> sourceChildren;
+    std::vector<std::unique_ptr<DirectoryOplockGuard>> sourceDirectoryOplocks;
     std::vector<UniqueHandle> stagingChildren;
     std::vector<OwnedStagingChild> stagingChildRecords;
     std::unique_ptr<DirectoryChangeGuard> sourceTreeGuard;
     std::unique_ptr<DirectoryChangeGuard> sourcePublishGuard;
+
+    /// @brief 保持中のSource Directory Oplockを完了し、最初のBreakを返す
+    const auto finishSourceDirectoryOplocks = [&]() noexcept
+    { return finish_directory_oplock_guards(sourceDirectoryOplocks, m_assertContext); };
 
     /// @brief Publish前のOperation-owned Staging Treeを安全に除去して失敗結果を返す
     const auto cleanupFailure = [&](cue::Error a_error) noexcept
@@ -3587,6 +3793,12 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
                 result.outcome = cue::WorkspaceMutationOutcome::ReconciliationRequired;
             }
         }
+        cue::Result<void> sourceOplocksStable = finishSourceDirectoryOplocks();
+        if (!sourceOplocksStable)
+        {
+            append_secondary(result, std::move(*sourceOplocksStable.try_error()), m_assertContext);
+            result.outcome = cue::WorkspaceMutationOutcome::ReconciliationRequired;
+        }
         return result;
     };
 
@@ -3622,6 +3834,11 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
                 append_secondary(result, std::move(*sourceStable.try_error()), m_assertContext);
             }
         }
+        cue::Result<void> sourceOplocksStable = finishSourceDirectoryOplocks();
+        if (!sourceOplocksStable)
+        {
+            append_secondary(result, std::move(*sourceOplocksStable.try_error()), m_assertContext);
+        }
         return result;
     };
 
@@ -3652,6 +3869,11 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
                 {
                     append_secondary(result, std::move(*sourceStable.try_error()), m_assertContext);
                 }
+            }
+            cue::Result<void> sourceOplocksStable = finishSourceDirectoryOplocks();
+            if (!sourceOplocksStable)
+            {
+                append_secondary(result, std::move(*sourceOplocksStable.try_error()), m_assertContext);
             }
             return result;
         }
@@ -3696,6 +3918,11 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
             {
                 append_secondary(result, std::move(*sourceStable.try_error()), m_assertContext);
             }
+        }
+        cue::Result<void> sourceOplocksStable = finishSourceDirectoryOplocks();
+        if (!sourceOplocksStable)
+        {
+            append_secondary(result, std::move(*sourceOplocksStable.try_error()), m_assertContext);
         }
         return result;
     };
@@ -3792,7 +4019,6 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
         stagingIdentity = *identity.try_value();
 
         std::vector<std::pair<std::string, HANDLE>> sourceDirectories;
-        std::vector<UniqueHandle> sourceChildren;
         std::vector<std::pair<std::string, HANDLE>> stagingDirectories;
         std::vector<const cue::WorkspaceEntry *> orderedEntries;
         try
@@ -3880,8 +4106,9 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
             const bool sourceIsDirectory = entry.type == cue::WorkspaceEntryType::Directory;
             const DWORD sourceAccess = sourceIsDirectory ? GENERIC_READ | FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY
                                                          : GENERIC_READ | FILE_READ_ATTRIBUTES;
-            cue::Result<OpenedNativeEntry> sourceChild = open_exact_entry(
-                sourceParentIterator->second, *childName.try_value(), sourceAccess, FILE_SHARE_READ, m_assertContext);
+            cue::Result<OpenedNativeEntry> sourceChild =
+                open_exact_entry(sourceParentIterator->second, *childName.try_value(), sourceAccess, FILE_SHARE_READ,
+                                 m_assertContext, sourceIsDirectory);
             if (!sourceChild)
             {
                 return cleanupFailure(std::move(*sourceChild.try_error()));
@@ -3962,6 +4189,25 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
             }
             sourceChildren.push_back(std::move(sourceChild.try_value()->handle));
             stagingChildren.push_back(std::move(child));
+        }
+
+        try
+        {
+            sourceDirectoryOplocks.reserve(sourceDirectories.size());
+        }
+        catch (...)
+        {
+            terminate_allocation(m_assertContext);
+        }
+        for (const std::pair<std::string, HANDLE> &directory : sourceDirectories)
+        {
+            cue::Result<std::unique_ptr<DirectoryOplockGuard>> oplock =
+                begin_directory_oplock_guard(directory.second, m_assertContext);
+            if (!oplock)
+            {
+                return cleanupFailure(std::move(*oplock.try_error()));
+            }
+            sourceDirectoryOplocks.push_back(std::move(*oplock.try_value()));
         }
 
         try
@@ -4123,15 +4369,21 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
             stagingPublishGuard.try_value()->reset();
             cue::Result<void> sourcePublishStable = finish_directory_change_guard(*sourcePublishGuard, m_assertContext);
             sourcePublishGuard.reset();
-            if (!stagingPublishStable || !sourcePublishStable)
+            cue::Result<void> sourceOplocksStable = finishSourceDirectoryOplocks();
+            if (!stagingPublishStable || !sourcePublishStable || !sourceOplocksStable)
             {
                 cue::WorkspaceMutationResult result =
-                    reconciliation_required(!stagingPublishStable ? std::move(*stagingPublishStable.try_error())
-                                                                  : std::move(*sourcePublishStable.try_error()));
+                    reconciliation_required(!stagingPublishStable  ? std::move(*stagingPublishStable.try_error())
+                                            : !sourcePublishStable ? std::move(*sourcePublishStable.try_error())
+                                                                   : std::move(*sourceOplocksStable.try_error()));
                 append_secondary(result, std::move(*destinationAvailable.try_error()), m_assertContext);
                 if (!stagingPublishStable && !sourcePublishStable)
                 {
                     append_secondary(result, std::move(*sourcePublishStable.try_error()), m_assertContext);
+                }
+                if (!sourceOplocksStable && (!stagingPublishStable || !sourcePublishStable))
+                {
+                    append_secondary(result, std::move(*sourceOplocksStable.try_error()), m_assertContext);
                 }
                 cue::Result<void> parentStable = finish_mutation_parent_guards(*destinationParentGuards.try_value());
                 if (!parentStable)
@@ -4180,6 +4432,28 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
             }
             return result;
         }
+        cue::Result<void> sourceOplocksPending =
+            verify_directory_oplock_guards_pending(sourceDirectoryOplocks, m_assertContext);
+        if (!sourceOplocksPending)
+        {
+            cue::Result<void> stagingPublishStable =
+                finish_directory_change_guard(**stagingPublishGuard.try_value(), m_assertContext);
+            stagingPublishGuard.try_value()->reset();
+            cue::Result<void> sourcePublishStable = finish_directory_change_guard(*sourcePublishGuard, m_assertContext);
+            sourcePublishGuard.reset();
+            cue::WorkspaceMutationResult result = cleanupFailure(std::move(*sourceOplocksPending.try_error()));
+            if (!stagingPublishStable)
+            {
+                append_secondary(result, std::move(*stagingPublishStable.try_error()), m_assertContext);
+                result.outcome = cue::WorkspaceMutationOutcome::ReconciliationRequired;
+            }
+            if (!sourcePublishStable)
+            {
+                append_secondary(result, std::move(*sourcePublishStable.try_error()), m_assertContext);
+                result.outcome = cue::WorkspaceMutationOutcome::ReconciliationRequired;
+            }
+            return result;
+        }
         cue::Result<void> destinationParentsPending =
             verify_mutation_parent_guards_pending(*destinationParentGuards.try_value());
         if (!destinationParentsPending)
@@ -4209,6 +4483,7 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
         stagingPublishGuard.try_value()->reset();
         cue::Result<void> sourcePublishStable = finish_directory_change_guard(*sourcePublishGuard, m_assertContext);
         sourcePublishGuard.reset();
+        cue::Result<void> sourceOplocksStable = finishSourceDirectoryOplocks();
         if (publishCode != ERROR_SUCCESS)
         {
             const NativeEntryObservation observed =
@@ -4226,9 +4501,13 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
                 {
                     append_secondary(result, std::move(*sourcePublishStable.try_error()), m_assertContext);
                 }
+                if (!sourceOplocksStable)
+                {
+                    append_secondary(result, std::move(*sourceOplocksStable.try_error()), m_assertContext);
+                }
                 return result;
             }
-            if (!stagingPublishStable || !sourcePublishStable)
+            if (!stagingPublishStable || !sourcePublishStable || !sourceOplocksStable)
             {
                 cue::WorkspaceMutationResult result = reconciliation_required(
                     make_windows_error(m_assertContext, publishCode, "Workspace directory copy publish failed"));
@@ -4239,6 +4518,10 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
                 if (!sourcePublishStable)
                 {
                     append_secondary(result, std::move(*sourcePublishStable.try_error()), m_assertContext);
+                }
+                if (!sourceOplocksStable)
+                {
+                    append_secondary(result, std::move(*sourceOplocksStable.try_error()), m_assertContext);
                 }
                 cue::Result<void> parentStable = finish_mutation_parent_guards(*destinationParentGuards.try_value());
                 if (!parentStable)
@@ -4253,14 +4536,19 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
                                                                   "Workspace directory copy publish failed");
             }
         }
-        else if (!stagingPublishStable || !sourcePublishStable)
+        else if (!stagingPublishStable || !sourcePublishStable || !sourceOplocksStable)
         {
             cue::WorkspaceMutationResult result =
-                reconciliation_required(!stagingPublishStable ? std::move(*stagingPublishStable.try_error())
-                                                              : std::move(*sourcePublishStable.try_error()));
+                reconciliation_required(!stagingPublishStable  ? std::move(*stagingPublishStable.try_error())
+                                        : !sourcePublishStable ? std::move(*sourcePublishStable.try_error())
+                                                               : std::move(*sourceOplocksStable.try_error()));
             if (!stagingPublishStable && !sourcePublishStable)
             {
                 append_secondary(result, std::move(*sourcePublishStable.try_error()), m_assertContext);
+            }
+            if (!sourceOplocksStable && (!stagingPublishStable || !sourcePublishStable))
+            {
+                append_secondary(result, std::move(*sourceOplocksStable.try_error()), m_assertContext);
             }
             cue::Result<void> parentStable = finish_mutation_parent_guards(*destinationParentGuards.try_value());
             if (!parentStable)
