@@ -96,6 +96,50 @@ class UniqueHandle final
     HANDLE m_handle = INVALID_HANDLE_VALUE;
 };
 
+/// @brief Workspace File置換をCueEngine Process間で直列化するNamed Mutex所有権
+class WorkspaceReplacementMutexOwnership final
+{
+  public:
+    /// @brief 取得済みMutex Handleの所有権を受け取る
+    explicit WorkspaceReplacementMutexOwnership(UniqueHandle a_handle) noexcept : m_handle(std::move(a_handle))
+    {
+    }
+    /// @brief Mutex所有権の重複を防ぐためCopy構築を禁止する
+    WorkspaceReplacementMutexOwnership(const WorkspaceReplacementMutexOwnership &) = delete;
+    /// @brief Mutex所有権の重複を防ぐためCopy代入を禁止する
+    WorkspaceReplacementMutexOwnership &operator=(const WorkspaceReplacementMutexOwnership &) = delete;
+    /// @brief 取得済みMutex Handleと解放責務を移動する
+    WorkspaceReplacementMutexOwnership(WorkspaceReplacementMutexOwnership &&) noexcept = default;
+    /// @brief 現在のMutexを解放して取得済み所有権を移動する
+    WorkspaceReplacementMutexOwnership &operator=(WorkspaceReplacementMutexOwnership &&a_other) noexcept
+    {
+        if (this != &a_other)
+        {
+            release();
+            m_handle = std::move(a_other.m_handle);
+        }
+        return *this;
+    }
+    /// @brief Mutexを解放してHandleを閉じる
+    ~WorkspaceReplacementMutexOwnership()
+    {
+        release();
+    }
+
+  private:
+    /// @brief 所有中のNamed Mutexを一度だけ解放する
+    void release() noexcept
+    {
+        if (m_handle.is_valid())
+        {
+            ReleaseMutex(m_handle.get());
+            m_handle.reset();
+        }
+    }
+
+    UniqueHandle m_handle;
+};
+
 /// @brief noexcept処理中のAllocation失敗をProject Fatal Policyへ接続する
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_assertContext) noexcept
 {
@@ -133,6 +177,28 @@ class UniqueHandle final
 {
     return cue::make_io_error(a_assertContext, classify_windows_error(a_code), a_summary,
                               static_cast<std::int64_t>(a_code));
+}
+
+/// @brief CueEngineが行うWorkspace File置換をProcess境界で直列化する
+[[nodiscard]] cue::Result<WorkspaceReplacementMutexOwnership> acquire_workspace_replacement_mutex(
+    const cue::AssertContext &a_assertContext) noexcept
+{
+    constexpr wchar_t k_mutexName[] = L"Local\\CueEngine.WorkspaceFileReplacement.v1";
+    UniqueHandle mutex(CreateMutexW(nullptr, FALSE, k_mutexName));
+    if (!mutex.is_valid())
+    {
+        return cue::Result<WorkspaceReplacementMutexOwnership>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace replacement mutex creation failed"));
+    }
+    const DWORD wait = WaitForSingleObject(mutex.get(), INFINITE);
+    if (wait != WAIT_OBJECT_0 && wait != WAIT_ABANDONED)
+    {
+        return cue::Result<WorkspaceReplacementMutexOwnership>::failure(
+            make_windows_error(a_assertContext, wait == WAIT_FAILED ? GetLastError() : ERROR_INVALID_DATA,
+                               "Workspace replacement mutex acquisition failed"));
+    }
+    return cue::Result<WorkspaceReplacementMutexOwnership>::success(
+        WorkspaceReplacementMutexOwnership(std::move(mutex)));
 }
 
 /// @brief UTF-8を厳密なUTF-16へ変換する
@@ -3729,6 +3795,12 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::replace_file_atomic(
     {
         return not_committed(cue::make_io_error(m_assertContext, cue::IoError::CapacityExceeded,
                                                 "Workspace replacement content exceeds the host limit"));
+    }
+    cue::Result<WorkspaceReplacementMutexOwnership> replacementOwnership =
+        acquire_workspace_replacement_mutex(m_assertContext);
+    if (!replacementOwnership)
+    {
+        return not_committed(std::move(*replacementOwnership.try_error()));
     }
     cue::Result<std::vector<UniqueHandle>> pinned = prepare_mutation_parent(a_destination);
     if (!pinned)
