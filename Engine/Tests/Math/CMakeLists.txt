@@ -292,8 +292,15 @@ set_tests_properties(
     Cue.Math.MatrixQuaternionTransform
     Cue.Math.Properties
     Cue.Math.PublicHeaders
-    Cue.Math.Dependencies
     PROPERTIES
         LABELS Math
         TIMEOUT 10
+)
+
+# Repository拡大に伴う再帰Source境界Scanを低速なWindows Hostでも完走させる
+set_tests_properties(
+    Cue.Math.Dependencies
+    PROPERTIES
+        LABELS Math
+        TIMEOUT 30
 )
