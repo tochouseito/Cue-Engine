@@ -16,12 +16,22 @@ namespace cue
 {
 class AssertContext;
 class WorkspaceDirectory;
+class WorkspaceEntryMutationGuard;
 class WorkspaceFilesystem;
 
 /// @brief 検証済みUser Locatorと列挙結果からだけ生成できるRoot相対内部Path
 class BoundWorkspacePath final
 {
   public:
+    /// @brief 同じWorkspace Bindingを共有する値CapabilityとしてCopy構築する
+    BoundWorkspacePath(const BoundWorkspacePath &) = default;
+    /// @brief 同じWorkspace Bindingを共有する値CapabilityとしてCopy代入する
+    BoundWorkspacePath &operator=(const BoundWorkspacePath &) = default;
+    /// @brief Workspace Binding付きPath Valueを移動構築する
+    BoundWorkspacePath(BoundWorkspacePath &&) noexcept = default;
+    /// @brief Workspace Binding付きPath Valueを移動代入する
+    BoundWorkspacePath &operator=(BoundWorkspacePath &&) noexcept = default;
+
     /// @brief Root相対のPortable Path文字列を返す
     [[nodiscard]] std::string_view text() const noexcept;
 
@@ -131,6 +141,29 @@ struct WorkspaceEntryFingerprint final
 
     /// @brief Entry Fingerprintの全要素を比較する
     [[nodiscard]] bool operator==(const WorkspaceEntryFingerprint &) const noexcept = default;
+};
+
+/// @brief Native EntryのIdentityと変更排他をRecord確定まで保持するOpaque Guard
+class WorkspaceEntryMutationGuard
+{
+  public:
+    /// @brief Native Guardの一意所有を保つためCopy構築を禁止する
+    WorkspaceEntryMutationGuard(const WorkspaceEntryMutationGuard &) = delete;
+    /// @brief Native Guardの一意所有を保つためCopy代入を禁止する
+    WorkspaceEntryMutationGuard &operator=(const WorkspaceEntryMutationGuard &) = delete;
+    /// @brief Platform実装が所有するNative Resourceを解放する
+    virtual ~WorkspaceEntryMutationGuard() = default;
+
+  protected:
+    /// @brief Platform実装だけがGuardを構築できる状態にする
+    WorkspaceEntryMutationGuard() noexcept = default;
+};
+
+/// @brief Guard取得中に確定したFingerprintとNative Guardの一意所有権
+struct GuardedWorkspaceEntry final
+{
+    WorkspaceEntryFingerprint fingerprint;
+    std::unique_ptr<WorkspaceEntryMutationGuard> guard;
 };
 
 /// @brief Root自体または検証済みRoot相対Directoryを表す
@@ -273,11 +306,24 @@ class WorkspaceFilesystem
                                                                const BoundWorkspacePath &a_destination,
                                                                TraversalLimits a_limits) noexcept = 0;
 
-    /// @brief Sourceが期待Fingerprintと一致する場合だけ同一Volume Renameを実行する
-    [[nodiscard]] virtual WorkspaceMutationResult rename_entry_if_matches(
-        const BoundWorkspacePath &a_source, const BoundWorkspacePath &a_destination,
-        const WorkspaceEntryFingerprint &a_expected, TraversalLimits a_traversalLimits,
+    /// @brief EntryのIdentityと内容を固定し、Record確定まで保持できるMutation Guardを取得する
+    [[nodiscard]] virtual Result<GuardedWorkspaceEntry> guard_entry(
+        const BoundWorkspacePath &a_entry, TraversalLimits a_traversalLimits,
         ContentVerificationLimits a_contentLimits) noexcept = 0;
+
+    /// @brief Entryが期待Fingerprintと一致する場合だけMutation Guardを取得する
+    [[nodiscard]] virtual Result<std::unique_ptr<WorkspaceEntryMutationGuard>> guard_entry_if_matches(
+        const BoundWorkspacePath &a_entry, const WorkspaceEntryFingerprint &a_expected,
+        TraversalLimits a_traversalLimits, ContentVerificationLimits a_contentLimits) noexcept = 0;
+
+    /// @brief 取得済みGuardと同じNative Entryを一回の同一Volume Renameで移動する
+    [[nodiscard]] virtual WorkspaceMutationResult rename_guarded_entry(
+        WorkspaceEntryMutationGuard &a_guard, const BoundWorkspacePath &a_source,
+        const BoundWorkspacePath &a_destination) noexcept = 0;
+
+    /// @brief Guard期間中の内容不変を再検証してNative Resourceを解放する
+    [[nodiscard]] virtual Result<void> finish_entry_mutation_guard(
+        std::unique_ptr<WorkspaceEntryMutationGuard> a_guard) noexcept = 0;
 
     /// @brief Sourceを保持して検証済みSibling StagingからCreate-new Copyを公開する
     [[nodiscard]] virtual WorkspaceMutationResult copy_entry_new(const BoundWorkspacePath &a_source,

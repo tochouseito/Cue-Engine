@@ -402,12 +402,14 @@ Path基準RenameへFallbackしない。DirectoryではManifest列挙対象の全
 Directory DeleteとRestoreは、検証開始からNative Rename、移動先でのManifest再検証、最終Record Commitまで
 `DirectoryTreeMutationGuard`を保持する。Windows AdapterのGuardはSource Root Directoryを`DELETE` Accessと
 `FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_WRITE_THROUGH`で開き、Native Renameにも同じHandleを使用する。全Regular FileはRead専用かつ
-Write非共有、Delete共有Handleで固定し、全Directory HandleへRまたはRH Directory Oplockを要求してBreakを監視する。ChildのDelete共有は
-Source Root Handleによる親Directory Renameを妨げないために必要であり、外部のChild Rename／DeleteはDirectory Oplock Breakと移動先の
-Manifest再検証で検出する。既存Writer、Guard非対応Filesystem、Oplock取得失敗では`Busy`または`UnsupportedEntry`としてMoveを開始しない。
-Directory Oplockは内容変更を阻止しない通知契約であるため、Guard期間中のBreakを失敗として記録し、移動先でLink CountとManifestを
-再検証する。Move前のBreakは`NotCommitted`、Move後のBreakまたは不一致はRecordとPayloadを維持した
-`ReconciliationRequired`とする。黙って成功へFallbackしない。
+Write非共有、Delete共有Handleで固定し、全Child DirectoryもIdentity固定Handleとして保持する。Source Rootには
+`ReadDirectoryChangesW`をSubtree有効で発行し、Name、Directory Name、Attributes、Size、Last Write、Creationの変更を監視する。
+ChildのDelete共有はSource Root Handleによる親Directory Renameを妨げないために必要であり、外部のChild Rename／Delete／Writeは
+再帰変更監視と移動先のManifest再検証で検出する。Directory OplockはSource RootまたはAncestorのRename自体でBreakし、同一Threadの
+Native RenameがBreak Ack待ちになるため、このMove Guardには使用しない。既存Writer、Guard非対応Filesystem、変更監視取得失敗では
+`Busy`または`UnsupportedEntry`としてMoveを開始しない。変更監視は内容変更を阻止しない通知契約であるため、Guard期間中の完了を
+失敗として記録し、移動先でLink CountとManifestを再検証する。Move前の通知は`NotCommitted`、Move後の通知または不一致はRecordと
+Payloadを維持した`ReconciliationRequired`とする。黙って成功へFallbackしない。
 
 Delete順序を固定する。
 

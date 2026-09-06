@@ -509,6 +509,7 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
     {
         terminate_allocation(m_assertContext);
     }
+    std::vector<Error> committedDiagnostics;
 
     /// @brief Delete経路の共通Metadataを保持したOperation Resultを構築する
     const auto makeResult = [&](ProjectFileOperationStage a_stage, ProjectFileOperationOutcome a_outcome,
@@ -518,6 +519,22 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
         std::vector<std::string> rescan;
         try
         {
+            if (a_outcome == ProjectFileOperationOutcome::CommittedButDurabilityUnknown &&
+                !committedDiagnostics.empty())
+            {
+                a_primary = std::move(committedDiagnostics.front());
+                for (std::size_t index = 1U; index < committedDiagnostics.size(); ++index)
+                {
+                    a_secondary.push_back(std::move(committedDiagnostics[index]));
+                }
+            }
+            else
+            {
+                for (Error &diagnostic : committedDiagnostics)
+                {
+                    a_secondary.push_back(std::move(diagnostic));
+                }
+            }
             rescan.push_back(parent_locator(source, m_assertContext));
         }
         catch (...)
@@ -537,6 +554,25 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
         std::optional<Error> primary(
             reclassify_project_file_error(m_assertContext, a_code, a_message, std::move(a_cause)));
         return makeResult(a_stage, a_outcome, std::move(primary), std::move(a_secondary));
+    };
+    /// @brief Commit済みStageのPrimaryとSecondary診断を最終Operation Resultへ移送する
+    const auto captureCommittedMutation = [&](WorkspaceMutationResult &a_mutation) noexcept
+    {
+        try
+        {
+            if (a_mutation.primaryError.has_value())
+            {
+                committedDiagnostics.push_back(std::move(*a_mutation.primaryError));
+            }
+            for (Error &diagnostic : a_mutation.secondaryDiagnostics)
+            {
+                committedDiagnostics.push_back(std::move(diagnostic));
+            }
+        }
+        catch (...)
+        {
+            terminate_allocation(m_assertContext);
+        }
     };
 
     if (!m_policy.can_mutate(a_area) || !a_traversalLimits.is_valid() || !a_contentLimits.is_valid())
@@ -558,13 +594,13 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
         return fail(ProjectFileOperationStage::BindSource, classification, "Project file delete source binding failed",
                     std::move(cause), ProjectFileOperationOutcome::NotCommitted);
     }
-    Result<WorkspaceEntryFingerprint> fingerprint =
-        m_workspace->fingerprint_entry(*boundSource.try_value(), a_traversalLimits, a_contentLimits);
-    if (!fingerprint)
+    Result<GuardedWorkspaceEntry> guardedSource =
+        m_workspace->guard_entry(*boundSource.try_value(), a_traversalLimits, a_contentLimits);
+    if (!guardedSource)
     {
         const ProjectFileError classification =
-            classify_project_file_error(*fingerprint.try_error(), WorkspaceMutationOutcome::NotCommitted);
-        Error cause = std::move(*fingerprint.try_error());
+            classify_project_file_error(*guardedSource.try_error(), WorkspaceMutationOutcome::NotCommitted);
+        Error cause = std::move(*guardedSource.try_error());
         return fail(ProjectFileOperationStage::ValidateRequest, classification,
                     "Project file delete source verification failed", std::move(cause),
                     ProjectFileOperationOutcome::NotCommitted);
@@ -583,7 +619,7 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
         record.projectId.assign(m_projectId.text());
         record.operationId = operationId;
         record.originalPath = source;
-        record.fingerprint = *fingerprint.try_value();
+        record.fingerprint = guardedSource.try_value()->fingerprint;
     }
     catch (...)
     {
@@ -725,6 +761,7 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
                     std::move(cause), convert_outcome(createdDirectory.outcome),
                     std::move(createdDirectory.secondaryDiagnostics));
     }
+    captureCommittedMutation(createdDirectory);
     WorkspaceMutationResult wroteAllocating =
         m_workspace->create_file_new_atomic(*stagingRecord.try_value(), *allocating.try_value(), operationId);
     if (wroteAllocating.outcome == WorkspaceMutationOutcome::NotCommitted ||
@@ -741,6 +778,7 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
                     "Project trash allocating record write failed", std::move(cause),
                     convert_outcome(wroteAllocating.outcome), std::move(secondary));
     }
+    captureCommittedMutation(wroteAllocating);
     WorkspaceMutationResult publishedContainer =
         m_workspace->rename_entry(*staging.try_value(), *operation.try_value(), a_traversalLimits);
     if (publishedContainer.outcome == WorkspaceMutationOutcome::NotCommitted ||
@@ -755,6 +793,7 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
                     "Project trash container publish failed", std::move(cause),
                     convert_outcome(publishedContainer.outcome), std::move(publishedContainer.secondaryDiagnostics));
     }
+    captureCommittedMutation(publishedContainer);
     WorkspaceMutationResult wrotePrepared =
         m_workspace->replace_file_atomic(*finalRecord.try_value(), *prepared.try_value(), operationId);
     if (wrotePrepared.outcome == WorkspaceMutationOutcome::NotCommitted ||
@@ -771,22 +810,10 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
                     "Project trash prepared record write failed", std::move(cause),
                     convert_outcome(wrotePrepared.outcome), std::move(secondary));
     }
+    captureCommittedMutation(wrotePrepared);
 
-    Result<WorkspaceEntryFingerprint> current =
-        m_workspace->fingerprint_entry(*boundSource.try_value(), a_traversalLimits, a_contentLimits);
-    if (!current || *current.try_value() != *fingerprint.try_value())
-    {
-        std::vector<Error> secondary;
-        cleanupContainer(*finalRecord.try_value(), *operation.try_value(), secondary);
-        Error cause = !current ? std::move(*current.try_error())
-                               : make_project_file_error(m_assertContext, ProjectFileError::InvalidRequest,
-                                                         "Project file delete source changed before publish");
-        return fail(ProjectFileOperationStage::Verify, ProjectFileError::InvalidRequest,
-                    "Project file delete source verification failed", std::move(cause),
-                    ProjectFileOperationOutcome::NotCommitted, std::move(secondary));
-    }
-    WorkspaceMutationResult moved = m_workspace->rename_entry_if_matches(
-        *boundSource.try_value(), *payload.try_value(), *fingerprint.try_value(), a_traversalLimits, a_contentLimits);
+    WorkspaceMutationResult moved = m_workspace->rename_guarded_entry(*guardedSource.try_value()->guard,
+                                                                      *boundSource.try_value(), *payload.try_value());
     if (moved.outcome == WorkspaceMutationOutcome::NotCommitted)
     {
         std::vector<Error> secondary = std::move(moved.secondaryDiagnostics);
@@ -809,6 +836,7 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
                     "Project file delete rename requires reconciliation", std::move(cause),
                     ProjectFileOperationOutcome::ReconciliationRequired, std::move(moved.secondaryDiagnostics));
     }
+    captureCommittedMutation(moved);
     WorkspaceMutationResult wroteTrashed =
         m_workspace->replace_file_atomic(*finalRecord.try_value(), *trashed.try_value(), operationId);
     if (wroteTrashed.outcome == WorkspaceMutationOutcome::NotCommitted ||
@@ -822,6 +850,15 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
                     "Project trash final record write failed", std::move(cause),
                     ProjectFileOperationOutcome::ReconciliationRequired, std::move(wroteTrashed.secondaryDiagnostics));
     }
+    captureCommittedMutation(wroteTrashed);
+
+    Result<void> guardFinished = m_workspace->finish_entry_mutation_guard(std::move(guardedSource.try_value()->guard));
+    if (!guardFinished)
+    {
+        return fail(ProjectFileOperationStage::Verify, ProjectFileError::RecoveryRequired,
+                    "Project file delete guard detected a concurrent change", std::move(*guardFinished.try_error()),
+                    ProjectFileOperationOutcome::ReconciliationRequired);
+    }
 
     RecoveryEntry recovery;
     try
@@ -829,9 +866,9 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
         recovery.operationId = operationId;
         recovery.originalPath = source;
         recovery.originalArea = a_area;
-        recovery.entryType = fingerprint.try_value()->type;
-        recovery.byteSize = fingerprint_byte_size(*fingerprint.try_value());
-        recovery.descendantCount = fingerprint.try_value()->manifest.size();
+        recovery.entryType = guardedSource.try_value()->fingerprint.type;
+        recovery.byteSize = fingerprint_byte_size(guardedSource.try_value()->fingerprint);
+        recovery.descendantCount = guardedSource.try_value()->fingerprint.manifest.size();
         recovery.state = RecoveryEntryState::Recoverable;
         m_recoveryEntries.push_back(std::move(recovery));
     }
@@ -905,6 +942,7 @@ Result<ProjectFileOperationResult> ProjectFileService::restore(std::string_view 
         return Result<ProjectFileOperationResult>::failure(std::move(*original.try_error()));
     }
     std::string destination = record.try_value()->originalPath;
+    std::vector<Error> committedDiagnostics;
 
     /// @brief Restore経路の共通Metadataを保持したOperation Resultを構築する
     const auto makeResult = [&](ProjectFileOperationStage a_stage, ProjectFileOperationOutcome a_outcome,
@@ -914,6 +952,22 @@ Result<ProjectFileOperationResult> ProjectFileService::restore(std::string_view 
         std::vector<std::string> rescan;
         try
         {
+            if (a_outcome == ProjectFileOperationOutcome::CommittedButDurabilityUnknown &&
+                !committedDiagnostics.empty())
+            {
+                a_primary = std::move(committedDiagnostics.front());
+                for (std::size_t index = 1U; index < committedDiagnostics.size(); ++index)
+                {
+                    a_secondary.push_back(std::move(committedDiagnostics[index]));
+                }
+            }
+            else
+            {
+                for (Error &diagnostic : committedDiagnostics)
+                {
+                    a_secondary.push_back(std::move(diagnostic));
+                }
+            }
             rescan.push_back(parent_locator(destination, m_assertContext));
         }
         catch (...)
@@ -933,6 +987,25 @@ Result<ProjectFileOperationResult> ProjectFileService::restore(std::string_view 
         std::optional<Error> primary(
             reclassify_project_file_error(m_assertContext, a_code, a_message, std::move(a_cause)));
         return makeResult(a_stage, a_outcome, std::move(primary), std::move(a_secondary));
+    };
+    /// @brief Commit済みRestore StageのPrimaryとSecondary診断を最終Resultへ移送する
+    const auto captureCommittedMutation = [&](WorkspaceMutationResult &a_mutation) noexcept
+    {
+        try
+        {
+            if (a_mutation.primaryError.has_value())
+            {
+                committedDiagnostics.push_back(std::move(*a_mutation.primaryError));
+            }
+            for (Error &diagnostic : a_mutation.secondaryDiagnostics)
+            {
+                committedDiagnostics.push_back(std::move(diagnostic));
+            }
+        }
+        catch (...)
+        {
+            terminate_allocation(m_assertContext);
+        }
     };
     /// @brief Saved Root内のRecovery Entry PathをCapabilityへ変換する
     const auto bindSaved = [&](std::string_view a_path) noexcept -> Result<BoundWorkspacePath>
@@ -972,16 +1045,12 @@ Result<ProjectFileOperationResult> ProjectFileService::restore(std::string_view 
         return fail(ProjectFileOperationStage::BindDestination, ProjectFileError::RecoveryRequired,
                     "Project restore path binding failed", std::move(cause), ProjectFileOperationOutcome::NotCommitted);
     }
-    Result<WorkspaceEntryFingerprint> payloadFingerprint =
-        m_workspace->fingerprint_entry(*payload.try_value(), a_traversalLimits, a_contentLimits);
-    if (!payloadFingerprint || *payloadFingerprint.try_value() != record.try_value()->fingerprint)
+    Result<std::unique_ptr<WorkspaceEntryMutationGuard>> payloadGuard = m_workspace->guard_entry_if_matches(
+        *payload.try_value(), record.try_value()->fingerprint, a_traversalLimits, a_contentLimits);
+    if (!payloadGuard)
     {
-        Error cause = !payloadFingerprint
-                          ? std::move(*payloadFingerprint.try_error())
-                          : make_project_file_error(m_assertContext, ProjectFileError::RecoveryRequired,
-                                                    "Project trash payload fingerprint does not match its record");
         return fail(ProjectFileOperationStage::Verify, ProjectFileError::RecoveryRequired,
-                    "Project trash payload verification failed", std::move(cause),
+                    "Project trash payload verification failed", std::move(*payloadGuard.try_error()),
                     ProjectFileOperationOutcome::NotCommitted);
     }
 
@@ -1016,10 +1085,10 @@ Result<ProjectFileOperationResult> ProjectFileService::restore(std::string_view 
                     "Project restore checkpoint write failed", std::move(cause),
                     convert_outcome(wroteRestoring.outcome), std::move(wroteRestoring.secondaryDiagnostics));
     }
+    captureCommittedMutation(wroteRestoring);
 
-    WorkspaceMutationResult moved =
-        m_workspace->rename_entry_if_matches(*payload.try_value(), *boundDestination.try_value(),
-                                             record.try_value()->fingerprint, a_traversalLimits, a_contentLimits);
+    WorkspaceMutationResult moved = m_workspace->rename_guarded_entry(**payloadGuard.try_value(), *payload.try_value(),
+                                                                      *boundDestination.try_value());
     if (moved.outcome == WorkspaceMutationOutcome::NotCommitted)
     {
         WorkspaceMutationResult reverted =
@@ -1073,6 +1142,7 @@ Result<ProjectFileOperationResult> ProjectFileService::restore(std::string_view 
                     "Project restore rename requires reconciliation", std::move(cause),
                     ProjectFileOperationOutcome::ReconciliationRequired, std::move(moved.secondaryDiagnostics));
     }
+    captureCommittedMutation(moved);
     WorkspaceMutationResult wroteRestored =
         m_workspace->replace_file_atomic(*boundRecord.try_value(), *restored.try_value(), operationId);
     if (wroteRestored.outcome == WorkspaceMutationOutcome::NotCommitted ||
@@ -1085,6 +1155,15 @@ Result<ProjectFileOperationResult> ProjectFileService::restore(std::string_view 
         return fail(ProjectFileOperationStage::UpdateRecoveryRecord, ProjectFileError::RecoveryRequired,
                     "Project restore final record write failed", std::move(cause),
                     ProjectFileOperationOutcome::ReconciliationRequired, std::move(wroteRestored.secondaryDiagnostics));
+    }
+    captureCommittedMutation(wroteRestored);
+
+    Result<void> guardFinished = m_workspace->finish_entry_mutation_guard(std::move(*payloadGuard.try_value()));
+    if (!guardFinished)
+    {
+        return fail(ProjectFileOperationStage::Verify, ProjectFileError::RecoveryRequired,
+                    "Project restore guard detected a concurrent change", std::move(*guardFinished.try_error()),
+                    ProjectFileOperationOutcome::ReconciliationRequired);
     }
 
     std::vector<Error> cleanupDiagnostics;
@@ -1221,6 +1300,16 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
     if (snapshot.try_value()->state != WorkspaceSnapshotState::Complete)
     {
         addDiagnostic("Project trash catalog enumeration requires a rescan");
+        try
+        {
+            m_recoveryEntries = std::move(entries);
+            m_recoveryDiagnostics = std::move(diagnostics);
+        }
+        catch (...)
+        {
+            terminate_allocation(m_assertContext);
+        }
+        return Result<void>::success();
     }
 
     for (const WorkspaceEntry &container : snapshot.try_value()->entries)
@@ -1253,8 +1342,7 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
             WorkspaceDirectory stagingDirectory = WorkspaceDirectory::from_bound_path(*staging.try_value());
             Result<DirectorySnapshot> stagingSnapshot =
                 m_workspace->list_directory(stagingDirectory, a_traversalLimits);
-            if (!stagingSnapshot || stagingSnapshot.try_value()->state != WorkspaceSnapshotState::Complete ||
-                !stagingSnapshot.try_value()->entries.empty())
+            if (!stagingSnapshot || stagingSnapshot.try_value()->state != WorkspaceSnapshotState::Complete)
             {
                 if (!stagingSnapshot)
                 {
@@ -1263,9 +1351,74 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
                 }
                 else
                 {
-                    addDiagnostic("Project trash staging container is not an empty operation-owned directory");
+                    addDiagnostic("Project trash staging container enumeration requires a rescan");
                 }
                 continue;
+            }
+            bool removeRecordFirst = false;
+            std::optional<BoundWorkspacePath> boundStagingRecord;
+            if (!stagingSnapshot.try_value()->entries.empty())
+            {
+                const bool hasOnlyRecord =
+                    stagingSnapshot.try_value()->entries.size() == 1U &&
+                    stagingSnapshot.try_value()->entries[0U].displayName == "Record.cuetrash" &&
+                    stagingSnapshot.try_value()->entries[0U].type == WorkspaceEntryType::RegularFile;
+                Result<RelativePath> recordChild = RelativePath::parse("Record.cuetrash", m_assertContext);
+                Result<BoundWorkspacePath> stagingRecord =
+                    hasOnlyRecord && recordChild
+                        ? m_workspace->bind_child_path(*staging.try_value(), std::move(*recordChild.try_value()),
+                                                       m_assertContext)
+                        : Result<BoundWorkspacePath>::failure(make_project_file_error(
+                              m_assertContext, ProjectFileError::RecoveryRequired,
+                              "Project trash staging contains entries other than its allocating record"));
+                Result<std::vector<std::byte>> stagingBytes =
+                    stagingRecord
+                        ? m_workspace->read_file_bounded(*stagingRecord.try_value(), k_maximumTrashRecordBytes)
+                        : Result<std::vector<std::byte>>::failure(std::move(*stagingRecord.try_error()));
+                Result<project_files_private::TrashRecord> stagingRecordValue =
+                    stagingBytes
+                        ? project_files_private::parse_trash_record(*stagingBytes.try_value(),
+                                                                    project_files_private::trash_record_hard_limits(),
+                                                                    m_assertContext)
+                        : Result<project_files_private::TrashRecord>::failure(std::move(*stagingBytes.try_error()));
+                if (!stagingRecordValue || stagingRecordValue.try_value()->projectId != m_projectId.text() ||
+                    stagingRecordValue.try_value()->operationId != stagingId ||
+                    stagingRecordValue.try_value()->state != project_files_private::TrashRecordState::Allocating)
+                {
+                    if (!stagingRecordValue)
+                    {
+                        addDiagnostic("Project trash staging allocating record is invalid",
+                                      std::move(*stagingRecordValue.try_error()));
+                    }
+                    else
+                    {
+                        addDiagnostic("Project trash staging allocating record identity or state is invalid");
+                    }
+                    continue;
+                }
+                boundStagingRecord.emplace(std::move(*stagingRecord.try_value()));
+                removeRecordFirst = true;
+            }
+            if (removeRecordFirst)
+            {
+                WorkspaceMutationResult removedRecord =
+                    m_workspace->remove_file_or_empty_directory(*boundStagingRecord);
+                if (removedRecord.primaryError.has_value())
+                {
+                    addDiagnostic("Project trash staging record cleanup was not durable",
+                                  std::move(*removedRecord.primaryError));
+                }
+                for (Error &diagnostic : removedRecord.secondaryDiagnostics)
+                {
+                    addDiagnostic("Project trash staging record cleanup reported a secondary failure",
+                                  std::move(diagnostic));
+                }
+                if (removedRecord.outcome == WorkspaceMutationOutcome::NotCommitted ||
+                    removedRecord.outcome == WorkspaceMutationOutcome::ReconciliationRequired)
+                {
+                    addDiagnostic("Project trash staging allocating record could not be removed");
+                    continue;
+                }
             }
             WorkspaceMutationResult removedStaging = m_workspace->remove_file_or_empty_directory(*staging.try_value());
             if (removedStaging.primaryError.has_value())
@@ -1322,6 +1475,11 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
         if (!operationSnapshot)
         {
             addDiagnostic("Project trash operation could not be enumerated", std::move(*operationSnapshot.try_error()));
+            continue;
+        }
+        if (operationSnapshot.try_value()->state != WorkspaceSnapshotState::Complete)
+        {
+            addDiagnostic("Project trash operation enumeration requires a rescan");
             continue;
         }
         const WorkspaceEntry *recordEntry = nullptr;
@@ -1397,9 +1555,24 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
         const bool payloadMatches =
             payloadFingerprint && *payloadFingerprint.try_value() == record.try_value()->fingerprint;
 
-        /// @brief Reconciliationで確定した状態をRecordへAtomic反映する
-        const auto updateRecord = [&](project_files_private::TrashRecordState a_state) noexcept -> bool
+        /// @brief 存在側EntryをRecord Fingerprintで固定してMutation Guardを取得する
+        const auto guardMatchingEntry =
+            [&](const BoundWorkspacePath &a_entry) noexcept -> Result<std::unique_ptr<WorkspaceEntryMutationGuard>>
         {
+            return m_workspace->guard_entry_if_matches(a_entry, record.try_value()->fingerprint, a_traversalLimits,
+                                                       a_contentLimits);
+        };
+        /// @brief Reconciliationで確定した状態をEntry Guard保持中にRecordへAtomic反映する
+        const auto updateRecord = [&](project_files_private::TrashRecordState a_state,
+                                      const BoundWorkspacePath &a_guardedEntry) noexcept -> bool
+        {
+            Result<std::unique_ptr<WorkspaceEntryMutationGuard>> guard = guardMatchingEntry(a_guardedEntry);
+            if (!guard)
+            {
+                addDiagnostic("Project trash reconciliation entry guard could not be acquired",
+                              std::move(*guard.try_error()));
+                return false;
+            }
             record.try_value()->state = a_state;
             Result<std::vector<std::byte>> updated =
                 project_files_private::serialize_trash_record(*record.try_value(), m_assertContext);
@@ -1411,46 +1584,99 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
             }
             WorkspaceMutationResult written =
                 m_workspace->replace_file_atomic(*boundRecord.try_value(), *updated.try_value(), container.displayName);
+            if (written.primaryError.has_value())
+            {
+                addDiagnostic("Project trash reconciliation record write was not durable",
+                              std::move(*written.primaryError));
+            }
+            for (Error &diagnostic : written.secondaryDiagnostics)
+            {
+                addDiagnostic("Project trash reconciliation record write reported a secondary failure",
+                              std::move(diagnostic));
+            }
             if (written.outcome == WorkspaceMutationOutcome::NotCommitted ||
                 written.outcome == WorkspaceMutationOutcome::ReconciliationRequired)
             {
-                if (written.primaryError.has_value())
-                {
-                    addDiagnostic("Project trash reconciliation record write failed", std::move(*written.primaryError));
-                }
-                else
-                {
-                    addDiagnostic("Project trash reconciliation record write failed");
-                }
+                addDiagnostic("Project trash reconciliation record write failed");
+                return false;
+            }
+            Result<void> finished = m_workspace->finish_entry_mutation_guard(std::move(*guard.try_value()));
+            if (!finished)
+            {
+                addDiagnostic("Project trash reconciliation entry changed during record update",
+                              std::move(*finished.try_error()));
                 return false;
             }
             return true;
         };
-        /// @brief Payloadを含まない完了済みRecordと空Operation ContainerだけをCleanupする
-        const auto cleanupRecord = [&]() noexcept -> bool
+        /// @brief Payloadを含まない完了済みRecordをEntry Guard保持中にCleanupする
+        const auto cleanupRecord = [&](const BoundWorkspacePath &a_guardedEntry) noexcept -> bool
         {
+            Result<std::unique_ptr<WorkspaceEntryMutationGuard>> guard = guardMatchingEntry(a_guardedEntry);
+            if (!guard)
+            {
+                addDiagnostic("Project trash cleanup entry guard could not be acquired", std::move(*guard.try_error()));
+                return false;
+            }
             WorkspaceMutationResult removedRecord =
                 m_workspace->remove_file_or_empty_directory(*boundRecord.try_value());
+            if (removedRecord.primaryError.has_value())
+            {
+                addDiagnostic("Project trash completed record cleanup was not durable",
+                              std::move(*removedRecord.primaryError));
+            }
+            for (Error &diagnostic : removedRecord.secondaryDiagnostics)
+            {
+                addDiagnostic("Project trash completed record cleanup reported a secondary failure",
+                              std::move(diagnostic));
+            }
             if (removedRecord.outcome == WorkspaceMutationOutcome::NotCommitted ||
                 removedRecord.outcome == WorkspaceMutationOutcome::ReconciliationRequired)
             {
-                if (removedRecord.primaryError.has_value())
-                {
-                    addDiagnostic("Project trash completed record cleanup failed",
-                                  std::move(*removedRecord.primaryError));
-                }
+                addDiagnostic("Project trash completed record cleanup failed");
+                return false;
+            }
+            Result<void> finished = m_workspace->finish_entry_mutation_guard(std::move(*guard.try_value()));
+            if (!finished)
+            {
+                addDiagnostic("Project trash cleanup entry changed while removing its record",
+                              std::move(*finished.try_error()));
                 return false;
             }
             WorkspaceMutationResult removedOperation =
                 m_workspace->remove_file_or_empty_directory(*operation.try_value());
+            if (removedOperation.primaryError.has_value())
+            {
+                addDiagnostic("Project trash completed container cleanup was not durable",
+                              std::move(*removedOperation.primaryError));
+            }
+            for (Error &diagnostic : removedOperation.secondaryDiagnostics)
+            {
+                addDiagnostic("Project trash completed container cleanup reported a secondary failure",
+                              std::move(diagnostic));
+            }
             if (removedOperation.outcome == WorkspaceMutationOutcome::NotCommitted ||
                 removedOperation.outcome == WorkspaceMutationOutcome::ReconciliationRequired)
             {
-                if (removedOperation.primaryError.has_value())
-                {
-                    addDiagnostic("Project trash completed container cleanup failed",
-                                  std::move(*removedOperation.primaryError));
-                }
+                addDiagnostic("Project trash completed container cleanup failed");
+                return false;
+            }
+            return true;
+        };
+        /// @brief Recovery Catalog公開直前に存在側EntryをGuard付きで再検証する
+        const auto verifyCatalogEntry = [&](const BoundWorkspacePath &a_guardedEntry) noexcept -> bool
+        {
+            Result<std::unique_ptr<WorkspaceEntryMutationGuard>> guard = guardMatchingEntry(a_guardedEntry);
+            if (!guard)
+            {
+                addDiagnostic("Project trash catalog entry guard could not be acquired", std::move(*guard.try_error()));
+                return false;
+            }
+            Result<void> finished = m_workspace->finish_entry_mutation_guard(std::move(*guard.try_value()));
+            if (!finished)
+            {
+                addDiagnostic("Project trash catalog entry changed during verification",
+                              std::move(*finished.try_error()));
                 return false;
             }
             return true;
@@ -1480,24 +1706,30 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
         switch (record.try_value()->state)
         {
         case TrashRecordState::Allocating:
-            if (payloadEntry == nullptr && payloadMissing)
+            if (payloadEntry == nullptr && payloadMissing && originalMatches)
             {
-                (void)cleanupRecord();
+                if (!cleanupRecord(*boundOriginal.try_value()))
+                {
+                    addEntry(RecoveryEntryState::ReconciliationRequired);
+                }
             }
             else
             {
                 addEntry(RecoveryEntryState::ReconciliationRequired);
-                addDiagnostic("Allocating trash operation contains an unexpected payload");
+                addDiagnostic("Allocating trash operation does not match its original entry or contains a payload");
             }
             break;
         case TrashRecordState::Prepared:
-            if (originalMissing && payloadMatches && updateRecord(TrashRecordState::Trashed))
+            if (originalMissing && payloadMatches && updateRecord(TrashRecordState::Trashed, *payload.try_value()))
             {
                 addEntry(RecoveryEntryState::Recoverable);
             }
             else if (originalMatches && payloadMissing)
             {
-                (void)cleanupRecord();
+                if (!cleanupRecord(*boundOriginal.try_value()))
+                {
+                    addEntry(RecoveryEntryState::ReconciliationRequired);
+                }
             }
             else
             {
@@ -1506,13 +1738,17 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
             }
             break;
         case TrashRecordState::Trashed:
-            if (originalMissing && payloadMatches && payloadEntry != nullptr)
+            if (originalMissing && payloadMatches && payloadEntry != nullptr &&
+                verifyCatalogEntry(*payload.try_value()))
             {
                 addEntry(RecoveryEntryState::Recoverable);
             }
             else if (originalMatches && payloadMissing)
             {
-                (void)cleanupRecord();
+                if (!cleanupRecord(*boundOriginal.try_value()))
+                {
+                    addEntry(RecoveryEntryState::ReconciliationRequired);
+                }
             }
             else
             {
@@ -1521,11 +1757,15 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
             }
             break;
         case TrashRecordState::Restoring:
-            if (originalMatches && payloadMissing && updateRecord(TrashRecordState::Restored))
+            if (originalMatches && payloadMissing &&
+                updateRecord(TrashRecordState::Restored, *boundOriginal.try_value()))
             {
-                (void)cleanupRecord();
+                if (!cleanupRecord(*boundOriginal.try_value()))
+                {
+                    addEntry(RecoveryEntryState::ReconciliationRequired);
+                }
             }
-            else if (originalMissing && payloadMatches && updateRecord(TrashRecordState::Trashed))
+            else if (originalMissing && payloadMatches && updateRecord(TrashRecordState::Trashed, *payload.try_value()))
             {
                 addEntry(RecoveryEntryState::Recoverable);
             }
@@ -1538,9 +1778,12 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
         case TrashRecordState::Restored:
             if (originalMatches && payloadMissing)
             {
-                (void)cleanupRecord();
+                if (!cleanupRecord(*boundOriginal.try_value()))
+                {
+                    addEntry(RecoveryEntryState::ReconciliationRequired);
+                }
             }
-            else if (originalMissing && payloadMatches && updateRecord(TrashRecordState::Trashed))
+            else if (originalMissing && payloadMatches && updateRecord(TrashRecordState::Trashed, *payload.try_value()))
             {
                 addEntry(RecoveryEntryState::Recoverable);
             }

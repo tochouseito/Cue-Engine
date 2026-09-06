@@ -616,6 +616,18 @@ Result<std::vector<std::byte>> serialize_trash_record(const TrashRecord &a_recor
         return Result<std::vector<std::byte>>::failure(
             make_record_error(a_assertContext, "Trash record is incomplete"));
     }
+    if (a_record.projectId.size() > k_hardLimits.maxStringBytes ||
+        a_record.operationId.size() > k_hardLimits.maxStringBytes ||
+        a_record.originalPath.size() > k_hardLimits.maxStringBytes ||
+        a_record.fingerprint.manifest.size() > k_hardLimits.maxArrayElements ||
+        std::any_of(a_record.fingerprint.manifest.begin(), a_record.fingerprint.manifest.end(),
+                    /// @brief Writer入力がv1単一String Hard Limitを超えるか判定する
+                    [](const WorkspaceManifestEntry &a_entry) noexcept
+                    { return a_entry.path.size() > k_hardLimits.maxStringBytes; }))
+    {
+        return Result<std::vector<std::byte>>::failure(
+            make_record_error(a_assertContext, "Trash record exceeds the schema version 1 writer limits"));
+    }
     Result<RelativePath> original = RelativePath::parse(a_record.originalPath, a_assertContext);
     if (!original)
     {
@@ -685,6 +697,11 @@ Result<std::vector<std::byte>> serialize_trash_record(const TrashRecord &a_recor
     {
         terminate_allocation(a_assertContext);
     }
+    if (json.size() > k_hardLimits.maxBytes)
+    {
+        return Result<std::vector<std::byte>>::failure(
+            make_record_error(a_assertContext, "Trash record exceeds the schema version 1 byte limit"));
+    }
 
     std::vector<std::byte> bytes;
     try
@@ -697,6 +714,13 @@ Result<std::vector<std::byte>> serialize_trash_record(const TrashRecord &a_recor
     catch (...)
     {
         terminate_allocation(a_assertContext);
+    }
+    Result<TrashRecord> verified = parse_trash_record(bytes, k_hardLimits, a_assertContext);
+    if (!verified)
+    {
+        return Result<std::vector<std::byte>>::failure(reclassify_project_file_error(
+            a_assertContext, project_files::ProjectFileError::RecoveryRequired,
+            "Trash record writer produced data outside the schema version 1 limits", std::move(*verified.try_error())));
     }
     return Result<std::vector<std::byte>>::success(std::move(bytes));
 }

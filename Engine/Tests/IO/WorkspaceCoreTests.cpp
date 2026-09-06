@@ -226,18 +226,42 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
         return result;
     }
 
-    /// @brief この列挙専用Test DoubleではFingerprint条件付きRenameを未対応として返す
-    [[nodiscard]] cue::WorkspaceMutationResult rename_entry_if_matches(const cue::BoundWorkspacePath &,
-                                                                       const cue::BoundWorkspacePath &,
-                                                                       const cue::WorkspaceEntryFingerprint &,
-                                                                       cue::TraversalLimits,
-                                                                       cue::ContentVerificationLimits) noexcept override
+    /// @brief この列挙専用Test DoubleではMutation Guard取得を未対応として返す
+    [[nodiscard]] cue::Result<cue::GuardedWorkspaceEntry> guard_entry(const cue::BoundWorkspacePath &,
+                                                                      cue::TraversalLimits,
+                                                                      cue::ContentVerificationLimits) noexcept override
+    {
+        return cue::Result<cue::GuardedWorkspaceEntry>::failure(cue::make_io_error(
+            *m_assertContext, cue::IoError::UnsupportedEntry, "Workspace core test double does not support guards"));
+    }
+
+    /// @brief この列挙専用Test Doubleでは条件付きMutation Guard取得を未対応として返す
+    [[nodiscard]] cue::Result<std::unique_ptr<cue::WorkspaceEntryMutationGuard>> guard_entry_if_matches(
+        const cue::BoundWorkspacePath &, const cue::WorkspaceEntryFingerprint &, cue::TraversalLimits,
+        cue::ContentVerificationLimits) noexcept override
+    {
+        return cue::Result<std::unique_ptr<cue::WorkspaceEntryMutationGuard>>::failure(cue::make_io_error(
+            *m_assertContext, cue::IoError::UnsupportedEntry, "Workspace core test double does not support guards"));
+    }
+
+    /// @brief この列挙専用Test DoubleではGuard付きRenameを未対応として返す
+    [[nodiscard]] cue::WorkspaceMutationResult rename_guarded_entry(cue::WorkspaceEntryMutationGuard &,
+                                                                    const cue::BoundWorkspacePath &,
+                                                                    const cue::BoundWorkspacePath &) noexcept override
     {
         cue::WorkspaceMutationResult result;
         result.outcome = cue::WorkspaceMutationOutcome::NotCommitted;
         result.primaryError = cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
-                                                 "Workspace core test double does not support verified rename");
+                                                 "Workspace core test double does not support guarded rename");
         return result;
+    }
+
+    /// @brief この列挙専用Test DoubleではMutation Guard完了を未対応として返す
+    [[nodiscard]] cue::Result<void> finish_entry_mutation_guard(
+        std::unique_ptr<cue::WorkspaceEntryMutationGuard>) noexcept override
+    {
+        return cue::Result<void>::failure(cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
+                                                             "Workspace core test double does not support guards"));
     }
 
     /// @brief この列挙専用Test DoubleではCopyを未対応として返す

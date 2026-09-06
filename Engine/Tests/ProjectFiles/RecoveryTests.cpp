@@ -523,7 +523,72 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
            GetFileAttributesW(a_directory.child(L"Assets\\Source\\Mismatch.bin").c_str()) == INVALID_FILE_ATTRIBUTES;
 }
 
-/// @brief Crashで残った空のTrash Staging DirectoryをCatalog更新時にCleanupする
+/// @brief OriginalがRecordと不一致のAllocating OperationをCleanupせず保持する
+[[nodiscard]] bool test_allocating_original_mismatch(const TestDirectory &a_directory,
+                                                     const cue::ProjectDescriptor &a_descriptor,
+                                                     const cue::AssertContext &a_assertContext)
+{
+    constexpr std::string_view k_operationId = "88888888-8888-4888-8888-888888888888";
+    constexpr cue::TraversalLimits k_traversal{16U, 1024U, 1024U, 1024U * 1024U};
+    constexpr cue::ContentVerificationLimits k_content{1024U * 1024U, 4U * 1024U * 1024U};
+    const std::array<std::byte, 4U> original{std::byte{'s'}, std::byte{'a'}, std::byte{'f'}, std::byte{'e'}};
+    const std::array<std::byte, 4U> changed{std::byte{'e'}, std::byte{'d'}, std::byte{'i'}, std::byte{'t'}};
+    const std::wstring sourcePath = a_directory.child(L"Assets\\Source\\Allocating.bin");
+    if (!write_file(sourcePath, original))
+    {
+        return false;
+    }
+    auto service = make_service(a_directory, a_descriptor, a_assertContext, {std::string(k_operationId)});
+    auto source = cue::RelativePath::parse("Allocating.bin", a_assertContext);
+    if (!service || !source)
+    {
+        return false;
+    }
+    auto deleted = service.try_value()->delete_entry(cue::project_files::ProjectFileArea::SourceAssets,
+                                                     std::move(*source.try_value()), k_traversal, k_content);
+    const std::wstring operation = a_directory.child(L"Saved\\Editor\\Trash\\88888888-8888-4888-8888-888888888888");
+    const std::wstring payload = operation + L"\\Payload";
+    const std::wstring recordPath = operation + L"\\Record.cuetrash";
+    std::vector<std::byte> recordBytes = read_file(recordPath);
+    std::string recordText;
+    try
+    {
+        recordText.resize(recordBytes.size());
+        for (std::size_t index = 0U; index < recordBytes.size(); ++index)
+        {
+            recordText[index] = std::to_integer<char>(recordBytes[index]);
+        }
+    }
+    catch (...)
+    {
+        a_assertContext.fatal_handler().terminate("Allocating mismatch test allocation failed");
+    }
+    constexpr std::string_view k_trashedState = "\"state\":\"trashed\"";
+    constexpr std::string_view k_allocatingState = "\"state\":\"allocating\"";
+    const std::size_t stateOffset = recordText.find(k_trashedState);
+    if (!deleted || stateOffset == std::string::npos ||
+        MoveFileExW(payload.c_str(), sourcePath.c_str(), MOVEFILE_WRITE_THROUGH) == FALSE)
+    {
+        return false;
+    }
+    recordText.replace(stateOffset, k_trashedState.size(), k_allocatingState);
+    if (!write_file(recordPath, std::as_bytes(std::span(recordText.data(), recordText.size()))) ||
+        !write_file(sourcePath, changed))
+    {
+        return false;
+    }
+
+    auto reopened = make_service(a_directory, a_descriptor, a_assertContext, {});
+    return reopened && reopened.try_value()->refresh_recovery_catalog(k_traversal, k_content) &&
+           reopened.try_value()->recovery_entries().size() == 1U &&
+           reopened.try_value()->recovery_entries()[0U].state ==
+               cue::project_files::RecoveryEntryState::ReconciliationRequired &&
+           !reopened.try_value()->recovery_diagnostics().empty() &&
+           read_file(sourcePath) == std::vector<std::byte>(changed.begin(), changed.end()) &&
+           GetFileAttributesW(recordPath.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+/// @brief Crashで残った空またはAllocating RecordだけのTrash StagingをCatalog更新時にCleanupする
 [[nodiscard]] bool test_empty_staging_cleanup(const TestDirectory &a_directory,
                                               const cue::ProjectDescriptor &a_descriptor,
                                               const cue::AssertContext &a_assertContext)
@@ -534,9 +599,16 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
     const std::wstring trashDirectory = a_directory.child(L"Saved\\Editor\\Trash");
     const std::wstring stagingDirectory =
         a_directory.child(L"Saved\\Editor\\Trash\\.66666666-6666-4666-8666-666666666666.cuetrash-staging");
+    const std::wstring allocatingStagingDirectory =
+        a_directory.child(L"Saved\\Editor\\Trash\\.77777777-7777-4777-8777-777777777777.cuetrash-staging");
+    const std::wstring allocatingRecord = allocatingStagingDirectory + L"\\Record.cuetrash";
+    constexpr std::string_view k_allocatingJson =
+        R"({"schemaVersion":1,"projectId":"12345678-1234-4234-8234-123456789abc","operationId":"77777777-7777-4777-8777-777777777777","state":"allocating","originalArea":"sourceAssets","originalPath":"Unused.bin","entryType":"regularFile","byteSize":"0","contentDigest":"0000000000000000"})";
     if (CreateDirectoryW(editorDirectory.c_str(), nullptr) == FALSE ||
         CreateDirectoryW(trashDirectory.c_str(), nullptr) == FALSE ||
-        CreateDirectoryW(stagingDirectory.c_str(), nullptr) == FALSE)
+        CreateDirectoryW(stagingDirectory.c_str(), nullptr) == FALSE ||
+        CreateDirectoryW(allocatingStagingDirectory.c_str(), nullptr) == FALSE ||
+        !write_file(allocatingRecord, std::as_bytes(std::span(k_allocatingJson.data(), k_allocatingJson.size()))))
     {
         return false;
     }
@@ -544,6 +616,7 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
     auto service = make_service(a_directory, a_descriptor, a_assertContext, {});
     return service && service.try_value()->refresh_recovery_catalog(k_traversal, k_content) &&
            GetFileAttributesW(stagingDirectory.c_str()) == INVALID_FILE_ATTRIBUTES &&
+           GetFileAttributesW(allocatingStagingDirectory.c_str()) == INVALID_FILE_ATTRIBUTES &&
            service.try_value()->recovery_entries().empty();
 }
 } // namespace
@@ -560,13 +633,16 @@ int main()
     TestDirectory directoryDirectory;
     TestDirectory rejectedDirectory;
     TestDirectory reconciliationDirectory;
+    TestDirectory allocatingMismatchDirectory;
     TestDirectory stagingDirectory;
     if (!descriptor || !fileDirectory.is_created() || !directoryDirectory.is_created() ||
-        !rejectedDirectory.is_created() || !reconciliationDirectory.is_created() || !stagingDirectory.is_created() ||
+        !rejectedDirectory.is_created() || !reconciliationDirectory.is_created() ||
+        !allocatingMismatchDirectory.is_created() || !stagingDirectory.is_created() ||
         !write_descriptor(fileDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(directoryDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(rejectedDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(reconciliationDirectory, *descriptor.try_value(), assertContext) ||
+        !write_descriptor(allocatingMismatchDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(stagingDirectory, *descriptor.try_value(), assertContext))
     {
         return 1;
@@ -587,5 +663,9 @@ int main()
     {
         return 5;
     }
-    return test_empty_staging_cleanup(stagingDirectory, *descriptor.try_value(), assertContext) ? 0 : 6;
+    if (!test_allocating_original_mismatch(allocatingMismatchDirectory, *descriptor.try_value(), assertContext))
+    {
+        return 6;
+    }
+    return test_empty_staging_cleanup(stagingDirectory, *descriptor.try_value(), assertContext) ? 0 : 7;
 }
