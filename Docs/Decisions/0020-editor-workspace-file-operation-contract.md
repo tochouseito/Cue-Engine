@@ -338,7 +338,7 @@ Readerは`0`、小数、指数表記、負数、`uint32_t`範囲外、`1`以外�
 - `schemaVersion`: 初期値`1`
 - `projectId`: ADR-0013のlowercase 8-4-4-4-12 UUID Version 4
 - `operationId`: lowercase 8-4-4-4-12 UUID Version 4 JSON String
-- `state`: `allocating`、`prepared`、`trashed`、`restoring`、`restored`
+- `state`: `allocating`、`prepared`、`trashed`、`restoring`、`restored`、`aborting`、`aborted`
 - `originalArea`: `sourceAssets`
 - `originalPath`: `originalArea`基準の`RelativePath`
 - `entryType`: `regularFile`または`directory`
@@ -433,13 +433,15 @@ Operation DirectoryはOperation-owned残骸として削除できる。Record不�
 
 | Source | Payload | Reconciliation |
 | --- | --- | --- |
-| Exists | Missing | SourceがType、Link Count、FingerprintまたはManifestでRecordと完全一致する場合だけDelete未CommitとしてRecordと空Operation DirectoryをCleanup可能にする |
+| Exists | Missing | SourceがType、Link Count、FingerprintまたはManifestでRecordと完全一致する場合だけDelete未Commitとして`aborting`、Guard確定後に`aborted`へ進め、終端Recordと空Operation DirectoryをCleanup可能にする |
 | Missing | Exists | Type、Link Count、FingerprintまたはManifestをStep 5と同じ上限で再検証し、一致時だけ`trashed`へ昇格できる |
 | Exists | Exists | 外部競合として両方を維持し、User判断を要求する |
 | Missing | Missing | Data所在不明としてRecordを維持し、Errorを報告する |
 
 `Exists / Missing`と`Missing / Exists`の再検証前に、存在する側へ単一Fileは`SingleFileMutationGuard`、Directoryは
-`DirectoryTreeMutationGuard`を取得し、検証からRecordのCleanupまたは`trashed` Atomic Commit完了まで保持する。Guard取得、再検証、
+`DirectoryTreeMutationGuard`を取得し、検証から`aborting`または`trashed` Atomic Commit完了まで保持する。`aborting` Commit後にGuardを
+正常確定できた場合だけ`aborted`へAtomic更新し、終端RecordとしてCleanupする。これによりRecordの物理Cleanup前にGuardが外れても、
+Crash後は`aborting`を再検証し、`aborted`をData非依存の完了済みRecordとしてCleanupできる。Guard取得、再検証、
 または上限確認が失敗した場合はCleanupも`trashed`昇格も行わず、Recordと存在するDataを維持して`ReconciliationRequired`を報告する。
 
 RestoreはRecordの`originalPath`を使用し、DestinationがMissingであり、既存の親Directory Chainが全て通常Directoryである場合だけ
@@ -479,12 +481,15 @@ Guard取得、上限確認、内容照合の失敗では状態を昇格せず、
 | Record State | Original | Payload | Reconciliation |
 | --- | --- | --- | --- |
 | `trashed` | Missing | Exists | PayloadへGuardを取得し、Recordと完全一致する場合だけ正常なTrashとしてCatalogへ公開する |
-| `trashed` | Exists | Missing | OriginalへGuardを取得し、Recordと完全一致する場合だけRename巻き戻し済みとしてRecordと空Operation DirectoryをCleanupする |
-| `restored` | Exists | Missing | OriginalへGuardを取得し、Recordと完全一致する場合だけ正常RestoreとしてRecordと空Operation DirectoryをCleanupする |
+| `trashed` | Exists | Missing | OriginalへGuardを取得し、Recordと完全一致する場合だけRename巻き戻し済みとして`aborting`、Guard確定後に`aborted`へ進めてCleanupする |
+| `restored` | Exists | Missing | 正常Restoreの終端RecordとしてRecordと空Operation DirectoryをCleanupする |
 | `restored` | Missing | Exists | PayloadへGuardを取得し、Recordと完全一致する場合だけRename巻き戻し済みとして`trashed`へAtomic更新する |
+| `aborting` | Exists | Missing | OriginalへGuardを再取得し、Recordと完全一致する場合だけ`aborted`へAtomic更新してCleanupする |
+| `aborted` | Any | Missing | Delete未Commitの終端RecordとしてRecordと空Operation DirectoryをCleanupする |
 
 上表以外のExists／Missing組合せ、Guard取得失敗、Type、Link Count、Fingerprint／Manifest不一致では自動遷移またはCleanupを行わず、
-Recordと存在するDataを維持して`ReconciliationRequired`を返す。検証からRecord更新またはCleanup完了までGuardを保持する。
+Recordと存在するDataを維持して`ReconciliationRequired`を返す。非終端Recordでは検証から`aborting`、`trashed`、`restored`の
+Atomic Commit完了までGuardを保持し、物理Cleanupは`aborted`または`restored`の終端Recordだけに実行する。
 
 M13はRecoverable Payloadの自動期限削除と永久削除UIを提供しない。成功済みRestoreの空Operation DirectoryとRecord、および上記で
 厳密に識別した`allocating`以前の空Staging／Operation DirectoryだけをOperation-owned Cleanupとして削除できる。未Restore Payloadは

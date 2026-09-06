@@ -176,6 +176,33 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
     return bytes;
 }
 
+/// @brief Test用Trash RecordのState文字列を別状態へ置換する
+[[nodiscard]] bool replace_record_state(std::wstring_view a_path, std::string_view a_from, std::string_view a_to,
+                                        const cue::AssertContext &a_assertContext)
+{
+    std::vector<std::byte> recordBytes = read_file(a_path);
+    std::string recordText;
+    try
+    {
+        recordText.resize(recordBytes.size());
+        for (std::size_t index = 0U; index < recordBytes.size(); ++index)
+        {
+            recordText[index] = std::to_integer<char>(recordBytes[index]);
+        }
+    }
+    catch (...)
+    {
+        a_assertContext.fatal_handler().terminate("Trash record state test allocation failed");
+    }
+    const std::size_t stateOffset = recordText.find(a_from);
+    if (stateOffset == std::string::npos)
+    {
+        return false;
+    }
+    recordText.replace(stateOffset, a_from.size(), a_to);
+    return write_file(a_path, std::as_bytes(std::span(recordText.data(), recordText.size())));
+}
+
 /// @brief Recovery Test用Descriptorを構築する
 [[nodiscard]] cue::Result<cue::ProjectDescriptor> make_descriptor(const cue::AssertContext &a_assertContext) noexcept
 {
@@ -578,30 +605,13 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
     const std::wstring operation = a_directory.child(L"Saved\\Editor\\Trash\\88888888-8888-4888-8888-888888888888");
     const std::wstring payload = operation + L"\\Payload";
     const std::wstring recordPath = operation + L"\\Record.cuetrash";
-    std::vector<std::byte> recordBytes = read_file(recordPath);
-    std::string recordText;
-    try
-    {
-        recordText.resize(recordBytes.size());
-        for (std::size_t index = 0U; index < recordBytes.size(); ++index)
-        {
-            recordText[index] = std::to_integer<char>(recordBytes[index]);
-        }
-    }
-    catch (...)
-    {
-        a_assertContext.fatal_handler().terminate("Allocating mismatch test allocation failed");
-    }
     constexpr std::string_view k_trashedState = "\"state\":\"trashed\"";
     constexpr std::string_view k_allocatingState = "\"state\":\"allocating\"";
-    const std::size_t stateOffset = recordText.find(k_trashedState);
-    if (!deleted || stateOffset == std::string::npos ||
-        MoveFileExW(payload.c_str(), sourcePath.c_str(), MOVEFILE_WRITE_THROUGH) == FALSE)
+    if (!deleted || MoveFileExW(payload.c_str(), sourcePath.c_str(), MOVEFILE_WRITE_THROUGH) == FALSE)
     {
         return false;
     }
-    recordText.replace(stateOffset, k_trashedState.size(), k_allocatingState);
-    if (!write_file(recordPath, std::as_bytes(std::span(recordText.data(), recordText.size()))) ||
+    if (!replace_record_state(recordPath, k_trashedState, k_allocatingState, a_assertContext) ||
         !write_file(sourcePath, changed))
     {
         return false;
@@ -615,6 +625,46 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
            !reopened.try_value()->recovery_diagnostics().empty() &&
            read_file(sourcePath) == std::vector<std::byte>(changed.begin(), changed.end()) &&
            GetFileAttributesW(recordPath.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+/// @brief Originalが一致するAllocating Operationを終端状態経由でCleanupする
+[[nodiscard]] bool test_allocating_original_match_cleanup(const TestDirectory &a_directory,
+                                                          const cue::ProjectDescriptor &a_descriptor,
+                                                          const cue::AssertContext &a_assertContext)
+{
+    constexpr std::string_view k_operationId = "99999999-9999-4999-8999-999999999999";
+    constexpr cue::TraversalLimits k_traversal{16U, 1024U, 1024U, 1024U * 1024U};
+    constexpr cue::ContentVerificationLimits k_content{1024U * 1024U, 4U * 1024U * 1024U};
+    constexpr std::string_view k_trashedState = "\"state\":\"trashed\"";
+    constexpr std::string_view k_allocatingState = "\"state\":\"allocating\"";
+    const std::array<std::byte, 4U> original{std::byte{'s'}, std::byte{'a'}, std::byte{'f'}, std::byte{'e'}};
+    const std::wstring sourcePath = a_directory.child(L"Assets\\Source\\Abort.bin");
+    const std::wstring operation = a_directory.child(L"Saved\\Editor\\Trash\\99999999-9999-4999-8999-999999999999");
+    const std::wstring payload = operation + L"\\Payload";
+    const std::wstring recordPath = operation + L"\\Record.cuetrash";
+    if (!write_file(sourcePath, original))
+    {
+        return false;
+    }
+    auto service = make_service(a_directory, a_descriptor, a_assertContext, {std::string(k_operationId)});
+    auto source = cue::RelativePath::parse("Abort.bin", a_assertContext);
+    if (!service || !source)
+    {
+        return false;
+    }
+    auto deleted = service.try_value()->delete_entry(cue::project_files::ProjectFileArea::SourceAssets,
+                                                     std::move(*source.try_value()), k_traversal, k_content);
+    if (!deleted || MoveFileExW(payload.c_str(), sourcePath.c_str(), MOVEFILE_WRITE_THROUGH) == FALSE ||
+        !replace_record_state(recordPath, k_trashedState, k_allocatingState, a_assertContext))
+    {
+        return false;
+    }
+
+    auto reopened = make_service(a_directory, a_descriptor, a_assertContext, {});
+    return reopened && reopened.try_value()->refresh_recovery_catalog(k_traversal, k_content) &&
+           reopened.try_value()->recovery_entries().empty() &&
+           read_file(sourcePath) == std::vector<std::byte>(original.begin(), original.end()) &&
+           GetFileAttributesW(operation.c_str()) == INVALID_FILE_ATTRIBUTES;
 }
 
 /// @brief Catalog FingerprintのCaller上限不足をRoot Cause付きReconciliation診断として保持する
@@ -702,17 +752,19 @@ int main()
     TestDirectory rejectedDirectory;
     TestDirectory reconciliationDirectory;
     TestDirectory allocatingMismatchDirectory;
+    TestDirectory allocatingMatchDirectory;
     TestDirectory fingerprintFailureDirectory;
     TestDirectory stagingDirectory;
     if (!descriptor || !fileDirectory.is_created() || !directoryDirectory.is_created() ||
         !rejectedDirectory.is_created() || !reconciliationDirectory.is_created() ||
-        !allocatingMismatchDirectory.is_created() || !stagingDirectory.is_created() ||
-        !fingerprintFailureDirectory.is_created() ||
+        !allocatingMismatchDirectory.is_created() || !allocatingMatchDirectory.is_created() ||
+        !stagingDirectory.is_created() || !fingerprintFailureDirectory.is_created() ||
         !write_descriptor(fileDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(directoryDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(rejectedDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(reconciliationDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(allocatingMismatchDirectory, *descriptor.try_value(), assertContext) ||
+        !write_descriptor(allocatingMatchDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(fingerprintFailureDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(stagingDirectory, *descriptor.try_value(), assertContext))
     {
@@ -742,5 +794,10 @@ int main()
     {
         return 7;
     }
-    return test_empty_staging_cleanup(stagingDirectory, *descriptor.try_value(), assertContext) ? 0 : 8;
+    if (!test_empty_staging_cleanup(stagingDirectory, *descriptor.try_value(), assertContext))
+    {
+        return 8;
+    }
+    return test_allocating_original_match_cleanup(allocatingMatchDirectory, *descriptor.try_value(), assertContext) ? 0
+                                                                                                                    : 9;
 }

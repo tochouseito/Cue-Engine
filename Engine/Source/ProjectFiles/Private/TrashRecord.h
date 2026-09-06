@@ -24,7 +24,9 @@ enum class TrashRecordState : std::uint8_t
     Prepared,
     Trashed,
     Restoring,
-    Restored
+    Restored,
+    Aborting,
+    Aborted
 };
 
 /// @brief Record Parserへ適用する縮小可能なResource上限

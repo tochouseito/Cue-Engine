@@ -5,6 +5,7 @@
 #include <Cue/Foundation/Log.h>
 #include <Cue/ProjectFiles/Error.h>
 
+#include <array>
 #include <cstdlib>
 #include <memory>
 #include <string_view>
@@ -59,18 +60,32 @@ int main()
     cue::AssertContext assertContext(logger, fatalHandler);
 
     cue::project_files_private::TrashRecord record = make_record();
-    cue::Result<std::vector<std::byte>> serialized =
-        cue::project_files_private::serialize_trash_record(record, assertContext);
-    cue::Result<cue::project_files_private::TrashRecord> parsed =
-        serialized ? cue::project_files_private::parse_trash_record(
-                         *serialized.try_value(), cue::project_files_private::trash_record_hard_limits(), assertContext)
-                   : cue::Result<cue::project_files_private::TrashRecord>::failure(std::move(*serialized.try_error()));
-    if (!parsed || parsed.try_value()->projectId != record.projectId ||
-        parsed.try_value()->operationId != record.operationId || parsed.try_value()->fingerprint != record.fingerprint)
+    constexpr std::array k_states{cue::project_files_private::TrashRecordState::Allocating,
+                                  cue::project_files_private::TrashRecordState::Prepared,
+                                  cue::project_files_private::TrashRecordState::Trashed,
+                                  cue::project_files_private::TrashRecordState::Restoring,
+                                  cue::project_files_private::TrashRecordState::Restored,
+                                  cue::project_files_private::TrashRecordState::Aborting,
+                                  cue::project_files_private::TrashRecordState::Aborted};
+    for (const cue::project_files_private::TrashRecordState state : k_states)
     {
-        return 1;
+        record.state = state;
+        cue::Result<std::vector<std::byte>> serialized =
+            cue::project_files_private::serialize_trash_record(record, assertContext);
+        cue::Result<cue::project_files_private::TrashRecord> parsed =
+            serialized
+                ? cue::project_files_private::parse_trash_record(
+                      *serialized.try_value(), cue::project_files_private::trash_record_hard_limits(), assertContext)
+                : cue::Result<cue::project_files_private::TrashRecord>::failure(std::move(*serialized.try_error()));
+        if (!parsed || parsed.try_value()->projectId != record.projectId ||
+            parsed.try_value()->operationId != record.operationId || parsed.try_value()->state != state ||
+            parsed.try_value()->fingerprint != record.fingerprint)
+        {
+            return 1;
+        }
     }
 
+    record.state = cue::project_files_private::TrashRecordState::Allocating;
     record.fingerprint.type = cue::WorkspaceEntryType::Directory;
     record.fingerprint.file.reset();
     record.fingerprint.manifest.resize(cue::project_files_private::trash_record_hard_limits().maxArrayElements + 1U);

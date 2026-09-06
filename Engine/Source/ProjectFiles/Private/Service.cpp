@@ -1847,22 +1847,9 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
             }
             return true;
         };
-        /// @brief Payloadを含まない完了済みRecordをEntry Guard保持中にCleanupする
-        const auto cleanupRecord = [&](const BoundWorkspacePath &a_guardedEntry) noexcept -> bool
+        /// @brief Payloadを含まない終端Recordと空Operation ContainerをCleanupする
+        const auto cleanupRecord = [&]() noexcept -> bool
         {
-            Result<std::unique_ptr<WorkspaceEntryMutationGuard>> guard = guardMatchingEntry(a_guardedEntry);
-            if (!guard)
-            {
-                addDiagnostic("Project trash cleanup entry guard could not be acquired", std::move(*guard.try_error()));
-                return false;
-            }
-            Result<void> finished = m_workspace->finish_entry_mutation_guard(std::move(*guard.try_value()));
-            if (!finished)
-            {
-                addDiagnostic("Project trash cleanup entry changed before removing its record",
-                              std::move(*finished.try_error()));
-                return false;
-            }
             WorkspaceMutationResult removedRecord =
                 m_workspace->remove_file_or_empty_directory(*boundRecord.try_value());
             if (removedRecord.primaryError.has_value())
@@ -1900,6 +1887,40 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
                 return false;
             }
             return true;
+        };
+        /// @brief 未Commit DeleteをGuard付き中間状態から終端状態へ確定してCleanupする
+        const auto abortAndCleanupRecord = [&](const BoundWorkspacePath &a_guardedEntry) noexcept -> bool
+        {
+            if (!updateRecord(project_files_private::TrashRecordState::Aborting, a_guardedEntry))
+            {
+                return false;
+            }
+
+            record.try_value()->state = project_files_private::TrashRecordState::Aborted;
+            Result<std::vector<std::byte>> aborted =
+                project_files_private::serialize_trash_record(*record.try_value(), m_assertContext);
+            if (!aborted)
+            {
+                addDiagnostic("Project trash aborted record serialization failed", std::move(*aborted.try_error()));
+                return false;
+            }
+            WorkspaceMutationResult written =
+                m_workspace->replace_file_atomic(*boundRecord.try_value(), *aborted.try_value(), container.displayName);
+            if (written.primaryError.has_value())
+            {
+                addDiagnostic("Project trash aborted record write was not durable", std::move(*written.primaryError));
+            }
+            for (Error &diagnostic : written.secondaryDiagnostics)
+            {
+                addDiagnostic("Project trash aborted record write reported a secondary failure", std::move(diagnostic));
+            }
+            if (written.outcome == WorkspaceMutationOutcome::NotCommitted ||
+                written.outcome == WorkspaceMutationOutcome::ReconciliationRequired)
+            {
+                addDiagnostic("Project trash aborted record write failed");
+                return false;
+            }
+            return cleanupRecord();
         };
         /// @brief Recovery Catalog公開直前に存在側EntryをGuard付きで再検証する
         const auto verifyCatalogEntry = [&](const BoundWorkspacePath &a_guardedEntry) noexcept -> bool
@@ -1946,7 +1967,7 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
         case TrashRecordState::Allocating:
             if (payloadEntry == nullptr && payloadMissing && originalMatches)
             {
-                if (!cleanupRecord(*boundOriginal.try_value()))
+                if (!abortAndCleanupRecord(*boundOriginal.try_value()))
                 {
                     addEntry(RecoveryEntryState::ReconciliationRequired);
                 }
@@ -1964,7 +1985,7 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
             }
             else if (originalMatches && payloadMissing)
             {
-                if (!cleanupRecord(*boundOriginal.try_value()))
+                if (!abortAndCleanupRecord(*boundOriginal.try_value()))
                 {
                     addEntry(RecoveryEntryState::ReconciliationRequired);
                 }
@@ -1983,7 +2004,7 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
             }
             else if (originalMatches && payloadMissing)
             {
-                if (!cleanupRecord(*boundOriginal.try_value()))
+                if (!abortAndCleanupRecord(*boundOriginal.try_value()))
                 {
                     addEntry(RecoveryEntryState::ReconciliationRequired);
                 }
@@ -1998,7 +2019,7 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
             if (originalMatches && payloadMissing &&
                 updateRecord(TrashRecordState::Restored, *boundOriginal.try_value()))
             {
-                if (!cleanupRecord(*boundOriginal.try_value()))
+                if (!cleanupRecord())
                 {
                     addEntry(RecoveryEntryState::ReconciliationRequired);
                 }
@@ -2016,7 +2037,7 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
         case TrashRecordState::Restored:
             if (originalMatches && payloadMissing)
             {
-                if (!cleanupRecord(*boundOriginal.try_value()))
+                if (!cleanupRecord())
                 {
                     addEntry(RecoveryEntryState::ReconciliationRequired);
                 }
@@ -2029,6 +2050,34 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
             {
                 addEntry(RecoveryEntryState::ReconciliationRequired);
                 addDiagnostic("Restored operation does not match its expected data location");
+            }
+            break;
+        case TrashRecordState::Aborting:
+            if (payloadEntry == nullptr && payloadMissing && originalMatches)
+            {
+                if (!abortAndCleanupRecord(*boundOriginal.try_value()))
+                {
+                    addEntry(RecoveryEntryState::ReconciliationRequired);
+                }
+            }
+            else
+            {
+                addEntry(RecoveryEntryState::ReconciliationRequired);
+                addDiagnostic("Aborting trash operation could not be reconciled automatically");
+            }
+            break;
+        case TrashRecordState::Aborted:
+            if (payloadEntry == nullptr && payloadMissing)
+            {
+                if (!cleanupRecord())
+                {
+                    addEntry(RecoveryEntryState::ReconciliationRequired);
+                }
+            }
+            else
+            {
+                addEntry(RecoveryEntryState::ReconciliationRequired);
+                addDiagnostic("Aborted trash operation unexpectedly contains a payload");
             }
             break;
         }

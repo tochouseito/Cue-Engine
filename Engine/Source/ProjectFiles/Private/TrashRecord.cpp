@@ -569,6 +569,14 @@ void append_digest(std::string &a_output, std::uint64_t a_value)
     {
         return TrashRecordState::Restored;
     }
+    if (a_value.text == "aborting")
+    {
+        return TrashRecordState::Aborting;
+    }
+    if (a_value.text == "aborted")
+    {
+        return TrashRecordState::Aborted;
+    }
     return std::nullopt;
 }
 } // namespace
@@ -600,6 +608,10 @@ std::string_view trash_record_state_name(TrashRecordState a_state) noexcept
         return "restoring";
     case TrashRecordState::Restored:
         return "restored";
+    case TrashRecordState::Aborting:
+        return "aborting";
+    case TrashRecordState::Aborted:
+        return "aborted";
     }
     return {};
 }
