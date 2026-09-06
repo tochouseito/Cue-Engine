@@ -4208,7 +4208,9 @@ cue::Result<void> WindowsWorkspaceFilesystem::finish_entry_mutation_guard(
             ? fingerprint_entry_once(guard->m_path, guard->m_traversalLimits, guard->m_contentLimits)
             : fingerprint_guarded_file(guard->m_rootHandle.get(), guard->m_contentLimits, m_assertContext);
     BY_HANDLE_FILE_INFORMATION information{};
-    const bool rootStable = GetFileInformationByHandle(guard->m_rootHandle.get(), &information) != FALSE &&
+    const BOOL informationSucceeded = GetFileInformationByHandle(guard->m_rootHandle.get(), &information);
+    const DWORD informationCode = informationSucceeded != FALSE ? ERROR_SUCCESS : GetLastError();
+    const bool rootStable = informationSucceeded != FALSE &&
                             information.dwVolumeSerialNumber == guard->m_rootIdentity.volumeSerial &&
                             information.nFileIndexHigh == guard->m_rootIdentity.fileIndexHigh &&
                             information.nFileIndexLow == guard->m_rootIdentity.fileIndexLow &&
@@ -4217,14 +4219,16 @@ cue::Result<void> WindowsWorkspaceFilesystem::finish_entry_mutation_guard(
     cue::Result<void> rootChangeFinished =
         guard->m_isDirectory ? finish_directory_change_guard(*guard->m_rootChangeGuard, m_assertContext)
                              : cue::Result<void>::success();
-    if (!rootChangePending || !actual || !rootStable || *actual.try_value() != guard->m_fingerprint ||
-        !rootChangeFinished)
+    if (!rootChangePending || !actual || informationSucceeded == FALSE || !rootStable ||
+        *actual.try_value() != guard->m_fingerprint || !rootChangeFinished)
     {
         return cue::Result<void>::failure(
-            !rootChangePending ? std::move(*rootChangePending.try_error())
-            : !actual          ? std::move(*actual.try_error())
-            : !rootStable      ? cue::make_io_error(m_assertContext, cue::IoError::PreconditionFailed,
-                                                    "Workspace mutation guard root identity or link count changed")
+            !rootChangePending              ? std::move(*rootChangePending.try_error())
+            : !actual                       ? std::move(*actual.try_error())
+            : informationSucceeded == FALSE ? make_windows_error(m_assertContext, informationCode,
+                                                                 "Workspace mutation guard root inspection failed")
+            : !rootStable ? cue::make_io_error(m_assertContext, cue::IoError::PreconditionFailed,
+                                               "Workspace mutation guard root identity or link count changed")
             : *actual.try_value() != guard->m_fingerprint
                 ? cue::make_io_error(m_assertContext, cue::IoError::PreconditionFailed,
                                      "Workspace mutation guard fingerprint changed before record commit")
@@ -5667,18 +5671,25 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::remove_file_or_empty_di
             make_windows_error(m_assertContext, GetLastError(), "Workspace cleanup entry reopen failed"));
     }
     cue::Result<RootIdentity> reopenedIdentity = read_entry_identity(opened.try_value()->handle.get(), m_assertContext);
+    if (!reopenedIdentity)
+    {
+        return not_committed(std::move(*reopenedIdentity.try_error()));
+    }
     BY_HANDLE_FILE_INFORMATION reopenedInformation{};
-    if (!reopenedIdentity ||
-        GetFileInformationByHandle(opened.try_value()->handle.get(), &reopenedInformation) == FALSE ||
-        reopenedIdentity.try_value()->volumeSerial != expected.volumeSerial ||
+    if (GetFileInformationByHandle(opened.try_value()->handle.get(), &reopenedInformation) == FALSE)
+    {
+        const DWORD inspectionCode = GetLastError();
+        return not_committed(
+            make_windows_error(m_assertContext, inspectionCode, "Workspace cleanup reopened entry inspection failed"));
+    }
+    if (reopenedIdentity.try_value()->volumeSerial != expected.volumeSerial ||
         reopenedIdentity.try_value()->fileIndexHigh != expected.fileIndexHigh ||
         reopenedIdentity.try_value()->fileIndexLow != expected.fileIndexLow ||
         ((reopenedInformation.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U) != expectedDirectory ||
         (reopenedInformation.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U)
     {
-        return not_committed(!reopenedIdentity ? std::move(*reopenedIdentity.try_error())
-                                               : cue::make_io_error(m_assertContext, cue::IoError::PreconditionFailed,
-                                                                    "Workspace cleanup entry changed during reopen"));
+        return not_committed(cue::make_io_error(m_assertContext, cue::IoError::PreconditionFailed,
+                                                "Workspace cleanup entry changed during reopen"));
     }
     cue::Result<void> marked = mark_entry_for_deletion(opened.try_value()->handle, m_assertContext);
     if (!marked)
