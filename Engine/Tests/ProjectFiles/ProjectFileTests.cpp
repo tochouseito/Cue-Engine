@@ -277,12 +277,23 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
         CreateDirectoryW(directory.child(L"Assets\\Source\\Other").c_str(), nullptr) == FALSE ||
         CreateDirectoryW(directory.child(L"Assets\\Source\\Tree").c_str(), nullptr) == FALSE ||
         CreateDirectoryW(directory.child(L"Assets\\Source\\Tree\\Nested").c_str(), nullptr) == FALSE ||
+        CreateDirectoryW(directory.child(L"Assets\\Source\\Tree\\ZParent").c_str(), nullptr) == FALSE ||
+        CreateDirectoryW(directory.child(L"Assets\\Source\\Tree\\ZParent\\AChild").c_str(), nullptr) == FALSE ||
         !write_file(directory.child(L"Assets\\Source\\Rename.txt"), content) ||
         !write_file(directory.child(L"Assets\\Source\\Case.txt"), content) ||
         !write_file(directory.child(L"Assets\\Source\\Folder\\Move.txt"), content) ||
         !write_file(directory.child(L"Assets\\Source\\Tree\\Root.bin"), content) ||
         !write_file(directory.child(L"Assets\\Source\\Tree\\Nested\\Child.bin"), nestedContent) ||
+        !write_file(directory.child(L"Assets\\Source\\Tree\\ZParent\\AChild\\Deep.bin"), nestedContent) ||
         !write_file(directory.child(L"Assets\\Source\\Existing.bin"), nestedContent))
+    {
+        return false;
+    }
+
+    const std::wstring deepParent = L"Assets\\Source\\A\\B\\C\\D\\E\\F\\G\\H\\I\\J\\K\\L\\M\\N\\O";
+    std::error_code deepParentError;
+    std::filesystem::create_directories(directory.child(deepParent), deepParentError);
+    if (deepParentError)
     {
         return false;
     }
@@ -296,7 +307,8 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
                                  "30303030-3030-4030-8030-303030303030", "40404040-4040-4040-8040-404040404040",
                                  "50505050-5050-4050-8050-505050505050", "60606060-6060-4060-8060-606060606060",
                                  "70707070-7070-4070-8070-707070707070", "80808080-8080-4080-8080-808080808080",
-                                 "90909090-9090-4090-8090-909090909090", "12121212-1212-4212-8212-121212121212"};
+                                 "90909090-9090-4090-8090-909090909090", "12121212-1212-4212-8212-121212121212",
+                                 "13131313-1313-4313-8313-131313131313"};
     auto service = cue::project_files::ProjectFileService::create(a_descriptor, std::move(*workspace.try_value()),
                                                                   make_id_source(a_assertContext, std::move(ids)),
                                                                   a_assertContext);
@@ -385,6 +397,23 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
         read_file(directory.child(L"Assets\\Source\\CopiedTree\\Root.bin")) !=
             std::vector<std::byte>(content.begin(), content.end()) ||
         read_file(directory.child(L"Assets\\Source\\CopiedTree\\Nested\\Child.bin")) !=
+            std::vector<std::byte>(nestedContent.begin(), nestedContent.end()) ||
+        read_file(directory.child(L"Assets\\Source\\CopiedTree\\ZParent\\AChild\\Deep.bin")) !=
+            std::vector<std::byte>(nestedContent.begin(), nestedContent.end()))
+    {
+        return false;
+    }
+
+    source = cue::RelativePath::parse("Tree", a_assertContext);
+    destination = cue::RelativePath::parse("A/B/C/D/E/F/G/H/I/J/K/L/M/N/O/CopiedTree", a_assertContext);
+    auto deepTreeCopied =
+        service.try_value()->copy(cue::project_files::ProjectFileArea::SourceAssets, std::move(*source.try_value()),
+                                  std::move(*destination.try_value()), traversal, contentLimits);
+    if (!deepTreeCopied ||
+        deepTreeCopied.try_value()->outcome() !=
+            cue::project_files::ProjectFileOperationOutcome::CommittedButDurabilityUnknown ||
+        read_file(directory.child(
+            L"Assets\\Source\\A\\B\\C\\D\\E\\F\\G\\H\\I\\J\\K\\L\\M\\N\\O\\CopiedTree\\ZParent\\AChild\\Deep.bin")) !=
             std::vector<std::byte>(nestedContent.begin(), nestedContent.end()))
     {
         return false;
