@@ -568,8 +568,9 @@ Session終了後の結果を適用しない。
 M13では一つのEditor Process、一つのProject Session、一つのFile Mutationを基準とする。複数Process、Network Share、
 Source Control Checkout、Remote FilesystemのTransactionは保証しない。
 
-Windows AdapterがBindingするProject RootはM13ではLocal Drive上のAbsolute Directoryに限定し、UNC Rootは
-`IoError::UnsupportedEntry`としてFactory時点で拒否する。SMBではRoot境界に使用する`OpenFileById`が利用できないため、
+Windows AdapterがBindingするProject RootはM13ではLocal Drive上のAbsolute Directoryに限定し、UNC Rootと
+`DRIVE_REMOTE`へMapされたDrive Letter Rootは`IoError::UnsupportedEntry`としてFactory時点で拒否する。
+`\\?\\C:\\...`形式のExtended Local Pathは受理する。SMBではRoot境界に使用する`OpenFileById`が利用できないため、
 「Transactionを保証しない」状態で列挙だけを暗黙許可せず、Network Share対応時に別の安全なNative経路を設計する。
 
 ### Headless Test Boundary

@@ -482,6 +482,8 @@ struct MountPointReparseBuffer final
 {
     auto relative = cue::create_windows_workspace_filesystem("RelativeRoot", a_assertContext);
     auto unc = cue::create_windows_workspace_filesystem("\\\\server\\share", a_assertContext);
+    const std::string extendedPath = "\\\\?\\" + a_directory.utf8_path();
+    auto extended = cue::create_windows_workspace_filesystem(extendedPath, a_assertContext);
     const std::string filePath = a_directory.utf8_path() + "/alpha.bin";
     auto file = cue::create_windows_workspace_filesystem(filePath, a_assertContext);
     std::string embeddedNul = a_directory.utf8_path();
@@ -489,7 +491,7 @@ struct MountPointReparseBuffer final
     embeddedNul.append("Ignored");
     auto nul = cue::create_windows_workspace_filesystem(embeddedNul, a_assertContext);
     return has_io_error(relative, cue::IoError::InvalidPath) && has_io_error(unc, cue::IoError::UnsupportedEntry) &&
-           has_io_error(file, cue::IoError::TypeMismatch) && has_io_error(nul, cue::IoError::InvalidPath);
+           extended && has_io_error(file, cue::IoError::TypeMismatch) && has_io_error(nul, cue::IoError::InvalidPath);
 }
 
 /// @brief User Locator上限のDirectory直下を内部Bound Pathで列挙できるか検証する

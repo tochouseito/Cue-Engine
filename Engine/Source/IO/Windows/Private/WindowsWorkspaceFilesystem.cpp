@@ -1049,18 +1049,28 @@ Result<std::unique_ptr<WorkspaceFilesystem>> create_windows_workspace_filesystem
         return Result<std::unique_ptr<WorkspaceFilesystem>>::failure(
             make_io_error(a_assertContext, IoError::InvalidPath, "Workspace root path contains NUL"));
     }
-    const bool driveAbsolute = input.size() >= 3U && std::iswalpha(input[0]) != 0 && input[1] == L':' &&
-                               (input[2] == L'\\' || input[2] == L'/');
-    const bool uncAbsolute = input.starts_with(L"\\\\");
-    if (uncAbsolute)
+    const bool extendedPrefix = input.starts_with(L"\\\\?\\");
+    const bool extendedUnc = input.starts_with(L"\\\\?\\UNC\\") || input.starts_with(L"\\\\?\\unc\\");
+    const bool regularUnc = input.starts_with(L"\\\\") && !extendedPrefix;
+    if (extendedUnc || regularUnc)
     {
         return Result<std::unique_ptr<WorkspaceFilesystem>>::failure(
             make_io_error(a_assertContext, IoError::UnsupportedEntry, "UNC workspace roots are not supported"));
     }
+    const std::size_t driveOffset = extendedPrefix ? 4U : 0U;
+    const bool driveAbsolute = input.size() >= driveOffset + 3U && std::iswalpha(input[driveOffset]) != 0 &&
+                               input[driveOffset + 1U] == L':' &&
+                               (input[driveOffset + 2U] == L'\\' || input[driveOffset + 2U] == L'/');
     if (!driveAbsolute)
     {
         return Result<std::unique_ptr<WorkspaceFilesystem>>::failure(
             make_io_error(a_assertContext, IoError::InvalidPath, "Workspace root path must be local-drive absolute"));
+    }
+    const std::array<wchar_t, 4U> driveRoot{input[driveOffset], L':', L'\\', L'\0'};
+    if (GetDriveTypeW(driveRoot.data()) == DRIVE_REMOTE)
+    {
+        return Result<std::unique_ptr<WorkspaceFilesystem>>::failure(make_io_error(
+            a_assertContext, IoError::UnsupportedEntry, "Remote drive workspace roots are not supported"));
     }
 
     const DWORD required = GetFullPathNameW(converted.try_value()->c_str(), 0U, nullptr, nullptr);
