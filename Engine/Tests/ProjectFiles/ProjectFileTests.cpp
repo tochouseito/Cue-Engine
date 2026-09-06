@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <barrier>
 #include <cstddef>
 #include <cstdint>
@@ -54,9 +55,11 @@ class TestDirectory final
         {
             return;
         }
+        static std::atomic_uint64_t sequence{0U};
+        const std::uint64_t instance = sequence.fetch_add(1U, std::memory_order_relaxed);
         m_path = temporary.data();
         m_path += L"CueProjectFilesTests-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
-                  std::to_wstring(GetTickCount64());
+                  std::to_wstring(GetTickCount64()) + L"-" + std::to_wstring(instance);
         m_created = CreateDirectoryW(m_path.c_str(), nullptr) != FALSE;
         if (m_created && a_caseSensitiveRoot)
         {
@@ -256,12 +259,224 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
          std::filesystem::directory_iterator(a_directory.child(L"Assets\\Source"), error))
     {
         const std::wstring name = entry.path().filename().wstring();
-        if (name.find(L".cuefile-staging") != std::wstring::npos || name.find(L".cuedir-staging") != std::wstring::npos)
+        if (name.find(L".cuefile-staging") != std::wstring::npos ||
+            name.find(L".cuedir-staging") != std::wstring::npos || name.find(L"cuecopy-") != std::wstring::npos)
         {
             return false;
         }
     }
     return !error;
+}
+
+/// @brief Rename、Move、File Copy、Directory Copyと拒否条件を検証する
+[[nodiscard]] bool test_transfer_operations(const cue::ProjectDescriptor &a_descriptor,
+                                            const cue::AssertContext &a_assertContext)
+{
+    TestDirectory directory;
+    const std::array<std::byte, 4U> content{std::byte{'d'}, std::byte{'a'}, std::byte{'t'}, std::byte{'a'}};
+    const std::array<std::byte, 3U> nestedContent{std::byte{'s'}, std::byte{'u'}, std::byte{'b'}};
+    if (!directory.is_created() || !write_project_descriptor(directory, a_descriptor, a_assertContext) ||
+        CreateDirectoryW(directory.child(L"Assets\\Source\\Folder").c_str(), nullptr) == FALSE ||
+        CreateDirectoryW(directory.child(L"Assets\\Source\\Other").c_str(), nullptr) == FALSE ||
+        CreateDirectoryW(directory.child(L"Assets\\Source\\Tree").c_str(), nullptr) == FALSE ||
+        CreateDirectoryW(directory.child(L"Assets\\Source\\Tree\\Nested").c_str(), nullptr) == FALSE ||
+        CreateDirectoryW(directory.child(L"Assets\\Source\\Tree\\ZParent").c_str(), nullptr) == FALSE ||
+        CreateDirectoryW(directory.child(L"Assets\\Source\\Tree\\ZParent\\AChild").c_str(), nullptr) == FALSE ||
+        !write_file(directory.child(L"Assets\\Source\\Rename.txt"), content) ||
+        !write_file(directory.child(L"Assets\\Source\\Case.txt"), content) ||
+        !write_file(directory.child(L"Assets\\Source\\Folder\\Move.txt"), content) ||
+        !write_file(directory.child(L"Assets\\Source\\Tree\\Root.bin"), content) ||
+        !write_file(directory.child(L"Assets\\Source\\Tree\\Nested\\Child.bin"), nestedContent) ||
+        !write_file(directory.child(L"Assets\\Source\\Tree\\ZParent\\AChild\\Deep.bin"), nestedContent) ||
+        !write_file(directory.child(L"Assets\\Source\\Existing.bin"), nestedContent))
+    {
+        return false;
+    }
+
+    const std::wstring deepParent = L"Assets\\Source\\A\\B\\C\\D\\E\\F\\G\\H\\I\\J\\K\\L\\M\\N\\O";
+    std::error_code deepParentError;
+    std::filesystem::create_directories(directory.child(deepParent), deepParentError);
+    if (deepParentError)
+    {
+        return false;
+    }
+
+    auto workspace = cue::create_windows_workspace_filesystem(directory.utf8_path(), a_assertContext);
+    if (!workspace)
+    {
+        return false;
+    }
+    std::vector<std::string> ids{"10101010-1010-4010-8010-101010101010", "20202020-2020-4020-8020-202020202020",
+                                 "30303030-3030-4030-8030-303030303030", "40404040-4040-4040-8040-404040404040",
+                                 "50505050-5050-4050-8050-505050505050", "60606060-6060-4060-8060-606060606060",
+                                 "70707070-7070-4070-8070-707070707070", "80808080-8080-4080-8080-808080808080",
+                                 "90909090-9090-4090-8090-909090909090", "12121212-1212-4212-8212-121212121212",
+                                 "13131313-1313-4313-8313-131313131313"};
+    auto service = cue::project_files::ProjectFileService::create(a_descriptor, std::move(*workspace.try_value()),
+                                                                  make_id_source(a_assertContext, std::move(ids)),
+                                                                  a_assertContext);
+    if (!service)
+    {
+        return false;
+    }
+    const cue::TraversalLimits traversal{16U, 1024U, 1024U, 1024U * 1024U};
+    const cue::ContentVerificationLimits contentLimits{1024U * 1024U, 4U * 1024U * 1024U};
+
+    auto source = cue::RelativePath::parse("Rename.txt", a_assertContext);
+    auto destination = cue::RelativePath::parse("Renamed.txt", a_assertContext);
+    auto renamed =
+        service.try_value()->rename(cue::project_files::ProjectFileArea::SourceAssets, std::move(*source.try_value()),
+                                    std::move(*destination.try_value()), traversal);
+    if (!renamed || !renamed.try_value()->source().has_value() || *renamed.try_value()->source() != "Rename.txt" ||
+        renamed.try_value()->destination() != "Renamed.txt" ||
+        renamed.try_value()->kind() != cue::project_files::ProjectFileOperationKind::Rename ||
+        renamed.try_value()->outcome() !=
+            cue::project_files::ProjectFileOperationOutcome::CommittedButDurabilityUnknown ||
+        GetFileAttributesW(directory.child(L"Assets\\Source\\Rename.txt").c_str()) != INVALID_FILE_ATTRIBUTES ||
+        read_file(directory.child(L"Assets\\Source\\Renamed.txt")) !=
+            std::vector<std::byte>(content.begin(), content.end()))
+    {
+        return false;
+    }
+
+    source = cue::RelativePath::parse("Case.txt", a_assertContext);
+    destination = cue::RelativePath::parse("case.txt", a_assertContext);
+    auto caseRenamed =
+        service.try_value()->rename(cue::project_files::ProjectFileArea::SourceAssets, std::move(*source.try_value()),
+                                    std::move(*destination.try_value()), traversal);
+    WIN32_FIND_DATAW caseData{};
+    HANDLE caseFind = FindFirstFileW(directory.child(L"Assets\\Source\\case.txt").c_str(), &caseData);
+    if (caseFind != INVALID_HANDLE_VALUE)
+    {
+        FindClose(caseFind);
+    }
+    if (!caseRenamed ||
+        caseRenamed.try_value()->outcome() !=
+            cue::project_files::ProjectFileOperationOutcome::CommittedButDurabilityUnknown ||
+        caseFind == INVALID_HANDLE_VALUE || std::wstring_view(caseData.cFileName) != L"case.txt")
+    {
+        return false;
+    }
+
+    source = cue::RelativePath::parse("Folder/Move.txt", a_assertContext);
+    destination = cue::RelativePath::parse("Other/Moved.txt", a_assertContext);
+    auto moved =
+        service.try_value()->move(cue::project_files::ProjectFileArea::SourceAssets, std::move(*source.try_value()),
+                                  std::move(*destination.try_value()), traversal);
+    if (!moved ||
+        moved.try_value()->outcome() !=
+            cue::project_files::ProjectFileOperationOutcome::CommittedButDurabilityUnknown ||
+        GetFileAttributesW(directory.child(L"Assets\\Source\\Folder\\Move.txt").c_str()) != INVALID_FILE_ATTRIBUTES ||
+        read_file(directory.child(L"Assets\\Source\\Other\\Moved.txt")) !=
+            std::vector<std::byte>(content.begin(), content.end()))
+    {
+        return false;
+    }
+
+    source = cue::RelativePath::parse("Renamed.txt", a_assertContext);
+    destination = cue::RelativePath::parse("Copied.bin", a_assertContext);
+    auto copied =
+        service.try_value()->copy(cue::project_files::ProjectFileArea::SourceAssets, std::move(*source.try_value()),
+                                  std::move(*destination.try_value()), traversal, contentLimits);
+    if (!copied ||
+        copied.try_value()->outcome() !=
+            cue::project_files::ProjectFileOperationOutcome::CommittedButDurabilityUnknown ||
+        read_file(directory.child(L"Assets\\Source\\Renamed.txt")) !=
+            std::vector<std::byte>(content.begin(), content.end()) ||
+        read_file(directory.child(L"Assets\\Source\\Copied.bin")) !=
+            std::vector<std::byte>(content.begin(), content.end()))
+    {
+        return false;
+    }
+
+    source = cue::RelativePath::parse("Tree", a_assertContext);
+    destination = cue::RelativePath::parse("CopiedTree", a_assertContext);
+    auto treeCopied =
+        service.try_value()->copy(cue::project_files::ProjectFileArea::SourceAssets, std::move(*source.try_value()),
+                                  std::move(*destination.try_value()), traversal, contentLimits);
+    if (!treeCopied ||
+        treeCopied.try_value()->outcome() !=
+            cue::project_files::ProjectFileOperationOutcome::CommittedButDurabilityUnknown ||
+        read_file(directory.child(L"Assets\\Source\\CopiedTree\\Root.bin")) !=
+            std::vector<std::byte>(content.begin(), content.end()) ||
+        read_file(directory.child(L"Assets\\Source\\CopiedTree\\Nested\\Child.bin")) !=
+            std::vector<std::byte>(nestedContent.begin(), nestedContent.end()) ||
+        read_file(directory.child(L"Assets\\Source\\CopiedTree\\ZParent\\AChild\\Deep.bin")) !=
+            std::vector<std::byte>(nestedContent.begin(), nestedContent.end()))
+    {
+        return false;
+    }
+
+    source = cue::RelativePath::parse("Tree", a_assertContext);
+    destination = cue::RelativePath::parse("A/B/C/D/E/F/G/H/I/J/K/L/M/N/O/CopiedTree", a_assertContext);
+    auto deepTreeCopied =
+        service.try_value()->copy(cue::project_files::ProjectFileArea::SourceAssets, std::move(*source.try_value()),
+                                  std::move(*destination.try_value()), traversal, contentLimits);
+    if (!deepTreeCopied ||
+        deepTreeCopied.try_value()->outcome() !=
+            cue::project_files::ProjectFileOperationOutcome::CommittedButDurabilityUnknown ||
+        read_file(directory.child(
+            L"Assets\\Source\\A\\B\\C\\D\\E\\F\\G\\H\\I\\J\\K\\L\\M\\N\\O\\CopiedTree\\ZParent\\AChild\\Deep.bin")) !=
+            std::vector<std::byte>(nestedContent.begin(), nestedContent.end()))
+    {
+        return false;
+    }
+
+    source = cue::RelativePath::parse("Tree", a_assertContext);
+    destination = cue::RelativePath::parse("FailedTree", a_assertContext);
+    auto failedTree =
+        service.try_value()->copy(cue::project_files::ProjectFileArea::SourceAssets, std::move(*source.try_value()),
+                                  std::move(*destination.try_value()), traversal, {2U, 32U});
+    if (!failedTree ||
+        failedTree.try_value()->outcome() != cue::project_files::ProjectFileOperationOutcome::NotCommitted ||
+        !has_project_file_error(failedTree.try_value()->try_primary_error(),
+                                cue::project_files::ProjectFileError::LimitExceeded) ||
+        GetFileAttributesW(directory.child(L"Assets\\Source\\FailedTree").c_str()) != INVALID_FILE_ATTRIBUTES ||
+        !has_no_staging_entries(directory))
+    {
+        return false;
+    }
+
+    source = cue::RelativePath::parse("Renamed.txt", a_assertContext);
+    destination = cue::RelativePath::parse("Existing.bin", a_assertContext);
+    auto conflict =
+        service.try_value()->copy(cue::project_files::ProjectFileArea::SourceAssets, std::move(*source.try_value()),
+                                  std::move(*destination.try_value()), traversal, contentLimits);
+    if (!conflict || conflict.try_value()->outcome() != cue::project_files::ProjectFileOperationOutcome::NotCommitted ||
+        !has_project_file_error(conflict.try_value()->try_primary_error(),
+                                cue::project_files::ProjectFileError::Conflict) ||
+        read_file(directory.child(L"Assets\\Source\\Existing.bin")) !=
+            std::vector<std::byte>(nestedContent.begin(), nestedContent.end()))
+    {
+        return false;
+    }
+
+    source = cue::RelativePath::parse("Tree", a_assertContext);
+    destination = cue::RelativePath::parse("Tree/Nested/Cycle", a_assertContext);
+    auto cycle =
+        service.try_value()->move(cue::project_files::ProjectFileArea::SourceAssets, std::move(*source.try_value()),
+                                  std::move(*destination.try_value()), traversal);
+    source = cue::RelativePath::parse("Copied.bin", a_assertContext);
+    destination = cue::RelativePath::parse("Copied.bin", a_assertContext);
+    auto same =
+        service.try_value()->copy(cue::project_files::ProjectFileArea::SourceAssets, std::move(*source.try_value()),
+                                  std::move(*destination.try_value()), traversal, contentLimits);
+    source = cue::RelativePath::parse("Copied.bin", a_assertContext);
+    destination = cue::RelativePath::parse("Limit.bin", a_assertContext);
+    auto invalidLimits =
+        service.try_value()->copy(cue::project_files::ProjectFileArea::SourceAssets, std::move(*source.try_value()),
+                                  std::move(*destination.try_value()), traversal, {0U, 1U});
+    return cycle && same && invalidLimits &&
+           cycle.try_value()->outcome() == cue::project_files::ProjectFileOperationOutcome::NotCommitted &&
+           same.try_value()->outcome() == cue::project_files::ProjectFileOperationOutcome::NotCommitted &&
+           invalidLimits.try_value()->outcome() == cue::project_files::ProjectFileOperationOutcome::NotCommitted &&
+           has_project_file_error(cycle.try_value()->try_primary_error(),
+                                  cue::project_files::ProjectFileError::InvalidRequest) &&
+           has_project_file_error(same.try_value()->try_primary_error(),
+                                  cue::project_files::ProjectFileError::InvalidRequest) &&
+           has_project_file_error(invalidLimits.try_value()->try_primary_error(),
+                                  cue::project_files::ProjectFileError::InvalidRequest) &&
+           has_no_staging_entries(directory);
 }
 
 /// @brief Create-new、Area Policy、Rollback、Thread契約を検証する
@@ -699,5 +914,9 @@ int main()
     {
         return 9;
     }
-    return test_source_root_spelling_mismatch(*descriptor.try_value(), assertContext) ? 0 : 10;
+    if (!test_source_root_spelling_mismatch(*descriptor.try_value(), assertContext))
+    {
+        return 10;
+    }
+    return test_transfer_operations(*descriptor.try_value(), assertContext) ? 0 : 11;
 }

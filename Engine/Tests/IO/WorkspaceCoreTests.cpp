@@ -87,6 +87,12 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
         return cue::TraversalLimits{8U, 100U, 100U, 16U * 1024U};
     }
 
+    /// @brief Test Doubleの固定Content Hard Limitを返す
+    [[nodiscard]] cue::ContentVerificationLimits hard_content_limits() const noexcept override
+    {
+        return cue::ContentVerificationLimits{1024U, 4096U};
+    }
+
     /// @brief Locatorに対応する決定的Snapshotまたは診断Snapshotを返す
     [[nodiscard]] cue::Result<cue::DirectorySnapshot> list_directory(const cue::WorkspaceDirectory &a_directory,
                                                                      cue::TraversalLimits) noexcept override
@@ -184,6 +190,31 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
         result.outcome = cue::WorkspaceMutationOutcome::NotCommitted;
         result.primaryError = cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
                                                  "Workspace core test double does not support mutation");
+        return result;
+    }
+
+    /// @brief この列挙専用Test DoubleではRenameを未対応として返す
+    [[nodiscard]] cue::WorkspaceMutationResult rename_entry(const cue::BoundWorkspacePath &,
+                                                            const cue::BoundWorkspacePath &,
+                                                            cue::TraversalLimits) noexcept override
+    {
+        cue::WorkspaceMutationResult result;
+        result.outcome = cue::WorkspaceMutationOutcome::NotCommitted;
+        result.primaryError = cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
+                                                 "Workspace core test double does not support rename");
+        return result;
+    }
+
+    /// @brief この列挙専用Test DoubleではCopyを未対応として返す
+    [[nodiscard]] cue::WorkspaceMutationResult copy_entry_new(const cue::BoundWorkspacePath &,
+                                                              const cue::BoundWorkspacePath &, cue::TraversalLimits,
+                                                              cue::ContentVerificationLimits,
+                                                              std::string_view) noexcept override
+    {
+        cue::WorkspaceMutationResult result;
+        result.outcome = cue::WorkspaceMutationOutcome::NotCommitted;
+        result.primaryError = cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
+                                                 "Workspace core test double does not support copy");
         return result;
     }
 

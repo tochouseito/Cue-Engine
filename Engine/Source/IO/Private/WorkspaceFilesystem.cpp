@@ -121,6 +121,11 @@ bool TraversalLimits::is_valid() const noexcept
     return maxDepth != 0U && maxVisitedEntries != 0U && maxResults != 0U && maxMetadataBytes != 0U;
 }
 
+bool ContentVerificationLimits::is_valid() const noexcept
+{
+    return maxFileBytes != 0U && maxTotalBytes != 0U;
+}
+
 std::string_view BoundWorkspacePath::text() const noexcept
 {
     return m_text;
