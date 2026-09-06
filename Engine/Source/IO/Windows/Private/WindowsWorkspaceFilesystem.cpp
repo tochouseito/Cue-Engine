@@ -727,11 +727,17 @@ struct NativeEntryObservation final
 class DirectoryChangeGuard final
 {
   public:
+    /// @brief 未開始の変更監視Guardを生成する
     DirectoryChangeGuard() noexcept = default;
+    /// @brief Overlapped Resourceの一意所有を保つためCopy構築を禁止する
     DirectoryChangeGuard(const DirectoryChangeGuard &) = delete;
+    /// @brief Overlapped Resourceの一意所有を保つためCopy代入を禁止する
     DirectoryChangeGuard &operator=(const DirectoryChangeGuard &) = delete;
+    /// @brief 発行済みOverlapped Addressを固定するためMove構築を禁止する
     DirectoryChangeGuard(DirectoryChangeGuard &&) = delete;
+    /// @brief 発行済みOverlapped Addressを固定するためMove代入を禁止する
     DirectoryChangeGuard &operator=(DirectoryChangeGuard &&) = delete;
+    /// @brief 未完了の変更監視を取消し、完了を待ってからResourceを解放する
     ~DirectoryChangeGuard()
     {
         if (m_pending)
@@ -749,6 +755,7 @@ class DirectoryChangeGuard final
     bool m_pending = false;
 };
 
+/// @brief 同一Directory IdentityへOverlapped Namespace変更監視を開始する
 [[nodiscard]] cue::Result<std::unique_ptr<DirectoryChangeGuard>> begin_directory_change_guard(
     HANDLE a_directoryHandle, const cue::AssertContext &a_assertContext) noexcept
 {
@@ -828,6 +835,7 @@ class DirectoryChangeGuard final
     return cue::Result<std::unique_ptr<DirectoryChangeGuard>>::success(std::move(guard));
 }
 
+/// @brief Namespace変更の有無を確定し、Overlapped監視を安全に完了する
 [[nodiscard]] cue::Result<void> finish_directory_change_guard(DirectoryChangeGuard &a_guard,
                                                               const cue::AssertContext &a_assertContext) noexcept
 {
@@ -1227,10 +1235,13 @@ class WindowsWorkspaceFilesystem final : public cue::WorkspaceFilesystem
     /// @brief 親DirectoryをPinし、DestinationとStagingのNative Pathを構築する
     [[nodiscard]] cue::Result<std::vector<UniqueHandle>> prepare_mutation_parent(
         const cue::BoundWorkspacePath &a_destination) const noexcept;
+    /// @brief 親Locator全ComponentのNamespace変更Guardを同時に開始する
     [[nodiscard]] cue::Result<std::vector<std::unique_ptr<DirectoryChangeGuard>>> begin_mutation_parent_guards(
         const std::vector<UniqueHandle> &a_pinned) const noexcept;
+    /// @brief 親Locator全Componentの変更監視を完了し、最初の不整合を返す
     [[nodiscard]] cue::Result<void> finish_mutation_parent_guards(
         std::vector<std::unique_ptr<DirectoryChangeGuard>> &a_guards) const noexcept;
+    /// @brief 親Locator全Componentの一意性と保持Identityを事後再検証する
     [[nodiscard]] cue::Result<void> verify_mutation_parent_chain(
         const cue::BoundWorkspacePath &a_destination, const std::vector<UniqueHandle> &a_expected) const noexcept;
 
