@@ -1396,12 +1396,11 @@ void cleanup_staging_child_records(std::vector<OwnedStagingChild> &a_children, c
         if (!child.is_valid())
         {
             const DWORD code = GetLastError();
-            if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND)
-            {
-                continue;
-            }
             append_secondary(a_result,
-                             make_windows_error(a_assertContext, code, "Workspace staged child cleanup open failed"),
+                             make_windows_error(a_assertContext, code,
+                                                code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND
+                                                    ? "Workspace staged child cleanup location could not be confirmed"
+                                                    : "Workspace staged child cleanup open failed"),
                              a_assertContext);
             a_result.outcome = cue::WorkspaceMutationOutcome::ReconciliationRequired;
             continue;
