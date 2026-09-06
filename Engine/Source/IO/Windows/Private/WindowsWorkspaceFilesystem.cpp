@@ -1609,10 +1609,71 @@ cue::Result<void> WindowsWorkspaceFilesystem::verify_directory(const cue::Worksp
     {
         return cue::Result<void>::failure(std::move(*pinned.try_error()));
     }
-    if (a_directory.locator() != nullptr && pinned.try_value()->empty())
+    if (a_directory.locator() == nullptr)
+    {
+        return cue::Result<void>::success();
+    }
+    if (pinned.try_value()->empty())
     {
         return cue::Result<void>::failure(cue::make_io_error(m_assertContext, cue::IoError::PreconditionFailed,
                                                              "Workspace directory verification was incomplete"));
+    }
+
+    cue::Result<std::vector<std::unique_ptr<DirectoryChangeGuard>>> guards =
+        begin_mutation_parent_guards(*pinned.try_value());
+    if (!guards)
+    {
+        return cue::Result<void>::failure(std::move(*guards.try_error()));
+    }
+
+    std::optional<cue::Error> verificationError;
+    cue::Result<std::vector<UniqueHandle>> current = pin_directory_chain(a_directory);
+    if (!current)
+    {
+        verificationError.emplace(std::move(*current.try_error()));
+    }
+    else if (current.try_value()->size() != pinned.try_value()->size())
+    {
+        verificationError.emplace(
+            cue::make_io_error(m_assertContext, cue::IoError::OutsideRoot, "Workspace directory chain length changed"));
+    }
+    else
+    {
+        for (std::size_t index = 0U; index < pinned.try_value()->size(); ++index)
+        {
+            cue::Result<RootIdentity> expected =
+                read_entry_identity((*pinned.try_value())[index].get(), m_assertContext);
+            cue::Result<RootIdentity> observed =
+                read_entry_identity((*current.try_value())[index].get(), m_assertContext);
+            if (!expected)
+            {
+                verificationError.emplace(std::move(*expected.try_error()));
+                break;
+            }
+            if (!observed)
+            {
+                verificationError.emplace(std::move(*observed.try_error()));
+                break;
+            }
+            if (expected.try_value()->volumeSerial != observed.try_value()->volumeSerial ||
+                expected.try_value()->fileIndexHigh != observed.try_value()->fileIndexHigh ||
+                expected.try_value()->fileIndexLow != observed.try_value()->fileIndexLow)
+            {
+                verificationError.emplace(cue::make_io_error(m_assertContext, cue::IoError::OutsideRoot,
+                                                             "Workspace directory chain identity changed"));
+                break;
+            }
+        }
+    }
+
+    cue::Result<void> guardsFinished = finish_mutation_parent_guards(*guards.try_value());
+    if (verificationError.has_value())
+    {
+        return cue::Result<void>::failure(std::move(*verificationError));
+    }
+    if (!guardsFinished)
+    {
+        return cue::Result<void>::failure(std::move(*guardsFinished.try_error()));
     }
     return cue::Result<void>::success();
 }

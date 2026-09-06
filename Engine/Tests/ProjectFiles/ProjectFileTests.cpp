@@ -45,8 +45,8 @@ class TestFatalHandler final : public cue::FatalHandler
 class TestDirectory final
 {
   public:
-    /// @brief Project Files Integration Test用Directory Treeを作成する
-    TestDirectory()
+    /// @brief 任意のRoot Case Policyを持つProject Files Integration Test用Directory Treeを作成する
+    explicit TestDirectory(bool a_caseSensitiveRoot = false)
     {
         std::array<wchar_t, MAX_PATH> temporary{};
         const DWORD length = GetTempPathW(static_cast<DWORD>(temporary.size()), temporary.data());
@@ -57,8 +57,24 @@ class TestDirectory final
         m_path = temporary.data();
         m_path += L"CueProjectFilesTests-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
                   std::to_wstring(GetTickCount64());
-        m_created = CreateDirectoryW(m_path.c_str(), nullptr) != FALSE &&
-                    CreateDirectoryW(child(L"Assets").c_str(), nullptr) != FALSE &&
+        m_created = CreateDirectoryW(m_path.c_str(), nullptr) != FALSE;
+        if (m_created && a_caseSensitiveRoot)
+        {
+            HANDLE directory =
+                CreateFileW(m_path.c_str(), FILE_LIST_DIRECTORY | FILE_WRITE_ATTRIBUTES,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+            FILE_CASE_SENSITIVE_INFO information{};
+            information.Flags = FILE_CS_FLAG_CASE_SENSITIVE_DIR;
+            m_created = directory != INVALID_HANDLE_VALUE &&
+                        SetFileInformationByHandle(directory, FileCaseSensitiveInfo, &information,
+                                                   sizeof(information)) != FALSE;
+            if (directory != INVALID_HANDLE_VALUE)
+            {
+                CloseHandle(directory);
+            }
+        }
+        m_created = m_created && CreateDirectoryW(child(L"Assets").c_str(), nullptr) != FALSE &&
                     CreateDirectoryW(child(L"Assets\\Source").c_str(), nullptr) != FALSE &&
                     CreateDirectoryW(child(L"Assets\\Runtime").c_str(), nullptr) != FALSE &&
                     CreateDirectoryW(child(L"Generated").c_str(), nullptr) != FALSE &&
@@ -585,6 +601,29 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
     return !service &&
            has_project_file_error(service.try_error(), cue::project_files::ProjectFileError::InvalidRequest);
 }
+
+/// @brief Source Root親ComponentのPortable Case AliasをService公開前に拒否することを検証する
+[[nodiscard]] bool test_source_root_parent_alias(const cue::ProjectDescriptor &a_descriptor,
+                                                 const cue::AssertContext &a_assertContext)
+{
+    TestDirectory directory(true);
+    if (!directory.is_created() || !write_project_descriptor(directory, a_descriptor, a_assertContext) ||
+        CreateDirectoryW(directory.child(L"assets").c_str(), nullptr) == FALSE)
+    {
+        return false;
+    }
+    auto workspace = cue::create_windows_workspace_filesystem(directory.utf8_path(), a_assertContext);
+    if (!workspace)
+    {
+        return false;
+    }
+    std::vector<std::string> ids{"cccccccc-cccc-4ccc-8ccc-cccccccccccc"};
+    auto service = cue::project_files::ProjectFileService::create(a_descriptor, std::move(*workspace.try_value()),
+                                                                  make_id_source(a_assertContext, std::move(ids)),
+                                                                  a_assertContext);
+    return !service &&
+           has_project_file_error(service.try_error(), cue::project_files::ProjectFileError::InvalidRequest);
+}
 } // namespace
 
 /// @brief ProjectFilesの全Integration Caseを実行する
@@ -628,5 +667,9 @@ int main()
     {
         return 7;
     }
-    return test_descriptor_workspace_mismatch(*descriptor.try_value(), assertContext) ? 0 : 8;
+    if (!test_descriptor_workspace_mismatch(*descriptor.try_value(), assertContext))
+    {
+        return 8;
+    }
+    return test_source_root_parent_alias(*descriptor.try_value(), assertContext) ? 0 : 9;
 }
