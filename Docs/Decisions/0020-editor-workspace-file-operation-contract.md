@@ -245,6 +245,11 @@ Renameは同じ親Directory、Moveは同じProject Root内の別DirectoryをDest
 Renameで公開し、Copy-and-deleteへFallbackしない。DestinationはMissingでなければ失敗する。Source EntryがReparse Point、
 Unsupported Entry、保護Entry、開いているDocument、またはMutation Area外の場合は開始しない。
 
+事前検査でSource Native IdentityとTypeをPlanへ固定する。単一Fileは`SingleFileMutationGuard`、Directoryは
+`DirectoryTreeMutationGuard`を取得し、Guard HandleのIdentity、Type、Reparse Point不存在をPlanと再照合してから、同じSource Handleで
+DestinationへRenameする。Guardは事後Query完了まで保持し、排他解除後のPath基準`MoveFileExW`へFallbackしない。Guard取得またはIdentity
+再照合に失敗した場合はSourceを移動せず、`Busy`または`RescanRequired`を返す。
+
 DirectoryのDestinationがSource自身またはSource子孫の場合を拒否する。Directory配下は実行前に`TraversalLimits`内で検査し、
 Reparse Pointまたは操作不能Entryを含む場合は移動しない。Rename成功後のDurability結果が不明な場合は元へ戻そうとせず、
 Source／Destinationを再Queryして`CommittedButDurabilityUnknown`または`ReconciliationRequired`を返す。
@@ -475,15 +480,15 @@ Windows契約の根拠:
 - [Microsoft: FILE_RENAME_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info)
 - [Microsoft: CREATEFILE2_EXTENDED_PARAMETERS](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/ns-fileapi-createfile2_extended_parameters)
 
-直接作成したDirectoryをBarrier済みとみなさず、Create FolderとRestore用の不足ParentもOperation-owned Sibling Directoryを
-Create-newしてWrite-through Renameで一段ずつ公開する。
+直接作成したDirectoryをBarrier済みとみなさず、Create FolderはOperation-owned Sibling DirectoryをCreate-newしてWrite-through Renameで
+公開する。Restoreは不足Parentを作成せず`RecoveryRequired`とする。
 
 Operationごとの必須Barrierを次のとおりとする。
 
 | Operation | `Committed`に必要なBarrier |
 | --- | --- |
 | Create File／Folder | TemporaryまたはSibling Directoryから最終NameへのWrite-through Publish |
-| Rename／Move | SourceからDestinationへのWrite-through Rename |
+| Rename／Move | SourceからDestinationへの文書化済みDurability Barrier。Windows Handle-based Renameは`CommittedButDurabilityUnknown` |
 | Copy | 検証済みTemporary／StagingからDestinationへのWrite-through Publish |
 | Delete | `allocating` RecordのAtomic Commit、Operation DirectoryのWrite-through Publish、`prepared` RecordのAtomic Commit、Payload Renameの文書化済みDurability Barrier、`trashed` RecordのAtomic Commit。Barrierを提供できないWindows Handle-based Renameは`CommittedButDurabilityUnknown` |
 | Restore | `restoring` RecordのAtomic Commit、Original Path Renameの文書化済みDurability Barrier、`restored` RecordのAtomic Commit。Barrierを提供できないWindows Handle-based Renameは`CommittedButDurabilityUnknown` |
