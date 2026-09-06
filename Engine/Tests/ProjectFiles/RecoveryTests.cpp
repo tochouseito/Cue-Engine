@@ -267,6 +267,26 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
     return false;
 }
 
+/// @brief Error列に指定IO Root CauseとNative Codeが同時に保持されるか判定する
+[[nodiscard]] bool has_io_root_error_with_native(std::span<const cue::Error> a_errors, cue::IoError a_code,
+                                                 std::int64_t a_nativeCode) noexcept
+{
+    for (const cue::Error &error : a_errors)
+    {
+        const cue::NativeError *nativeError = error.try_native_error();
+        if (!error.causes().empty())
+        {
+            nativeError = error.causes().back().try_native_error();
+        }
+        if (error.root_code().domain() == "Cue.IO" && error.root_code().value() == static_cast<std::int64_t>(a_code) &&
+            nativeError != nullptr && nativeError->domain() == "Win32" && nativeError->value() == a_nativeCode)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// @brief File Delete、再起動Catalog、衝突、RestoreをEnd-to-Endで検証する
 [[nodiscard]] bool test_file_recovery(const TestDirectory &a_directory, const cue::ProjectDescriptor &a_descriptor,
                                       const cue::AssertContext &a_assertContext)
@@ -291,6 +311,9 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
     }
     auto deleted = service.try_value()->delete_entry(cue::project_files::ProjectFileArea::SourceAssets,
                                                      std::move(*source.try_value()), k_traversal, k_content);
+    const std::wstring replacementStaging =
+        a_directory.child(L"Saved\\Editor\\Trash\\11111111-1111-4111-8111-111111111111\\"
+                          L".11111111-1111-4111-8111-111111111111.cuefile-replace-staging");
     if (!deleted ||
         deleted.try_value()->outcome() !=
             cue::project_files::ProjectFileOperationOutcome::CommittedButDurabilityUnknown ||
@@ -339,16 +362,37 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
         return false;
     }
 
+    if (!write_file(replacementStaging, collisionBytes))
+    {
+        std::fprintf(stderr, "file recovery: replacement staging setup failed\n");
+        return false;
+    }
+
     auto reopened = make_service(a_directory, a_descriptor, a_assertContext, {});
     if (!reopened || !reopened.try_value()->refresh_recovery_catalog(k_traversal, k_content) ||
         reopened.try_value()->recovery_entries().size() != 1U ||
         reopened.try_value()->recovery_entries()[0U].operationId != k_operationId ||
         reopened.try_value()->recovery_entries()[0U].originalPath != "Recover.bin" ||
-        reopened.try_value()->recovery_entries()[0U].state != cue::project_files::RecoveryEntryState::Recoverable)
+        reopened.try_value()->recovery_entries()[0U].state != cue::project_files::RecoveryEntryState::Recoverable ||
+        GetFileAttributesW(replacementStaging.c_str()) != INVALID_FILE_ATTRIBUTES)
     {
         std::fprintf(stderr, "file recovery: catalog refresh failed; service=%d entries=%zu diagnostics=%zu\n",
                      reopened ? 1 : 0, reopened ? reopened.try_value()->recovery_entries().size() : 0U,
                      reopened ? reopened.try_value()->recovery_diagnostics().size() : 0U);
+        if (reopened)
+        {
+            for (const cue::Error &diagnostic : reopened.try_value()->recovery_diagnostics())
+            {
+                std::fprintf(stderr, "diagnostic=%.*s root=%.*s:%lld native=%lld\n",
+                             static_cast<int>(diagnostic.summary().size()), diagnostic.summary().data(),
+                             static_cast<int>(diagnostic.root_code().domain().size()),
+                             diagnostic.root_code().domain().data(),
+                             static_cast<long long>(diagnostic.root_code().value()),
+                             diagnostic.try_native_error() != nullptr
+                                 ? static_cast<long long>(diagnostic.try_native_error()->value())
+                                 : -1LL);
+            }
+        }
         return false;
     }
     if (!write_file(a_directory.child(L"Assets\\Source\\Recover.bin"), collisionBytes))
@@ -428,6 +472,48 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
         }
     }
     return succeeded;
+}
+
+/// @brief 不完全なOperation列挙の分類とNative CodeをRecovery診断へ保持する
+[[nodiscard]] bool test_operation_rescan_diagnostic(const TestDirectory &a_directory,
+                                                    const cue::ProjectDescriptor &a_descriptor,
+                                                    const cue::AssertContext &a_assertContext)
+{
+    constexpr std::string_view k_operationId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    constexpr cue::TraversalLimits k_traversal{16U, 1024U, 1024U, 1024U * 1024U};
+    constexpr cue::ContentVerificationLimits k_content{1024U * 1024U, 4U * 1024U * 1024U};
+    const std::array<std::byte, 4U> content{std::byte{'l'}, std::byte{'o'}, std::byte{'c'}, std::byte{'k'}};
+    if (!write_file(a_directory.child(L"Assets\\Source\\Locked.bin"), content))
+    {
+        return false;
+    }
+    auto service = make_service(a_directory, a_descriptor, a_assertContext, {std::string(k_operationId)});
+    auto source = cue::RelativePath::parse("Locked.bin", a_assertContext);
+    if (!service || !source)
+    {
+        return false;
+    }
+    auto deleted = service.try_value()->delete_entry(cue::project_files::ProjectFileArea::SourceAssets,
+                                                     std::move(*source.try_value()), k_traversal, k_content);
+    const std::wstring record =
+        a_directory.child(L"Saved\\Editor\\Trash\\bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\\Record.cuetrash");
+    HANDLE lockedRecord =
+        CreateFileW(record.c_str(), GENERIC_READ, 0U, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (!deleted || lockedRecord == INVALID_HANDLE_VALUE)
+    {
+        if (lockedRecord != INVALID_HANDLE_VALUE)
+        {
+            CloseHandle(lockedRecord);
+        }
+        return false;
+    }
+
+    auto reopened = make_service(a_directory, a_descriptor, a_assertContext, {});
+    const bool refreshed = reopened && reopened.try_value()->refresh_recovery_catalog(k_traversal, k_content) &&
+                           has_io_root_error_with_native(reopened.try_value()->recovery_diagnostics(),
+                                                         cue::IoError::PermissionDenied, ERROR_SHARING_VIOLATION);
+    CloseHandle(lockedRecord);
+    return refreshed;
 }
 
 /// @brief Directory Manifestと保護Area Delete拒否を検証する
@@ -755,10 +841,12 @@ int main()
     TestDirectory allocatingMatchDirectory;
     TestDirectory fingerprintFailureDirectory;
     TestDirectory stagingDirectory;
+    TestDirectory rescanDiagnosticDirectory;
     if (!descriptor || !fileDirectory.is_created() || !directoryDirectory.is_created() ||
         !rejectedDirectory.is_created() || !reconciliationDirectory.is_created() ||
         !allocatingMismatchDirectory.is_created() || !allocatingMatchDirectory.is_created() ||
         !stagingDirectory.is_created() || !fingerprintFailureDirectory.is_created() ||
+        !rescanDiagnosticDirectory.is_created() ||
         !write_descriptor(fileDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(directoryDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(rejectedDirectory, *descriptor.try_value(), assertContext) ||
@@ -766,7 +854,8 @@ int main()
         !write_descriptor(allocatingMismatchDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(allocatingMatchDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(fingerprintFailureDirectory, *descriptor.try_value(), assertContext) ||
-        !write_descriptor(stagingDirectory, *descriptor.try_value(), assertContext))
+        !write_descriptor(stagingDirectory, *descriptor.try_value(), assertContext) ||
+        !write_descriptor(rescanDiagnosticDirectory, *descriptor.try_value(), assertContext))
     {
         return 1;
     }
@@ -798,6 +887,11 @@ int main()
     {
         return 8;
     }
-    return test_allocating_original_match_cleanup(allocatingMatchDirectory, *descriptor.try_value(), assertContext) ? 0
-                                                                                                                    : 9;
+    if (!test_operation_rescan_diagnostic(rescanDiagnosticDirectory, *descriptor.try_value(), assertContext))
+    {
+        return 9;
+    }
+    return test_allocating_original_match_cleanup(allocatingMatchDirectory, *descriptor.try_value(), assertContext)
+               ? 0
+               : 10;
 }

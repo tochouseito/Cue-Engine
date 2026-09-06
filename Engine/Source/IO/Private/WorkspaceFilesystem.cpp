@@ -226,10 +226,11 @@ Result<BoundWorkspacePath> WorkspaceFilesystem::bind_operation_staging_path(
         const char value = a_operationId[index];
         validIdCharacters = (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f');
     }
-    const bool validKind = !a_kind.empty() && a_kind.size() <= 32U &&
-                           std::ranges::all_of(a_kind,
-                                               /// @brief Staging kindがlowercase ASCIIだけか判定する
-                                               [](char a_value) noexcept { return a_value >= 'a' && a_value <= 'z'; });
+    const bool validKind =
+        !a_kind.empty() && a_kind.size() <= 32U &&
+        std::ranges::all_of(a_kind,
+                            /// @brief Staging kindがlowercase ASCIIまたは内部区切りだけか判定する
+                            [](char a_value) noexcept { return (a_value >= 'a' && a_value <= 'z') || a_value == '-'; });
     if (!owns_path(a_parent) || !validIdCharacters || !validKind)
     {
         return Result<BoundWorkspacePath>::failure(

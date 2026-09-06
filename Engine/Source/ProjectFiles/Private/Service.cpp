@@ -24,6 +24,27 @@ constexpr std::size_t k_maximumTrashRecordBytes = 16U * 1024U * 1024U;
     std::abort();
 }
 
+/// @brief Workspace列挙診断を保持可能なPortable IO Errorへ分類する
+[[nodiscard]] cue::IoError classify_workspace_diagnostic(cue::WorkspaceDiagnosticCode a_code) noexcept
+{
+    switch (a_code)
+    {
+    case cue::WorkspaceDiagnosticCode::UnsupportedName:
+        return cue::IoError::InvalidPath;
+    case cue::WorkspaceDiagnosticCode::ReparsePoint:
+        return cue::IoError::UnsupportedEntry;
+    case cue::WorkspaceDiagnosticCode::EntryDisappeared:
+        return cue::IoError::NotFound;
+    case cue::WorkspaceDiagnosticCode::PermissionDenied:
+        return cue::IoError::PermissionDenied;
+    case cue::WorkspaceDiagnosticCode::TypeChanged:
+        return cue::IoError::TypeMismatch;
+    case cue::WorkspaceDiagnosticCode::EnumerationFailed:
+        return cue::IoError::IoFailure;
+    }
+    return cue::IoError::IoFailure;
+}
+
 class BusyReset final
 {
   public:
@@ -1549,6 +1570,19 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
             terminate_allocation(m_assertContext);
         }
     };
+    /// @brief 不完全SnapshotのEntry単位分類とNative CodeをRecovery診断へ移送する
+    const auto addSnapshotDiagnostics = [&](const DirectorySnapshot &a_snapshot, std::string_view a_context) noexcept
+    {
+        for (const WorkspaceDiagnostic &diagnostic : a_snapshot.diagnostics)
+        {
+            Error cause = diagnostic.nativeCode != 0
+                              ? make_io_error(m_assertContext, classify_workspace_diagnostic(diagnostic.code),
+                                              "Workspace directory enumeration diagnostic", diagnostic.nativeCode)
+                              : make_io_error(m_assertContext, classify_workspace_diagnostic(diagnostic.code),
+                                              "Workspace directory enumeration diagnostic");
+            addDiagnostic(a_context, std::move(cause));
+        }
+    };
     if (trashRoot.primaryError.has_value())
     {
         addDiagnostic("Project trash root preparation was not durable", std::move(*trashRoot.primaryError));
@@ -1559,6 +1593,7 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
     }
     if (snapshot.try_value()->state != WorkspaceSnapshotState::Complete)
     {
+        addSnapshotDiagnostics(*snapshot.try_value(), "Project trash catalog enumeration diagnostic");
         addDiagnostic("Project trash catalog enumeration requires a rescan");
         try
         {
@@ -1611,6 +1646,8 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
                 }
                 else
                 {
+                    addSnapshotDiagnostics(*stagingSnapshot.try_value(),
+                                           "Project trash staging enumeration diagnostic");
                     addDiagnostic("Project trash staging container enumeration requires a rescan");
                 }
                 continue;
@@ -1729,6 +1766,14 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
             addDiagnostic("Project trash operation paths are invalid", std::move(cause));
             continue;
         }
+        Result<BoundWorkspacePath> replacementStaging = m_workspace->bind_operation_staging_path(
+            *operation.try_value(), container.displayName, "cuefile-replace", m_assertContext);
+        if (!replacementStaging)
+        {
+            addDiagnostic("Project trash record replacement staging path is invalid",
+                          std::move(*replacementStaging.try_error()));
+            continue;
+        }
         WorkspaceDirectory operationDirectory = WorkspaceDirectory::from_bound_path(*operation.try_value());
         Result<DirectorySnapshot> operationSnapshot =
             m_workspace->list_directory(operationDirectory, a_traversalLimits);
@@ -1739,12 +1784,23 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
         }
         if (operationSnapshot.try_value()->state != WorkspaceSnapshotState::Complete)
         {
+            addSnapshotDiagnostics(*operationSnapshot.try_value(), "Project trash operation enumeration diagnostic");
             addDiagnostic("Project trash operation enumeration requires a rescan");
             continue;
         }
         const WorkspaceEntry *recordEntry = nullptr;
         const WorkspaceEntry *payloadEntry = nullptr;
+        bool hasReplacementStaging = false;
         bool hasUnknownEntry = false;
+        std::string replacementStagingName;
+        try
+        {
+            replacementStagingName = "." + container.displayName + ".cuefile-replace-staging";
+        }
+        catch (...)
+        {
+            terminate_allocation(m_assertContext);
+        }
         for (const WorkspaceEntry &entry : operationSnapshot.try_value()->entries)
         {
             if (entry.displayName == "Record.cuetrash" && entry.type == WorkspaceEntryType::RegularFile)
@@ -1755,6 +1811,17 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
                      (entry.type == WorkspaceEntryType::RegularFile || entry.type == WorkspaceEntryType::Directory))
             {
                 payloadEntry = &entry;
+            }
+            else if (entry.displayName == replacementStagingName)
+            {
+                if (hasReplacementStaging)
+                {
+                    hasUnknownEntry = true;
+                }
+                else
+                {
+                    hasReplacementStaging = true;
+                }
             }
             else
             {
@@ -1808,6 +1875,45 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
                 addDiagnostic("Project trash record identity does not match its container");
             }
             continue;
+        }
+        if (hasReplacementStaging)
+        {
+            constexpr ContentVerificationLimits k_replacementStagingLimits{k_maximumTrashRecordBytes,
+                                                                           k_maximumTrashRecordBytes};
+            Result<WorkspaceEntryFingerprint> replacementStagingFingerprint = m_workspace->fingerprint_entry(
+                *replacementStaging.try_value(), a_traversalLimits, k_replacementStagingLimits);
+            if (!replacementStagingFingerprint ||
+                replacementStagingFingerprint.try_value()->type != WorkspaceEntryType::RegularFile)
+            {
+                if (!replacementStagingFingerprint)
+                {
+                    addDiagnostic("Project trash record replacement staging could not be verified",
+                                  std::move(*replacementStagingFingerprint.try_error()));
+                }
+                else
+                {
+                    addDiagnostic("Project trash record replacement staging is not a regular file");
+                }
+                continue;
+            }
+            WorkspaceMutationResult removedReplacementStaging =
+                m_workspace->remove_file_or_empty_directory(*replacementStaging.try_value());
+            if (removedReplacementStaging.primaryError.has_value())
+            {
+                addDiagnostic("Project trash record replacement staging cleanup was not durable",
+                              std::move(*removedReplacementStaging.primaryError));
+            }
+            for (Error &diagnostic : removedReplacementStaging.secondaryDiagnostics)
+            {
+                addDiagnostic("Project trash record replacement staging cleanup reported a secondary failure",
+                              std::move(diagnostic));
+            }
+            if (removedReplacementStaging.outcome == WorkspaceMutationOutcome::NotCommitted ||
+                removedReplacementStaging.outcome == WorkspaceMutationOutcome::ReconciliationRequired)
+            {
+                addDiagnostic("Project trash record replacement staging could not be removed");
+                continue;
+            }
         }
         Result<RelativePath> original = RelativePath::parse(record.try_value()->originalPath, m_assertContext);
         if (!original)

@@ -3760,18 +3760,21 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::replace_file_atomic(
         return not_committed(std::move(*existing.try_error()));
     }
     BY_HANDLE_FILE_INFORMATION existingInformation{};
-    if (existing.try_value()->isDirectory ||
-        GetFileInformationByHandle(existing.try_value()->handle.get(), &existingInformation) == FALSE ||
-        existingInformation.nNumberOfLinks != 1U)
+    if (existing.try_value()->isDirectory)
     {
-        return not_committed(existing.try_value()->isDirectory
-                                 ? cue::make_io_error(m_assertContext, cue::IoError::TypeMismatch,
-                                                      "Workspace replacement destination is a directory")
-                             : existingInformation.nNumberOfLinks != 1U
-                                 ? cue::make_io_error(m_assertContext, cue::IoError::UnsupportedEntry,
-                                                      "Workspace replacement destination has multiple hard links")
-                                 : make_windows_error(m_assertContext, GetLastError(),
-                                                      "Workspace replacement destination inspection failed"));
+        return not_committed(cue::make_io_error(m_assertContext, cue::IoError::TypeMismatch,
+                                                "Workspace replacement destination is a directory"));
+    }
+    if (GetFileInformationByHandle(existing.try_value()->handle.get(), &existingInformation) == FALSE)
+    {
+        const DWORD inspectionCode = GetLastError();
+        return not_committed(
+            make_windows_error(m_assertContext, inspectionCode, "Workspace replacement destination inspection failed"));
+    }
+    if (existingInformation.nNumberOfLinks != 1U)
+    {
+        return not_committed(cue::make_io_error(m_assertContext, cue::IoError::UnsupportedEntry,
+                                                "Workspace replacement destination has multiple hard links"));
     }
 
     std::string stagingText;
@@ -4012,15 +4015,17 @@ cue::Result<cue::GuardedWorkspaceEntry> WindowsWorkspaceFilesystem::guard_entry(
             if (!childIsDirectory)
             {
                 BY_HANDLE_FILE_INFORMATION childInformation{};
-                if (GetFileInformationByHandle(openedChild.try_value()->handle.get(), &childInformation) == FALSE ||
-                    childInformation.nNumberOfLinks != 1U)
+                if (GetFileInformationByHandle(openedChild.try_value()->handle.get(), &childInformation) == FALSE)
+                {
+                    const DWORD inspectionCode = GetLastError();
+                    return cue::Result<cue::GuardedWorkspaceEntry>::failure(make_windows_error(
+                        m_assertContext, inspectionCode, "Workspace mutation guard child inspection failed"));
+                }
+                if (childInformation.nNumberOfLinks != 1U)
                 {
                     return cue::Result<cue::GuardedWorkspaceEntry>::failure(
-                        childInformation.nNumberOfLinks != 1U
-                            ? cue::make_io_error(m_assertContext, cue::IoError::UnsupportedEntry,
-                                                 "Workspace mutation guard child has multiple hard links")
-                            : make_windows_error(m_assertContext, GetLastError(),
-                                                 "Workspace mutation guard child inspection failed"));
+                        cue::make_io_error(m_assertContext, cue::IoError::UnsupportedEntry,
+                                           "Workspace mutation guard child has multiple hard links"));
                 }
             }
             childHandles.push_back(std::move(openedChild.try_value()->handle));
