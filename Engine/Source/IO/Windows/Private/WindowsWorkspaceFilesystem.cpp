@@ -202,6 +202,35 @@ class UniqueHandle final
     return cue::Result<std::wstring>::success(std::move(a_path));
 }
 
+/// @brief Windows Path PrefixをOrdinalな大小文字非依存で比較する
+[[nodiscard]] bool starts_with_ordinal_ignore_case(std::wstring_view a_text, std::wstring_view a_prefix) noexcept
+{
+    if (a_text.size() < a_prefix.size())
+    {
+        return false;
+    }
+    return CompareStringOrdinal(a_text.data(), static_cast<int>(a_prefix.size()), a_prefix.data(),
+                                static_cast<int>(a_prefix.size()), TRUE) == CSTR_EQUAL;
+}
+
+/// @brief 通常またはExtended形式のUNC Pathか判定する
+[[nodiscard]] bool is_unc_path(std::wstring_view a_path) noexcept
+{
+    const bool extendedPrefix = a_path.starts_with(L"\\\\?\\");
+    return (a_path.starts_with(L"\\\\") && !extendedPrefix) || starts_with_ordinal_ignore_case(a_path, L"\\\\?\\UNC\\");
+}
+
+/// @brief Local Drive Rootで保持すべき末尾Separator込み長を返す
+[[nodiscard]] std::size_t local_drive_root_length(std::wstring_view a_path) noexcept
+{
+    if (a_path.size() >= 7U && a_path.starts_with(L"\\\\?\\") && std::iswalpha(a_path[4U]) != 0 && a_path[5U] == L':' &&
+        (a_path[6U] == L'\\' || a_path[6U] == L'/'))
+    {
+        return 7U;
+    }
+    return 3U;
+}
+
 /// @brief Invalid UTF-16 Nameを安定した表示・Sort用16進表現へ変換する
 [[nodiscard]] std::string make_native_name_fallback(std::wstring_view a_name,
                                                     const cue::AssertContext &a_assertContext) noexcept
@@ -1050,9 +1079,7 @@ Result<std::unique_ptr<WorkspaceFilesystem>> create_windows_workspace_filesystem
             make_io_error(a_assertContext, IoError::InvalidPath, "Workspace root path contains NUL"));
     }
     const bool extendedPrefix = input.starts_with(L"\\\\?\\");
-    const bool extendedUnc = input.starts_with(L"\\\\?\\UNC\\") || input.starts_with(L"\\\\?\\unc\\");
-    const bool regularUnc = input.starts_with(L"\\\\") && !extendedPrefix;
-    if (extendedUnc || regularUnc)
+    if (is_unc_path(input))
     {
         return Result<std::unique_ptr<WorkspaceFilesystem>>::failure(
             make_io_error(a_assertContext, IoError::UnsupportedEntry, "UNC workspace roots are not supported"));
@@ -1095,7 +1122,8 @@ Result<std::unique_ptr<WorkspaceFilesystem>> create_windows_workspace_filesystem
             make_windows_error(a_assertContext, GetLastError(), "Workspace root absolute path resolution failed"));
     }
     absolute.resize(written);
-    while (absolute.size() > 3U && (absolute.back() == L'\\' || absolute.back() == L'/'))
+    const std::size_t rootLength = local_drive_root_length(absolute);
+    while (absolute.size() > rootLength && (absolute.back() == L'\\' || absolute.back() == L'/'))
     {
         absolute.pop_back();
     }
@@ -1154,6 +1182,24 @@ Result<std::unique_ptr<WorkspaceFilesystem>> create_windows_workspace_filesystem
             make_windows_error(a_assertContext, GetLastError(), "Workspace root final path query failed"));
     }
     finalPath.resize(finalWritten);
+    if (is_unc_path(finalPath))
+    {
+        return Result<std::unique_ptr<WorkspaceFilesystem>>::failure(make_io_error(
+            a_assertContext, IoError::UnsupportedEntry, "Resolved workspace root is on a remote filesystem"));
+    }
+    const std::size_t finalDriveOffset = finalPath.starts_with(L"\\\\?\\") ? 4U : 0U;
+    if (finalPath.size() < finalDriveOffset + 3U || std::iswalpha(finalPath[finalDriveOffset]) == 0 ||
+        finalPath[finalDriveOffset + 1U] != L':')
+    {
+        return Result<std::unique_ptr<WorkspaceFilesystem>>::failure(make_io_error(
+            a_assertContext, IoError::UnsupportedEntry, "Resolved workspace root is not on a local drive"));
+    }
+    const std::array<wchar_t, 4U> finalDriveRoot{finalPath[finalDriveOffset], L':', L'\\', L'\0'};
+    if (GetDriveTypeW(finalDriveRoot.data()) == DRIVE_REMOTE)
+    {
+        return Result<std::unique_ptr<WorkspaceFilesystem>>::failure(
+            make_io_error(a_assertContext, IoError::UnsupportedEntry, "Resolved workspace root is on a remote drive"));
+    }
 
     constexpr std::size_t k_directoryPatternCharacters = 4U;
     if (finalPath.size() > k_maxWindowsPathLength - k_directoryPatternCharacters)
