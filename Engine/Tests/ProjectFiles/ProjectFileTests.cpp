@@ -395,6 +395,27 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
            std::count(outcomes.begin(), outcomes.end(), 2) == 1 && has_no_staging_entries(a_directory);
 }
 
+[[nodiscard]] bool test_missing_source_root(const cue::ProjectDescriptor &a_descriptor,
+                                            const cue::AssertContext &a_assertContext)
+{
+    TestDirectory directory;
+    if (!directory.is_created() || RemoveDirectoryW(directory.child(L"Assets\\Source").c_str()) == FALSE)
+    {
+        return false;
+    }
+    auto workspace = cue::create_windows_workspace_filesystem(directory.utf8_path(), a_assertContext);
+    if (!workspace)
+    {
+        return false;
+    }
+    std::vector<std::string> ids{"99999999-9999-4999-8999-999999999999"};
+    auto service = cue::project_files::ProjectFileService::create(a_descriptor, std::move(*workspace.try_value()),
+                                                                  make_id_source(a_assertContext, std::move(ids)),
+                                                                  a_assertContext);
+    return !service &&
+           has_project_file_error(service.try_error(), cue::project_files::ProjectFileError::InvalidRequest);
+}
+
 [[nodiscard]] bool test_invalid_operation_id(const TestDirectory &a_directory,
                                              const cue::ProjectDescriptor &a_descriptor,
                                              const cue::AssertContext &a_assertContext)
@@ -455,6 +476,10 @@ int main()
     if (!test_invalid_operation_id(directory, *descriptor.try_value(), assertContext))
     {
         return 5;
+    }
+    if (!test_missing_source_root(*descriptor.try_value(), assertContext))
+    {
+        return 6;
     }
     return 0;
 }

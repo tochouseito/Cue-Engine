@@ -144,6 +144,17 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
         return cue::Result<cue::DirectorySnapshot>::success(std::move(snapshot));
     }
 
+    /// @brief Test Doubleが所有するDirectory Capabilityを実在扱いで検証する
+    [[nodiscard]] cue::Result<void> verify_directory(const cue::WorkspaceDirectory &a_directory) noexcept override
+    {
+        if (!owns_directory(a_directory))
+        {
+            return cue::Result<void>::failure(cue::make_io_error(
+                *m_assertContext, cue::IoError::OutsideRoot, "Workspace core test directory belongs to another root"));
+        }
+        return cue::Result<void>::success();
+    }
+
     /// @brief この列挙専用Test DoubleではMutationを未対応として返す
     [[nodiscard]] cue::WorkspaceMutationResult create_directory_new(const cue::BoundWorkspacePath &,
                                                                     std::string_view) noexcept override

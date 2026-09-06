@@ -210,6 +210,14 @@ Result<ProjectFileService> ProjectFileService::create(const ProjectDescriptor &a
             classify_project_file_error(*sourceRoot.try_error(), WorkspaceMutationOutcome::NotCommitted),
             "Project source assets root could not be bound", std::move(*sourceRoot.try_error())));
     }
+    Result<void> verifiedSourceRoot = a_workspace->verify_directory(*sourceRoot.try_value());
+    if (!verifiedSourceRoot)
+    {
+        return Result<ProjectFileService>::failure(reclassify_project_file_error(
+            a_assertContext,
+            classify_project_file_error(*verifiedSourceRoot.try_error(), WorkspaceMutationOutcome::NotCommitted),
+            "Project source assets root is unavailable", std::move(*verifiedSourceRoot.try_error())));
+    }
 
     ProjectFileService service(std::move(*projectId.try_value()), std::move(roots),
                                ProjectFileAccessPolicy::editor_default(), std::move(a_workspace),

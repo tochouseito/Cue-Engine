@@ -675,6 +675,9 @@ class WindowsWorkspaceFilesystem final : public cue::WorkspaceFilesystem
     [[nodiscard]] cue::Result<cue::DirectorySnapshot> list_directory(const cue::WorkspaceDirectory &a_directory,
                                                                      cue::TraversalLimits a_limits) noexcept override;
 
+    /// @brief CapabilityのDirectory ChainをIdentity固定して実在検証する
+    [[nodiscard]] cue::Result<void> verify_directory(const cue::WorkspaceDirectory &a_directory) noexcept override;
+
     /// @brief Sibling Staging DirectoryをWrite-through RenameしてCreate-newする
     [[nodiscard]] cue::WorkspaceMutationResult create_directory_new(const cue::BoundWorkspacePath &a_destination,
                                                                     std::string_view a_operationId) noexcept override;
@@ -964,6 +967,21 @@ cue::Result<std::vector<UniqueHandle>> WindowsWorkspaceFilesystem::prepare_mutat
     }
     pinned.try_value()->back() = std::move(mutationParent);
     return cue::Result<std::vector<UniqueHandle>>::success(std::move(*pinned.try_value()));
+}
+
+cue::Result<void> WindowsWorkspaceFilesystem::verify_directory(const cue::WorkspaceDirectory &a_directory) noexcept
+{
+    cue::Result<std::vector<UniqueHandle>> pinned = pin_directory_chain(a_directory);
+    if (!pinned)
+    {
+        return cue::Result<void>::failure(std::move(*pinned.try_error()));
+    }
+    if (a_directory.locator() != nullptr && pinned.try_value()->empty())
+    {
+        return cue::Result<void>::failure(cue::make_io_error(m_assertContext, cue::IoError::PreconditionFailed,
+                                                             "Workspace directory verification was incomplete"));
+    }
+    return cue::Result<void>::success();
 }
 
 cue::Result<cue::WorkspaceEntry> WindowsWorkspaceFilesystem::make_entry(
@@ -1380,32 +1398,13 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_directory_new(
         nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
     if (!stagingHandle.is_valid())
     {
-        cue::WorkspaceMutationResult result = not_committed(
+        return reconciliation_required(
             make_windows_error(m_assertContext, GetLastError(), "Workspace staging directory open failed"));
-        if (RemoveDirectoryW(staging.try_value()->c_str()) == FALSE)
-        {
-            append_secondary(
-                result,
-                make_windows_error(m_assertContext, GetLastError(), "Workspace staging directory cleanup failed"),
-                m_assertContext);
-            result.outcome = cue::WorkspaceMutationOutcome::ReconciliationRequired;
-        }
-        return result;
     }
     cue::Result<RootIdentity> identity = read_entry_identity(stagingHandle.get(), m_assertContext);
     if (!identity)
     {
-        cue::WorkspaceMutationResult result = not_committed(std::move(*identity.try_error()));
-        stagingHandle.reset();
-        if (RemoveDirectoryW(staging.try_value()->c_str()) == FALSE)
-        {
-            append_secondary(
-                result,
-                make_windows_error(m_assertContext, GetLastError(), "Workspace staging directory cleanup failed"),
-                m_assertContext);
-            result.outcome = cue::WorkspaceMutationOutcome::ReconciliationRequired;
-        }
-        return result;
+        return reconciliation_required(std::move(*identity.try_error()));
     }
     const RootIdentity expected = *identity.try_value();
     stagingHandle.reset();
@@ -1506,16 +1505,7 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_file_new_atomic(
     cue::Result<RootIdentity> identity = read_entry_identity(stagingHandle.get(), m_assertContext);
     if (!identity)
     {
-        cue::WorkspaceMutationResult result = not_committed(std::move(*identity.try_error()));
-        stagingHandle.reset();
-        if (DeleteFileW(staging.try_value()->c_str()) == FALSE)
-        {
-            append_secondary(
-                result, make_windows_error(m_assertContext, GetLastError(), "Workspace temporary file cleanup failed"),
-                m_assertContext);
-            result.outcome = cue::WorkspaceMutationOutcome::ReconciliationRequired;
-        }
-        return result;
+        return reconciliation_required(std::move(*identity.try_error()));
     }
     const RootIdentity expected = *identity.try_value();
 

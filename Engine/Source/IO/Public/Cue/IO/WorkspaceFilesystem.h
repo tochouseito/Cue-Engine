@@ -184,6 +184,9 @@ class WorkspaceFilesystem
     [[nodiscard]] virtual Result<DirectorySnapshot> list_directory(const WorkspaceDirectory &a_directory,
                                                                    TraversalLimits a_limits) noexcept = 0;
 
+    /// @brief Directory Capabilityが現在も同じRoot内の通常Directoryを指すか検証する
+    [[nodiscard]] virtual Result<void> verify_directory(const WorkspaceDirectory &a_directory) noexcept = 0;
+
     /// @brief Operation所有Sibling Directoryを経由し、既存Entryを上書きせずDirectoryを公開する
     [[nodiscard]] virtual WorkspaceMutationResult create_directory_new(const BoundWorkspacePath &a_destination,
                                                                        std::string_view a_operationId) noexcept = 0;
