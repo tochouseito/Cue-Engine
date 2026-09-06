@@ -613,31 +613,72 @@ struct NativeEntryObservation final
                                   ERROR_SUCCESS};
 }
 
-/// @brief Operation所有Temporaryが同じIdentityなら削除し、失敗をSecondary診断へ保持する
+/// @brief Operation所有Temporaryを同一HandleでIdentity確認して削除予約する
 void cleanup_owned_temporary(std::wstring_view a_path, const RootIdentity &a_identity, bool a_isDirectory,
                              cue::WorkspaceMutationResult &a_result, const cue::AssertContext &a_assertContext) noexcept
 {
-    const NativeEntryObservation observed = observe_native_entry(a_path, a_identity, a_isDirectory);
-    if (observed.state == NativeEntryObservationState::Missing)
+    const DWORD flags = FILE_FLAG_OPEN_REPARSE_POINT | (a_isDirectory ? FILE_FLAG_BACKUP_SEMANTICS : 0U);
+    UniqueHandle cleanupHandle(CreateFileW(a_path.data(), DELETE | FILE_READ_ATTRIBUTES,
+                                           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, flags, nullptr));
+    if (!cleanupHandle.is_valid())
     {
-        return;
-    }
-    if (observed.state != NativeEntryObservationState::Matches)
-    {
-        const DWORD code =
-            observed.state == NativeEntryObservationState::QueryFailed ? observed.nativeCode : ERROR_INVALID_DATA;
-        append_secondary(a_result, make_windows_error(a_assertContext, code, "Workspace temporary cleanup was unsafe"),
+        const DWORD code = GetLastError();
+        if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND)
+        {
+            return;
+        }
+        append_secondary(a_result, make_windows_error(a_assertContext, code, "Workspace temporary cleanup open failed"),
                          a_assertContext);
         a_result.outcome = cue::WorkspaceMutationOutcome::ReconciliationRequired;
         return;
     }
 
-    const BOOL removed = a_isDirectory ? RemoveDirectoryW(a_path.data()) : DeleteFileW(a_path.data());
-    if (removed == FALSE)
+    BY_HANDLE_FILE_INFORMATION information{};
+    if (GetFileInformationByHandle(cleanupHandle.get(), &information) == FALSE)
+    {
+        append_secondary(
+            a_result,
+            make_windows_error(a_assertContext, GetLastError(), "Workspace temporary cleanup inspection failed"),
+            a_assertContext);
+        a_result.outcome = cue::WorkspaceMutationOutcome::ReconciliationRequired;
+        return;
+    }
+    const bool isDirectory = (information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U;
+    const bool isReparse = (information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U;
+    const bool identityMatches = information.dwVolumeSerialNumber == a_identity.volumeSerial &&
+                                 information.nFileIndexHigh == a_identity.fileIndexHigh &&
+                                 information.nFileIndexLow == a_identity.fileIndexLow;
+    if (!identityMatches || isDirectory != a_isDirectory || isReparse)
+    {
+        append_secondary(
+            a_result, make_windows_error(a_assertContext, ERROR_INVALID_DATA, "Workspace temporary cleanup was unsafe"),
+            a_assertContext);
+        a_result.outcome = cue::WorkspaceMutationOutcome::ReconciliationRequired;
+        return;
+    }
+
+    FILE_DISPOSITION_INFO disposition{};
+    disposition.DeleteFile = TRUE;
+    if (SetFileInformationByHandle(cleanupHandle.get(), FileDispositionInfo, &disposition, sizeof(disposition)) ==
+        FALSE)
     {
         append_secondary(a_result,
                          make_windows_error(a_assertContext, GetLastError(), "Workspace temporary cleanup failed"),
                          a_assertContext);
+        a_result.outcome = cue::WorkspaceMutationOutcome::ReconciliationRequired;
+        return;
+    }
+    cleanupHandle.reset();
+
+    const NativeEntryObservation completion = observe_native_entry(a_path, a_identity, a_isDirectory);
+    if (completion.state != NativeEntryObservationState::Missing)
+    {
+        const DWORD code =
+            completion.state == NativeEntryObservationState::QueryFailed ? completion.nativeCode : ERROR_INVALID_DATA;
+        append_secondary(
+            a_result,
+            make_windows_error(a_assertContext, code, "Workspace temporary cleanup completion was not confirmed"),
+            a_assertContext);
         a_result.outcome = cue::WorkspaceMutationOutcome::ReconciliationRequired;
     }
 }
@@ -971,6 +1012,11 @@ cue::Result<std::vector<UniqueHandle>> WindowsWorkspaceFilesystem::prepare_mutat
 
 cue::Result<void> WindowsWorkspaceFilesystem::verify_directory(const cue::WorkspaceDirectory &a_directory) noexcept
 {
+    if (!owns_directory(a_directory))
+    {
+        return cue::Result<void>::failure(cue::make_io_error(m_assertContext, cue::IoError::OutsideRoot,
+                                                             "Workspace directory belongs to another root binding"));
+    }
     cue::Result<std::vector<UniqueHandle>> pinned = pin_directory_chain(a_directory);
     if (!pinned)
     {

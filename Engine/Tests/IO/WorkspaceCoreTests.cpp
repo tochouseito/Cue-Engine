@@ -282,6 +282,7 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
         return false;
     }
     auto crossWorkspace = second.list_directory(*firstDirectory.try_value(), second.hard_limits());
+    auto crossVerification = second.verify_directory(*firstDirectory.try_value());
 
     FakeWorkspaceFilesystem limited(a_assertContext, 4U);
     auto tooLongLocator = cue::RelativePath::parse("Folder", a_assertContext);
@@ -291,6 +292,7 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
     }
     auto tooLong = limited.bind_directory(std::move(*tooLongLocator.try_value()), a_assertContext);
     return has_io_error(crossWorkspace, cue::IoError::OutsideRoot) &&
+           has_io_error(crossVerification, cue::IoError::OutsideRoot) &&
            has_io_error(tooLong, cue::IoError::CapacityExceeded);
 }
 } // namespace
