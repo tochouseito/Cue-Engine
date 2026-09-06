@@ -3254,6 +3254,32 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
         return result;
     };
 
+    /// @brief Publish結果を観測できない場合に候補Dataを保持して照合要求を返す
+    const auto reconcilePublishFailure = [&](DWORD a_publishCode, DWORD a_observationCode,
+                                             std::string_view a_publishMessage,
+                                             std::string_view a_observationMessage) noexcept
+    {
+        cue::WorkspaceMutationResult result =
+            reconciliation_required(make_windows_error(m_assertContext, a_publishCode, a_publishMessage));
+        append_secondary(result, make_windows_error(m_assertContext, a_observationCode, a_observationMessage),
+                         m_assertContext);
+        cue::Result<void> parentStable = finish_mutation_parent_guards(*destinationParentGuards.try_value());
+        if (!parentStable)
+        {
+            append_secondary(result, std::move(*parentStable.try_error()), m_assertContext);
+        }
+        if (sourceTreeGuard)
+        {
+            cue::Result<void> sourceStable = finish_directory_change_guard(*sourceTreeGuard, m_assertContext);
+            sourceTreeGuard.reset();
+            if (!sourceStable)
+            {
+                append_secondary(result, std::move(*sourceStable.try_error()), m_assertContext);
+            }
+        }
+        return result;
+    };
+
     if (!source.try_value()->isDirectory)
     {
         cue::Result<std::vector<std::byte>> sourceBytes =
@@ -3531,6 +3557,12 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
         {
             const NativeEntryObservation observed =
                 observe_native_entry(*destinationPath.try_value(), stagingIdentity, true);
+            if (observed.state == NativeEntryObservationState::QueryFailed)
+            {
+                return reconcilePublishFailure(publishCode, observed.nativeCode,
+                                               "Workspace directory copy publish failed",
+                                               "Workspace directory copy publish result could not be observed");
+            }
             if (observed.state != NativeEntryObservationState::Matches)
             {
                 return cleanupFailure(
@@ -3564,6 +3596,11 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::copy_entry_new(const cu
         {
             const NativeEntryObservation observed =
                 observe_native_entry(*destinationPath.try_value(), stagingIdentity, false);
+            if (observed.state == NativeEntryObservationState::QueryFailed)
+            {
+                return reconcilePublishFailure(publishCode, observed.nativeCode, "Workspace file copy publish failed",
+                                               "Workspace file copy publish result could not be observed");
+            }
             if (observed.state != NativeEntryObservationState::Matches)
             {
                 return cleanupFailure(
