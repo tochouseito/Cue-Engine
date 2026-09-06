@@ -8,6 +8,7 @@
 
 namespace
 {
+/// @brief noexcept境界でのAllocation失敗をFatal終了へ変換する
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_assertContext) noexcept
 {
     a_assertContext.fatal_handler().terminate("Project file service allocation failed");
@@ -17,12 +18,16 @@ namespace
 class BusyReset final
 {
   public:
+    /// @brief Scope中の再入Mutationを拒否するBusy状態を開始する
     explicit BusyReset(bool &a_isBusy) noexcept : m_isBusy(&a_isBusy)
     {
         *m_isBusy = true;
     }
+    /// @brief 単一Busy状態の解除責務を保つためCopy構築を禁止する
     BusyReset(const BusyReset &) = delete;
+    /// @brief 単一Busy状態の解除責務を保つためCopy代入を禁止する
     BusyReset &operator=(const BusyReset &) = delete;
+    /// @brief Scope終了時にBusy状態を解除する
     ~BusyReset()
     {
         *m_isBusy = false;
@@ -32,6 +37,7 @@ class BusyReset final
     bool *m_isBusy;
 };
 
+/// @brief IO ErrorとMutation結果をProject File Errorへ分類する
 [[nodiscard]] cue::project_files::ProjectFileError classify_project_file_error(
     const cue::Error &a_error, cue::WorkspaceMutationOutcome a_outcome) noexcept
 {
@@ -69,6 +75,7 @@ class BusyReset final
     return cue::project_files::ProjectFileError::StorageFailure;
 }
 
+/// @brief IO Mutation結果をProject File Operation結果へ変換する
 [[nodiscard]] cue::project_files::ProjectFileOperationOutcome convert_outcome(
     cue::WorkspaceMutationOutcome a_outcome) noexcept
 {
