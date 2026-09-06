@@ -464,8 +464,8 @@ class WindowsWorkspaceFilesystem final : public cue::WorkspaceFilesystem
     [[nodiscard]] cue::Result<void> verify_root_identity() const noexcept;
 
     /// @brief 対象Directoryまでの全Componentを非Reparse DirectoryとしてPinする
-    [[nodiscard]] cue::Result<std::vector<UniqueHandle>> pin_directory_chain(const cue::WorkspaceDirectory &a_directory,
-                                                                             std::wstring &a_targetPath) const noexcept;
+    [[nodiscard]] cue::Result<std::vector<UniqueHandle>> pin_directory_chain(
+        const cue::WorkspaceDirectory &a_directory) const noexcept;
 
     /// @brief Find Data一件を検証済みPortable Entryへ変換する
     [[nodiscard]] cue::Result<cue::WorkspaceEntry> make_entry(const cue::WorkspaceDirectory &a_directory,
@@ -506,7 +506,7 @@ cue::Result<void> WindowsWorkspaceFilesystem::verify_root_identity() const noexc
 }
 
 cue::Result<std::vector<UniqueHandle>> WindowsWorkspaceFilesystem::pin_directory_chain(
-    const cue::WorkspaceDirectory &a_directory, std::wstring &a_targetPath) const noexcept
+    const cue::WorkspaceDirectory &a_directory) const noexcept
 {
     cue::Result<void> rootIdentity = verify_root_identity();
     if (!rootIdentity)
@@ -517,7 +517,6 @@ cue::Result<std::vector<UniqueHandle>> WindowsWorkspaceFilesystem::pin_directory
     std::vector<UniqueHandle> pinned;
     try
     {
-        a_targetPath = m_rootPath;
         const cue::BoundWorkspacePath *locator = a_directory.locator();
         if (locator == nullptr)
         {
@@ -529,11 +528,82 @@ cue::Result<std::vector<UniqueHandle>> WindowsWorkspaceFilesystem::pin_directory
         {
             const std::size_t separator = remaining.find('/');
             const std::string_view component = remaining.substr(0U, separator);
-            a_targetPath.push_back(L'\\');
-            a_targetPath.append(component.begin(), component.end());
-            UniqueHandle handle(CreateFileW(a_targetPath.c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
-                                            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
-                                            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+            cue::Result<std::wstring> nativeComponent = to_utf16(component, m_assertContext);
+            if (!nativeComponent)
+            {
+                return cue::Result<std::vector<UniqueHandle>>::failure(std::move(*nativeComponent.try_error()));
+            }
+
+            const HANDLE parentHandle = pinned.empty() ? m_rootHandle.get() : pinned.back().get();
+            cue::Result<NativeDirectoryEnumeration> before =
+                enumerate_directory_handle(parentHandle, k_windowsHardLimits.maxVisitedEntries,
+                                           k_windowsHardLimits.maxMetadataBytes, m_assertContext);
+            if (!before)
+            {
+                return cue::Result<std::vector<UniqueHandle>>::failure(std::move(*before.try_error()));
+            }
+            if (before.try_value()->interruptedCode.has_value())
+            {
+                return cue::Result<std::vector<UniqueHandle>>::failure(
+                    make_windows_error(m_assertContext, *before.try_value()->interruptedCode,
+                                       "Workspace directory chain enumeration was interrupted"));
+            }
+
+            const auto findComponent =
+                [&](const NativeDirectoryEnumeration &a_enumeration) noexcept -> const NativeDirectoryEntry *
+            {
+                for (const NativeDirectoryEntry &entry : a_enumeration.entries)
+                {
+                    if (entry.name == *nativeComponent.try_value())
+                    {
+                        return &entry;
+                    }
+                }
+
+                const NativeDirectoryEntry *caseInsensitive = nullptr;
+                for (const NativeDirectoryEntry &entry : a_enumeration.entries)
+                {
+                    if (CompareStringOrdinal(entry.name.data(), static_cast<int>(entry.name.size()),
+                                             nativeComponent.try_value()->data(),
+                                             static_cast<int>(nativeComponent.try_value()->size()), TRUE) == CSTR_EQUAL)
+                    {
+                        if (caseInsensitive != nullptr)
+                        {
+                            return nullptr;
+                        }
+                        caseInsensitive = &entry;
+                    }
+                }
+                return caseInsensitive;
+            };
+
+            const NativeDirectoryEntry *entry = findComponent(*before.try_value());
+            if (entry == nullptr)
+            {
+                return cue::Result<std::vector<UniqueHandle>>::failure(cue::make_io_error(
+                    m_assertContext, cue::IoError::NotFound, "Workspace directory component was not found"));
+            }
+            if ((entry->attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U)
+            {
+                return cue::Result<std::vector<UniqueHandle>>::failure(
+                    cue::make_io_error(m_assertContext, cue::IoError::UnsupportedEntry,
+                                       "Workspace directory chain contains a reparse point"));
+            }
+            if ((entry->attributes & FILE_ATTRIBUTE_DIRECTORY) == 0U)
+            {
+                return cue::Result<std::vector<UniqueHandle>>::failure(cue::make_io_error(
+                    m_assertContext, cue::IoError::TypeMismatch, "Workspace directory chain contains a file"));
+            }
+
+            const LARGE_INTEGER expectedId = entry->fileId;
+            const DWORD expectedAttributes = entry->attributes;
+            FILE_ID_DESCRIPTOR descriptor{};
+            descriptor.dwSize = sizeof(descriptor);
+            descriptor.Type = FileIdType;
+            descriptor.FileId = expectedId;
+            UniqueHandle handle(OpenFileById(parentHandle, &descriptor, FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+                                             FILE_SHARE_READ, nullptr,
+                                             FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT));
             if (!handle.is_valid())
             {
                 return cue::Result<std::vector<UniqueHandle>>::failure(
@@ -545,16 +615,47 @@ cue::Result<std::vector<UniqueHandle>> WindowsWorkspaceFilesystem::pin_directory
                 return cue::Result<std::vector<UniqueHandle>>::failure(
                     make_windows_error(m_assertContext, GetLastError(), "Workspace directory inspection failed"));
             }
-            if ((information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+            LARGE_INTEGER actualId{};
+            actualId.HighPart = static_cast<LONG>(information.nFileIndexHigh);
+            actualId.LowPart = information.nFileIndexLow;
+            const DWORD typeMask = FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT;
+            if (!same_file_id(actualId, expectedId) ||
+                (information.dwFileAttributes & typeMask) != (expectedAttributes & typeMask))
+            {
+                return cue::Result<std::vector<UniqueHandle>>::failure(cue::make_io_error(
+                    m_assertContext, cue::IoError::OutsideRoot, "Workspace directory component identity changed"));
+            }
+            if ((information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U)
             {
                 return cue::Result<std::vector<UniqueHandle>>::failure(
                     cue::make_io_error(m_assertContext, cue::IoError::UnsupportedEntry,
                                        "Workspace directory chain contains a reparse point"));
             }
-            if ((information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
+            if ((information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0U)
             {
                 return cue::Result<std::vector<UniqueHandle>>::failure(cue::make_io_error(
                     m_assertContext, cue::IoError::TypeMismatch, "Workspace directory chain contains a file"));
+            }
+
+            cue::Result<NativeDirectoryEnumeration> after =
+                enumerate_directory_handle(parentHandle, k_windowsHardLimits.maxVisitedEntries,
+                                           k_windowsHardLimits.maxMetadataBytes, m_assertContext);
+            if (!after)
+            {
+                return cue::Result<std::vector<UniqueHandle>>::failure(std::move(*after.try_error()));
+            }
+            if (after.try_value()->interruptedCode.has_value())
+            {
+                return cue::Result<std::vector<UniqueHandle>>::failure(
+                    make_windows_error(m_assertContext, *after.try_value()->interruptedCode,
+                                       "Workspace directory chain verification was interrupted"));
+            }
+            const NativeDirectoryEntry *verified = findComponent(*after.try_value());
+            if (verified == nullptr || !same_file_id(verified->fileId, expectedId) ||
+                (verified->attributes & typeMask) != (expectedAttributes & typeMask))
+            {
+                return cue::Result<std::vector<UniqueHandle>>::failure(cue::make_io_error(
+                    m_assertContext, cue::IoError::OutsideRoot, "Workspace directory component identity changed"));
             }
             pinned.push_back(std::move(handle));
             if (separator == std::string_view::npos)
@@ -702,8 +803,7 @@ cue::Result<cue::DirectorySnapshot> WindowsWorkspaceFilesystem::list_directory(
 
     cue::DirectorySnapshot snapshot;
     snapshot.generation = m_nextGeneration++;
-    std::wstring targetPath;
-    cue::Result<std::vector<UniqueHandle>> pinned = pin_directory_chain(a_directory, targetPath);
+    cue::Result<std::vector<UniqueHandle>> pinned = pin_directory_chain(a_directory);
     if (!pinned)
     {
         return cue::Result<cue::DirectorySnapshot>::failure(std::move(*pinned.try_error()));
