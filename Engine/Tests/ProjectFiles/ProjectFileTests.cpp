@@ -228,14 +228,17 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
     }
     auto folder =
         service.create_directory(cue::project_files::ProjectFileArea::SourceAssets, std::move(*folderPath.try_value()));
-    if (!folder || folder.try_value()->outcome() != cue::project_files::ProjectFileOperationOutcome::Committed ||
+    if (!folder ||
+        folder.try_value()->outcome() !=
+            cue::project_files::ProjectFileOperationOutcome::CommittedButDurabilityUnknown ||
         folder.try_value()->operation_id() != "11111111-1111-4111-8111-111111111111" ||
         folder.try_value()->kind() != cue::project_files::ProjectFileOperationKind::DirectoryCreation ||
         folder.try_value()->area() != cue::project_files::ProjectFileArea::SourceAssets ||
         folder.try_value()->destination() != "CreatedFolder" ||
-        folder.try_value()->stage() != cue::project_files::ProjectFileOperationStage::Complete ||
-        folder.try_value()->try_primary_error() != nullptr || !folder.try_value()->secondary_diagnostics().empty() ||
-        folder.try_value()->rescan_directories().size() != 1U ||
+        folder.try_value()->stage() != cue::project_files::ProjectFileOperationStage::Verify ||
+        !has_project_file_error(folder.try_value()->try_primary_error(),
+                                cue::project_files::ProjectFileError::RecoveryRequired) ||
+        !folder.try_value()->secondary_diagnostics().empty() || folder.try_value()->rescan_directories().size() != 1U ||
         !folder.try_value()->rescan_directories()[0U].empty() ||
         GetFileAttributesW(a_directory.child(L"Assets\\Source\\CreatedFolder").c_str()) == INVALID_FILE_ATTRIBUTES)
     {
@@ -257,7 +260,10 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
     auto filePath = cue::RelativePath::parse("Created.bin", a_assertContext);
     auto file = service.create_file(cue::project_files::ProjectFileArea::SourceAssets, std::move(*filePath.try_value()),
                                     newBytes);
-    if (!file || file.try_value()->outcome() != cue::project_files::ProjectFileOperationOutcome::Committed ||
+    if (!file ||
+        file.try_value()->outcome() != cue::project_files::ProjectFileOperationOutcome::CommittedButDurabilityUnknown ||
+        !has_project_file_error(file.try_value()->try_primary_error(),
+                                cue::project_files::ProjectFileError::RecoveryRequired) ||
         read_file(a_directory.child(L"Assets\\Source\\Created.bin")) !=
             std::vector<std::byte>(newBytes.begin(), newBytes.end()))
     {
@@ -374,7 +380,8 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
                 {
                     return;
                 }
-                if (result.try_value()->outcome() == cue::project_files::ProjectFileOperationOutcome::Committed)
+                if (result.try_value()->outcome() ==
+                    cue::project_files::ProjectFileOperationOutcome::CommittedButDurabilityUnknown)
                 {
                     outcomes[index] = 1;
                 }

@@ -1556,7 +1556,10 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_directory_new(
         if (observed.state == NativeEntryObservationState::Matches)
         {
             cue::WorkspaceMutationResult result;
-            result.outcome = cue::WorkspaceMutationOutcome::Committed;
+            result.outcome = cue::WorkspaceMutationOutcome::CommittedButDurabilityUnknown;
+            result.primaryError =
+                cue::make_io_error(m_assertContext, cue::IoError::DurabilityUnknown,
+                                   "Workspace directory is visible but handle-based publish durability is unknown");
             return result;
         }
         const DWORD code =
@@ -1698,7 +1701,10 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_file_new_atomic(
         if (observed.state == NativeEntryObservationState::Matches)
         {
             cue::WorkspaceMutationResult result;
-            result.outcome = cue::WorkspaceMutationOutcome::Committed;
+            result.outcome = cue::WorkspaceMutationOutcome::CommittedButDurabilityUnknown;
+            result.primaryError =
+                cue::make_io_error(m_assertContext, cue::IoError::DurabilityUnknown,
+                                   "Workspace file is visible but handle-based publish durability is unknown");
             return result;
         }
         const DWORD code =
