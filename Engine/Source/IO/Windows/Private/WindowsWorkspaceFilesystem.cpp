@@ -1158,12 +1158,18 @@ Result<std::unique_ptr<WorkspaceFilesystem>> create_windows_workspace_filesystem
             make_io_error(a_assertContext, IoError::UnsupportedEntry, "Workspace root is a reparse point"));
     }
 
+    std::array<wchar_t, MAX_PATH + 1U> fileSystemName{};
     DWORD fileSystemFlags = 0U;
-    if (GetVolumeInformationByHandleW(root.get(), nullptr, 0U, nullptr, nullptr, &fileSystemFlags, nullptr, 0U) ==
-        FALSE)
+    if (GetVolumeInformationByHandleW(root.get(), nullptr, 0U, nullptr, nullptr, &fileSystemFlags,
+                                      fileSystemName.data(), static_cast<DWORD>(fileSystemName.size())) == FALSE)
     {
         return Result<std::unique_ptr<WorkspaceFilesystem>>::failure(
             make_windows_error(a_assertContext, GetLastError(), "Workspace volume capability query failed"));
+    }
+    if (CompareStringOrdinal(fileSystemName.data(), -1, L"NTFS", -1, TRUE) != CSTR_EQUAL)
+    {
+        return Result<std::unique_ptr<WorkspaceFilesystem>>::failure(
+            make_io_error(a_assertContext, IoError::UnsupportedEntry, "Workspace volume filesystem is not supported"));
     }
     if ((fileSystemFlags & FILE_SUPPORTS_OPEN_BY_FILE_ID) == 0U)
     {
