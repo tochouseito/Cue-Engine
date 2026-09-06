@@ -368,71 +368,111 @@ std::span<const Error> ProjectFileService::recovery_diagnostics() const noexcept
     return m_recoveryDiagnostics;
 }
 
-Result<void> ProjectFileService::ensure_trash_root(std::string_view a_operationId,
-                                                   std::vector<Error> &a_committedDiagnostics) noexcept
+WorkspaceMutationResult ProjectFileService::ensure_trash_root(std::string_view a_operationId) noexcept
 {
+    WorkspaceMutationResult aggregate;
+    aggregate.outcome = WorkspaceMutationOutcome::Committed;
+    /// @brief Commit済みStageの診断を発生順にAggregateへ移送する
+    const auto captureCommitted = [&](WorkspaceMutationResult &a_mutation) noexcept
+    {
+        try
+        {
+            if (a_mutation.primaryError.has_value())
+            {
+                if (!aggregate.primaryError.has_value())
+                {
+                    aggregate.primaryError = std::move(*a_mutation.primaryError);
+                }
+                else
+                {
+                    aggregate.secondaryDiagnostics.push_back(std::move(*a_mutation.primaryError));
+                }
+            }
+            for (Error &diagnostic : a_mutation.secondaryDiagnostics)
+            {
+                aggregate.secondaryDiagnostics.push_back(std::move(diagnostic));
+            }
+        }
+        catch (...)
+        {
+            terminate_allocation(m_assertContext);
+        }
+        if (a_mutation.outcome == WorkspaceMutationOutcome::CommittedButDurabilityUnknown)
+        {
+            aggregate.outcome = WorkspaceMutationOutcome::CommittedButDurabilityUnknown;
+        }
+    };
+    /// @brief 現在Stageの失敗をPrimaryに保ち、先行Commit診断をSecondaryへ移送する
+    const auto fail = [&](WorkspaceMutationOutcome a_outcome, Error a_primary,
+                          std::vector<Error> a_secondary = {}) noexcept -> WorkspaceMutationResult
+    {
+        try
+        {
+            if (aggregate.primaryError.has_value())
+            {
+                a_secondary.push_back(std::move(*aggregate.primaryError));
+            }
+            for (Error &diagnostic : aggregate.secondaryDiagnostics)
+            {
+                a_secondary.push_back(std::move(diagnostic));
+            }
+        }
+        catch (...)
+        {
+            terminate_allocation(m_assertContext);
+        }
+        WorkspaceMutationResult failed;
+        failed.outcome = a_outcome;
+        failed.primaryError = std::move(a_primary);
+        failed.secondaryDiagnostics = std::move(a_secondary);
+        return failed;
+    };
+
     constexpr std::array<std::string_view, 2U> k_directories{"Editor", "Editor/Trash"};
     for (const std::string_view text : k_directories)
     {
         Result<RelativePath> relative = RelativePath::parse(text, m_assertContext);
         if (!relative)
         {
-            return Result<void>::failure(std::move(*relative.try_error()));
+            return fail(WorkspaceMutationOutcome::NotCommitted, std::move(*relative.try_error()));
         }
         Result<BoundWorkspacePath> bound =
             m_workspace->bind_path(m_roots.saved(), std::move(*relative.try_value()), m_assertContext);
         if (!bound)
         {
-            return Result<void>::failure(std::move(*bound.try_error()));
+            return fail(WorkspaceMutationOutcome::NotCommitted, std::move(*bound.try_error()));
         }
         WorkspaceMutationResult created = m_workspace->create_directory_new(*bound.try_value(), a_operationId);
         const bool alreadyExists =
             created.primaryError.has_value() && is_io_error(*created.primaryError, IoError::AlreadyExists);
+        if (created.outcome == WorkspaceMutationOutcome::ReconciliationRequired)
+        {
+            Error primary = created.primaryError.has_value()
+                                ? std::move(*created.primaryError)
+                                : make_project_file_error(m_assertContext, ProjectFileError::RecoveryRequired,
+                                                          "Project trash directory creation requires reconciliation");
+            return fail(created.outcome, std::move(primary), std::move(created.secondaryDiagnostics));
+        }
         if (created.outcome == WorkspaceMutationOutcome::NotCommitted && !alreadyExists)
         {
-            try
-            {
-                for (Error &diagnostic : created.secondaryDiagnostics)
-                {
-                    a_committedDiagnostics.push_back(std::move(diagnostic));
-                }
-            }
-            catch (...)
-            {
-                terminate_allocation(m_assertContext);
-            }
-            return Result<void>::failure(created.primaryError.has_value()
-                                             ? std::move(*created.primaryError)
-                                             : make_project_file_error(m_assertContext,
-                                                                       ProjectFileError::StorageFailure,
-                                                                       "Project trash directory creation failed"));
+            Error primary = created.primaryError.has_value()
+                                ? std::move(*created.primaryError)
+                                : make_project_file_error(m_assertContext, ProjectFileError::StorageFailure,
+                                                          "Project trash directory creation failed");
+            return fail(created.outcome, std::move(primary), std::move(created.secondaryDiagnostics));
         }
-        if (!alreadyExists)
+        if (created.outcome != WorkspaceMutationOutcome::NotCommitted)
         {
-            try
-            {
-                if (created.primaryError.has_value())
-                {
-                    a_committedDiagnostics.push_back(std::move(*created.primaryError));
-                }
-                for (Error &diagnostic : created.secondaryDiagnostics)
-                {
-                    a_committedDiagnostics.push_back(std::move(diagnostic));
-                }
-            }
-            catch (...)
-            {
-                terminate_allocation(m_assertContext);
-            }
+            captureCommitted(created);
         }
         WorkspaceDirectory directory = WorkspaceDirectory::from_bound_path(std::move(*bound.try_value()));
         Result<void> verified = m_workspace->verify_directory(directory);
         if (!verified)
         {
-            return Result<void>::failure(std::move(*verified.try_error()));
+            return fail(WorkspaceMutationOutcome::ReconciliationRequired, std::move(*verified.try_error()));
         }
     }
-    return Result<void>::success();
+    return aggregate;
 }
 
 Result<std::vector<std::byte>> ProjectFileService::read_trash_record_bytes(std::string_view a_operationId) noexcept
@@ -635,13 +675,19 @@ Result<ProjectFileOperationResult> ProjectFileService::delete_entry(ProjectFileA
                     "Project file delete source verification failed", std::move(cause),
                     ProjectFileOperationOutcome::NotCommitted);
     }
-    Result<void> trashRoot = ensure_trash_root(operationId, committedDiagnostics);
-    if (!trashRoot)
+    WorkspaceMutationResult trashRoot = ensure_trash_root(operationId);
+    if (trashRoot.outcome == WorkspaceMutationOutcome::NotCommitted ||
+        trashRoot.outcome == WorkspaceMutationOutcome::ReconciliationRequired)
     {
-        return fail(ProjectFileOperationStage::PrepareRecovery, ProjectFileError::StorageFailure,
-                    "Project trash root preparation failed", std::move(*trashRoot.try_error()),
-                    ProjectFileOperationOutcome::NotCommitted);
+        Error cause = trashRoot.primaryError.has_value()
+                          ? std::move(*trashRoot.primaryError)
+                          : make_project_file_error(m_assertContext, ProjectFileError::StorageFailure,
+                                                    "Project trash root preparation failed");
+        const ProjectFileError classification = classify_project_file_error(cause, trashRoot.outcome);
+        return fail(ProjectFileOperationStage::PrepareRecovery, classification, "Project trash root preparation failed",
+                    std::move(cause), convert_outcome(trashRoot.outcome), std::move(trashRoot.secondaryDiagnostics));
     }
+    captureCommittedMutation(trashRoot);
 
     project_files_private::TrashRecord record;
     try
@@ -1278,13 +1324,22 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
     BusyReset busy(m_isBusy);
 
     constexpr std::string_view k_catalogOperationId = "00000000-0000-4000-8000-000000000001";
-    std::vector<Error> trashRootDiagnostics;
-    Result<void> trashRoot = ensure_trash_root(k_catalogOperationId, trashRootDiagnostics);
-    if (!trashRoot)
+    WorkspaceMutationResult trashRoot = ensure_trash_root(k_catalogOperationId);
+    if (trashRoot.outcome == WorkspaceMutationOutcome::NotCommitted ||
+        trashRoot.outcome == WorkspaceMutationOutcome::ReconciliationRequired)
     {
-        return Result<void>::failure(reclassify_project_file_error(m_assertContext, ProjectFileError::StorageFailure,
-                                                                   "Project trash root preparation failed",
-                                                                   std::move(*trashRoot.try_error())));
+        Error cause = trashRoot.primaryError.has_value()
+                          ? std::move(*trashRoot.primaryError)
+                          : make_project_file_error(m_assertContext, ProjectFileError::StorageFailure,
+                                                    "Project trash root preparation failed");
+        for (const Error &diagnostic : trashRoot.secondaryDiagnostics)
+        {
+            cause.append_secondary_diagnostics(
+                m_assertContext, diagnostic, "Project trash root preparation also reported a diagnostic", "TrashRoot");
+        }
+        const ProjectFileError classification = classify_project_file_error(cause, trashRoot.outcome);
+        return Result<void>::failure(reclassify_project_file_error(
+            m_assertContext, classification, "Project trash root preparation failed", std::move(cause)));
     }
     /// @brief Catalog EntryのSaved Root内PathをCapabilityへ変換する
     const auto bindSaved = [&](std::string_view a_path) noexcept -> Result<BoundWorkspacePath>
@@ -1328,9 +1383,13 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
             terminate_allocation(m_assertContext);
         }
     };
-    for (Error &diagnostic : trashRootDiagnostics)
+    if (trashRoot.primaryError.has_value())
     {
-        addDiagnostic("Project trash root preparation was not durable", std::move(diagnostic));
+        addDiagnostic("Project trash root preparation was not durable", std::move(*trashRoot.primaryError));
+    }
+    for (Error &diagnostic : trashRoot.secondaryDiagnostics)
+    {
+        addDiagnostic("Project trash root preparation reported a secondary failure", std::move(diagnostic));
     }
     if (snapshot.try_value()->state != WorkspaceSnapshotState::Complete)
     {
@@ -1610,6 +1669,16 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
             originalFingerprint && *originalFingerprint.try_value() == record.try_value()->fingerprint;
         const bool payloadMatches =
             payloadFingerprint && *payloadFingerprint.try_value() == record.try_value()->fingerprint;
+        if (!originalFingerprint && !originalMissing)
+        {
+            addDiagnostic("Project trash original entry fingerprint inspection failed",
+                          std::move(*originalFingerprint.try_error()));
+        }
+        if (!payloadFingerprint && !payloadMissing)
+        {
+            addDiagnostic("Project trash payload fingerprint inspection failed",
+                          std::move(*payloadFingerprint.try_error()));
+        }
 
         /// @brief 存在側EntryをRecord Fingerprintで固定してMutation Guardを取得する
         const auto guardMatchingEntry =

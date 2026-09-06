@@ -1,6 +1,7 @@
 #include <Cue/Foundation/Assert.h>
 #include <Cue/Foundation/Fatal.h>
 #include <Cue/Foundation/Log.h>
+#include <Cue/IO/Error.h>
 #include <Cue/IO/Windows/WindowsWorkspaceFilesystem.h>
 #include <Cue/Project/Descriptor.h>
 #include <Cue/ProjectFiles/Error.h>
@@ -224,6 +225,19 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
 {
     return a_error != nullptr && a_error->code().domain() == "Cue.ProjectFiles" &&
            a_error->code().value() == static_cast<std::int64_t>(a_code);
+}
+
+/// @brief Error列に指定IO Root Causeが含まれるか判定する
+[[nodiscard]] bool has_io_root_error(std::span<const cue::Error> a_errors, cue::IoError a_code) noexcept
+{
+    for (const cue::Error &error : a_errors)
+    {
+        if (error.root_code().domain() == "Cue.IO" && error.root_code().value() == static_cast<std::int64_t>(a_code))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 /// @brief File Delete、再起動Catalog、衝突、RestoreをEnd-to-Endで検証する
@@ -588,6 +602,41 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
            GetFileAttributesW(recordPath.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
+/// @brief Catalog FingerprintのCaller上限不足をRoot Cause付きReconciliation診断として保持する
+[[nodiscard]] bool test_fingerprint_failure_diagnostic(const TestDirectory &a_directory,
+                                                       const cue::ProjectDescriptor &a_descriptor,
+                                                       const cue::AssertContext &a_assertContext)
+{
+    constexpr std::string_view k_operationId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    constexpr cue::TraversalLimits k_traversal{16U, 1024U, 1024U, 1024U * 1024U};
+    constexpr cue::ContentVerificationLimits k_deleteContent{1024U * 1024U, 4U * 1024U * 1024U};
+    constexpr cue::ContentVerificationLimits k_insufficientContent{1U, 1U};
+    const std::array<std::byte, 4U> content{std::byte{'d'}, std::byte{'a'}, std::byte{'t'}, std::byte{'a'}};
+    if (!write_file(a_directory.child(L"Assets\\Source\\Limited.bin"), content))
+    {
+        return false;
+    }
+    auto service = make_service(a_directory, a_descriptor, a_assertContext, {std::string(k_operationId)});
+    auto source = cue::RelativePath::parse("Limited.bin", a_assertContext);
+    if (!service || !source)
+    {
+        return false;
+    }
+    auto deleted = service.try_value()->delete_entry(cue::project_files::ProjectFileArea::SourceAssets,
+                                                     std::move(*source.try_value()), k_traversal, k_deleteContent);
+    if (!deleted)
+    {
+        return false;
+    }
+
+    auto reopened = make_service(a_directory, a_descriptor, a_assertContext, {});
+    return reopened && reopened.try_value()->refresh_recovery_catalog(k_traversal, k_insufficientContent) &&
+           reopened.try_value()->recovery_entries().size() == 1U &&
+           reopened.try_value()->recovery_entries()[0U].state ==
+               cue::project_files::RecoveryEntryState::ReconciliationRequired &&
+           has_io_root_error(reopened.try_value()->recovery_diagnostics(), cue::IoError::CapacityExceeded);
+}
+
 /// @brief Crashで残った空ContainerとAllocating RecordだけのTrash StagingをCatalog更新時にCleanupする
 [[nodiscard]] bool test_empty_staging_cleanup(const TestDirectory &a_directory,
                                               const cue::ProjectDescriptor &a_descriptor,
@@ -638,15 +687,18 @@ int main()
     TestDirectory rejectedDirectory;
     TestDirectory reconciliationDirectory;
     TestDirectory allocatingMismatchDirectory;
+    TestDirectory fingerprintFailureDirectory;
     TestDirectory stagingDirectory;
     if (!descriptor || !fileDirectory.is_created() || !directoryDirectory.is_created() ||
         !rejectedDirectory.is_created() || !reconciliationDirectory.is_created() ||
         !allocatingMismatchDirectory.is_created() || !stagingDirectory.is_created() ||
+        !fingerprintFailureDirectory.is_created() ||
         !write_descriptor(fileDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(directoryDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(rejectedDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(reconciliationDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(allocatingMismatchDirectory, *descriptor.try_value(), assertContext) ||
+        !write_descriptor(fingerprintFailureDirectory, *descriptor.try_value(), assertContext) ||
         !write_descriptor(stagingDirectory, *descriptor.try_value(), assertContext))
     {
         return 1;
@@ -671,5 +723,9 @@ int main()
     {
         return 6;
     }
-    return test_empty_staging_cleanup(stagingDirectory, *descriptor.try_value(), assertContext) ? 0 : 7;
+    if (!test_fingerprint_failure_diagnostic(fingerprintFailureDirectory, *descriptor.try_value(), assertContext))
+    {
+        return 7;
+    }
+    return test_empty_staging_cleanup(stagingDirectory, *descriptor.try_value(), assertContext) ? 0 : 8;
 }
