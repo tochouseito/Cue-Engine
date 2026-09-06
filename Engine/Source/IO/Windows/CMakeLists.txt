@@ -4,11 +4,13 @@ target_sources(
     Cue.IO.Windows
     PRIVATE
         Private/WindowsFilesystem.cpp
+        Private/WindowsWorkspaceFilesystem.cpp
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS Public
         FILES
             Public/Cue/IO/Windows/WindowsFilesystem.h
+            Public/Cue/IO/Windows/WindowsWorkspaceFilesystem.h
 )
 
 target_link_libraries(
