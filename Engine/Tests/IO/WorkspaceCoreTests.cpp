@@ -144,6 +144,49 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
         return cue::Result<cue::DirectorySnapshot>::success(std::move(snapshot));
     }
 
+    /// @brief Test Doubleが所有するDirectory Capabilityを実在扱いで検証する
+    [[nodiscard]] cue::Result<void> verify_directory(const cue::WorkspaceDirectory &a_directory) noexcept override
+    {
+        if (!owns_directory(a_directory))
+        {
+            return cue::Result<void>::failure(cue::make_io_error(
+                *m_assertContext, cue::IoError::OutsideRoot, "Workspace core test directory belongs to another root"));
+        }
+        return cue::Result<void>::success();
+    }
+
+    /// @brief この列挙専用Test DoubleではFile読取りを未対応として返す
+    [[nodiscard]] cue::Result<std::vector<std::byte>> read_file_bounded(const cue::BoundWorkspacePath &,
+                                                                        std::size_t) noexcept override
+    {
+        return cue::Result<std::vector<std::byte>>::failure(
+            cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
+                               "Workspace core test double does not support file reading"));
+    }
+
+    /// @brief この列挙専用Test DoubleではMutationを未対応として返す
+    [[nodiscard]] cue::WorkspaceMutationResult create_directory_new(const cue::BoundWorkspacePath &,
+                                                                    std::string_view) noexcept override
+    {
+        cue::WorkspaceMutationResult result;
+        result.outcome = cue::WorkspaceMutationOutcome::NotCommitted;
+        result.primaryError = cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
+                                                 "Workspace core test double does not support mutation");
+        return result;
+    }
+
+    /// @brief この列挙専用Test DoubleではMutationを未対応として返す
+    [[nodiscard]] cue::WorkspaceMutationResult create_file_new_atomic(const cue::BoundWorkspacePath &,
+                                                                      std::span<const std::byte>,
+                                                                      std::string_view) noexcept override
+    {
+        cue::WorkspaceMutationResult result;
+        result.outcome = cue::WorkspaceMutationOutcome::NotCommitted;
+        result.primaryError = cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
+                                                 "Workspace core test double does not support mutation");
+        return result;
+    }
+
   private:
     const cue::AssertContext *m_assertContext;
     std::uint64_t m_nextGeneration = 1U;
@@ -248,6 +291,7 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
         return false;
     }
     auto crossWorkspace = second.list_directory(*firstDirectory.try_value(), second.hard_limits());
+    auto crossVerification = second.verify_directory(*firstDirectory.try_value());
 
     FakeWorkspaceFilesystem limited(a_assertContext, 4U);
     auto tooLongLocator = cue::RelativePath::parse("Folder", a_assertContext);
@@ -257,6 +301,7 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
     }
     auto tooLong = limited.bind_directory(std::move(*tooLongLocator.try_value()), a_assertContext);
     return has_io_error(crossWorkspace, cue::IoError::OutsideRoot) &&
+           has_io_error(crossVerification, cue::IoError::OutsideRoot) &&
            has_io_error(tooLong, cue::IoError::CapacityExceeded);
 }
 } // namespace
