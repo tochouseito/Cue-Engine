@@ -180,12 +180,20 @@ class WorkspaceFilesystem
     [[nodiscard]] Result<BoundWorkspacePath> bind_path(RelativePath a_areaRoot, RelativePath a_locator,
                                                        const AssertContext &a_assertContext) const noexcept;
 
+    /// @brief 検証済みRoot相対LocatorをこのWorkspace固有の内部PathへBindingする
+    [[nodiscard]] Result<BoundWorkspacePath> bind_root_path(RelativePath a_locator,
+                                                            const AssertContext &a_assertContext) const noexcept;
+
     /// @brief Directory直下を決定的に列挙する
     [[nodiscard]] virtual Result<DirectorySnapshot> list_directory(const WorkspaceDirectory &a_directory,
                                                                    TraversalLimits a_limits) noexcept = 0;
 
     /// @brief Directory Capabilityが現在も同じRoot内の通常Directoryを指すか検証する
     [[nodiscard]] virtual Result<void> verify_directory(const WorkspaceDirectory &a_directory) noexcept = 0;
+
+    /// @brief Root内Regular Fileを排他的な読取りSnapshotとして上限付きで取得する
+    [[nodiscard]] virtual Result<std::vector<std::byte>> read_file_bounded(const BoundWorkspacePath &a_source,
+                                                                           std::size_t a_maxBytes) noexcept = 0;
 
     /// @brief Operation所有Sibling Directoryを経由し、既存Entryを上書きせずDirectoryを公開する
     [[nodiscard]] virtual WorkspaceMutationResult create_directory_new(const BoundWorkspacePath &a_destination,

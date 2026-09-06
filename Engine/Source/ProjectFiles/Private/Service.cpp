@@ -8,6 +8,8 @@
 
 namespace
 {
+constexpr std::size_t k_maximumProjectDescriptorBytes = 1024U * 1024U;
+
 /// @brief noexcept境界でのAllocation失敗をFatal終了へ変換する
 [[noreturn]] void terminate_allocation(const cue::AssertContext &a_assertContext) noexcept
 {
@@ -192,6 +194,48 @@ Result<ProjectFileService> ProjectFileService::create(const ProjectDescriptor &a
         return Result<ProjectFileService>::failure(
             reclassify_project_file_error(a_assertContext, ProjectFileError::InvalidRequest,
                                           "Project descriptor is invalid", std::move(*validated.try_error())));
+    }
+
+    Result<RelativePath> descriptorLocator = RelativePath::parse("CueProject.json", a_assertContext);
+    if (!descriptorLocator)
+    {
+        return Result<ProjectFileService>::failure(reclassify_project_file_error(
+            a_assertContext, ProjectFileError::InvalidRequest, "Project descriptor locator is invalid",
+            std::move(*descriptorLocator.try_error())));
+    }
+    Result<BoundWorkspacePath> boundDescriptor =
+        a_workspace->bind_root_path(std::move(*descriptorLocator.try_value()), a_assertContext);
+    if (!boundDescriptor)
+    {
+        return Result<ProjectFileService>::failure(reclassify_project_file_error(
+            a_assertContext, ProjectFileError::InvalidRequest, "Project descriptor could not be bound to workspace",
+            std::move(*boundDescriptor.try_error())));
+    }
+    Result<std::vector<std::byte>> descriptorBytes =
+        a_workspace->read_file_bounded(*boundDescriptor.try_value(), k_maximumProjectDescriptorBytes);
+    if (!descriptorBytes)
+    {
+        return Result<ProjectFileService>::failure(reclassify_project_file_error(
+            a_assertContext,
+            classify_project_file_error(*descriptorBytes.try_error(), WorkspaceMutationOutcome::NotCommitted),
+            "Project descriptor could not be read from workspace", std::move(*descriptorBytes.try_error())));
+    }
+    const std::string_view descriptorText(reinterpret_cast<const char *>(descriptorBytes.try_value()->data()),
+                                          descriptorBytes.try_value()->size());
+    Result<ProjectDescriptor> workspaceDescriptor = parse_project_descriptor(descriptorText, a_assertContext);
+    if (!workspaceDescriptor || !a_descriptor.equivalent_to(*workspaceDescriptor.try_value()))
+    {
+        std::optional<Error> cause;
+        if (!workspaceDescriptor)
+        {
+            cause.emplace(std::move(*workspaceDescriptor.try_error()));
+        }
+        return Result<ProjectFileService>::failure(
+            cause.has_value()
+                ? reclassify_project_file_error(a_assertContext, ProjectFileError::InvalidRequest,
+                                                "Workspace project descriptor is invalid", std::move(*cause))
+                : make_project_file_error(a_assertContext, ProjectFileError::InvalidRequest,
+                                          "Workspace project descriptor does not match the requested project"));
     }
 
     Result<ProjectId> projectId = ProjectId::parse(a_descriptor.project_id().text(), a_assertContext);

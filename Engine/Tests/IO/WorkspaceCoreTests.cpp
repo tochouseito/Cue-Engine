@@ -155,6 +155,15 @@ class FakeWorkspaceFilesystem final : public cue::WorkspaceFilesystem
         return cue::Result<void>::success();
     }
 
+    /// @brief この列挙専用Test DoubleではFile読取りを未対応として返す
+    [[nodiscard]] cue::Result<std::vector<std::byte>> read_file_bounded(const cue::BoundWorkspacePath &,
+                                                                        std::size_t) noexcept override
+    {
+        return cue::Result<std::vector<std::byte>>::failure(
+            cue::make_io_error(*m_assertContext, cue::IoError::UnsupportedEntry,
+                               "Workspace core test double does not support file reading"));
+    }
+
     /// @brief この列挙専用Test DoubleではMutationを未対応として返す
     [[nodiscard]] cue::WorkspaceMutationResult create_directory_new(const cue::BoundWorkspacePath &,
                                                                     std::string_view) noexcept override

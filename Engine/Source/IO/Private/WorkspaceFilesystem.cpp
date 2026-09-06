@@ -197,6 +197,12 @@ Result<BoundWorkspacePath> WorkspaceFilesystem::bind_path(RelativePath a_areaRoo
     return append_path(*area.try_value(), std::move(a_locator), a_assertContext);
 }
 
+Result<BoundWorkspacePath> WorkspaceFilesystem::bind_root_path(RelativePath a_locator,
+                                                               const AssertContext &a_assertContext) const noexcept
+{
+    return append_path(WorkspaceDirectory::root(), std::move(a_locator), a_assertContext);
+}
+
 bool WorkspaceFilesystem::owns_directory(const WorkspaceDirectory &a_directory) const noexcept
 {
     const BoundWorkspacePath *locator = a_directory.locator();

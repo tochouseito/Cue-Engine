@@ -1208,6 +1208,10 @@ class WindowsWorkspaceFilesystem final : public cue::WorkspaceFilesystem
     /// @brief CapabilityのDirectory ChainをIdentity固定して実在検証する
     [[nodiscard]] cue::Result<void> verify_directory(const cue::WorkspaceDirectory &a_directory) noexcept override;
 
+    /// @brief Identity固定したRegular Fileを排他的に上限付き読取りする
+    [[nodiscard]] cue::Result<std::vector<std::byte>> read_file_bounded(const cue::BoundWorkspacePath &a_source,
+                                                                        std::size_t a_maxBytes) noexcept override;
+
     /// @brief Sibling Staging DirectoryをWrite-through RenameしてCreate-newする
     [[nodiscard]] cue::WorkspaceMutationResult create_directory_new(const cue::BoundWorkspacePath &a_destination,
                                                                     std::string_view a_operationId) noexcept override;
@@ -1611,6 +1615,151 @@ cue::Result<void> WindowsWorkspaceFilesystem::verify_directory(const cue::Worksp
                                                              "Workspace directory verification was incomplete"));
     }
     return cue::Result<void>::success();
+}
+
+cue::Result<std::vector<std::byte>> WindowsWorkspaceFilesystem::read_file_bounded(
+    const cue::BoundWorkspacePath &a_source, std::size_t a_maxBytes) noexcept
+{
+    if (!owns_path(a_source))
+    {
+        return cue::Result<std::vector<std::byte>>::failure(cue::make_io_error(
+            m_assertContext, cue::IoError::OutsideRoot, "Workspace file belongs to another root binding"));
+    }
+    if (a_maxBytes == 0U)
+    {
+        return cue::Result<std::vector<std::byte>>::failure(cue::make_io_error(
+            m_assertContext, cue::IoError::CapacityExceeded, "Workspace file read limit must be non-zero"));
+    }
+
+    cue::Result<cue::WorkspaceDirectory> parent = parent_directory(a_source, m_assertContext);
+    if (!parent)
+    {
+        return cue::Result<std::vector<std::byte>>::failure(std::move(*parent.try_error()));
+    }
+    cue::Result<std::vector<UniqueHandle>> pinned = pin_directory_chain(*parent.try_value());
+    if (!pinned)
+    {
+        return cue::Result<std::vector<std::byte>>::failure(std::move(*pinned.try_error()));
+    }
+    HANDLE parentHandle = pinned.try_value()->empty() ? m_rootHandle.get() : pinned.try_value()->back().get();
+
+    const std::size_t separator = a_source.text().rfind('/');
+    const std::string_view name =
+        separator == std::string_view::npos ? a_source.text() : a_source.text().substr(separator + 1U);
+    cue::Result<std::wstring> nativeName = to_utf16(name, m_assertContext);
+    if (!nativeName)
+    {
+        return cue::Result<std::vector<std::byte>>::failure(std::move(*nativeName.try_error()));
+    }
+    cue::Result<NativeDirectoryEnumeration> enumeration = enumerate_directory_handle_stable(
+        parentHandle, k_windowsHardLimits.maxVisitedEntries, k_windowsHardLimits.maxMetadataBytes, m_assertContext);
+    if (!enumeration)
+    {
+        return cue::Result<std::vector<std::byte>>::failure(std::move(*enumeration.try_error()));
+    }
+    if (enumeration.try_value()->interruptedCode.has_value())
+    {
+        return cue::Result<std::vector<std::byte>>::failure(
+            make_windows_error(m_assertContext, *enumeration.try_value()->interruptedCode,
+                               "Workspace file parent enumeration was interrupted"));
+    }
+
+    const NativeDirectoryEntry *matched = nullptr;
+    std::size_t matchingNames = 0U;
+    for (const NativeDirectoryEntry &entry : enumeration.try_value()->entries)
+    {
+        const int comparison =
+            CompareStringOrdinal(entry.name.data(), static_cast<int>(entry.name.size()), nativeName.try_value()->data(),
+                                 static_cast<int>(nativeName.try_value()->size()), TRUE);
+        if (comparison == 0)
+        {
+            return cue::Result<std::vector<std::byte>>::failure(
+                make_windows_error(m_assertContext, GetLastError(), "Workspace file name comparison failed"));
+        }
+        if (comparison == CSTR_EQUAL)
+        {
+            ++matchingNames;
+            if (entry.name == *nativeName.try_value())
+            {
+                matched = &entry;
+            }
+        }
+    }
+    if (matchingNames != 1U || matched == nullptr)
+    {
+        const cue::IoError code = matchingNames == 0U ? cue::IoError::NotFound : cue::IoError::PreconditionFailed;
+        return cue::Result<std::vector<std::byte>>::failure(
+            cue::make_io_error(m_assertContext, code, "Workspace file name is missing or ambiguous"));
+    }
+    if ((matched->attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U)
+    {
+        return cue::Result<std::vector<std::byte>>::failure(
+            cue::make_io_error(m_assertContext, cue::IoError::UnsupportedEntry, "Workspace file is a reparse point"));
+    }
+    if ((matched->attributes & FILE_ATTRIBUTE_DIRECTORY) != 0U)
+    {
+        return cue::Result<std::vector<std::byte>>::failure(
+            cue::make_io_error(m_assertContext, cue::IoError::TypeMismatch, "Workspace file is a directory"));
+    }
+
+    FILE_ID_DESCRIPTOR descriptor{};
+    descriptor.dwSize = sizeof(descriptor);
+    descriptor.Type = FileIdType;
+    descriptor.FileId = matched->fileId;
+    UniqueHandle file(OpenFileById(parentHandle, &descriptor, GENERIC_READ | FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+                                   nullptr, FILE_FLAG_OPEN_REPARSE_POINT));
+    if (!file.is_valid())
+    {
+        return cue::Result<std::vector<std::byte>>::failure(
+            make_windows_error(m_assertContext, GetLastError(), "Workspace file snapshot open failed"));
+    }
+
+    BY_HANDLE_FILE_INFORMATION information{};
+    LARGE_INTEGER size{};
+    if (GetFileInformationByHandle(file.get(), &information) == FALSE || GetFileSizeEx(file.get(), &size) == FALSE)
+    {
+        return cue::Result<std::vector<std::byte>>::failure(
+            make_windows_error(m_assertContext, GetLastError(), "Workspace file snapshot inspection failed"));
+    }
+    LARGE_INTEGER actualId{};
+    actualId.HighPart = static_cast<LONG>(information.nFileIndexHigh);
+    actualId.LowPart = information.nFileIndexLow;
+    if (!same_file_id(actualId, matched->fileId) ||
+        (information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U ||
+        (information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U)
+    {
+        return cue::Result<std::vector<std::byte>>::failure(cue::make_io_error(
+            m_assertContext, cue::IoError::PreconditionFailed, "Workspace file identity or type changed"));
+    }
+    if (size.QuadPart < 0 || static_cast<unsigned long long>(size.QuadPart) > a_maxBytes)
+    {
+        return cue::Result<std::vector<std::byte>>::failure(cue::make_io_error(
+            m_assertContext, cue::IoError::CapacityExceeded, "Workspace file exceeds the read limit"));
+    }
+
+    std::vector<std::byte> bytes;
+    try
+    {
+        bytes.resize(static_cast<std::size_t>(size.QuadPart));
+    }
+    catch (...)
+    {
+        terminate_allocation(m_assertContext);
+    }
+    std::size_t offset = 0U;
+    while (offset < bytes.size())
+    {
+        const DWORD requested = static_cast<DWORD>(
+            std::min(bytes.size() - offset, static_cast<std::size_t>(std::numeric_limits<DWORD>::max())));
+        DWORD read = 0U;
+        if (ReadFile(file.get(), bytes.data() + offset, requested, &read, nullptr) == FALSE || read != requested)
+        {
+            return cue::Result<std::vector<std::byte>>::failure(
+                make_windows_error(m_assertContext, GetLastError(), "Workspace file snapshot read failed"));
+        }
+        offset += read;
+    }
+    return cue::Result<std::vector<std::byte>>::success(std::move(bytes));
 }
 
 cue::Result<cue::WorkspaceEntry> WindowsWorkspaceFilesystem::make_entry(
