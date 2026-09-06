@@ -563,7 +563,7 @@ struct NativeDirectoryEnumeration final
                 }
             }
         }
-        else if (completionCode != ERROR_OPERATION_ABORTED)
+        else
         {
             return cue::Result<NativeDirectoryEnumeration>::failure(
                 make_windows_error(a_assertContext, completionCode, "Workspace directory watch query failed"));
