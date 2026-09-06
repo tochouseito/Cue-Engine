@@ -5686,7 +5686,8 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::remove_file_or_empty_di
         reopenedIdentity.try_value()->fileIndexHigh != expected.fileIndexHigh ||
         reopenedIdentity.try_value()->fileIndexLow != expected.fileIndexLow ||
         ((reopenedInformation.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U) != expectedDirectory ||
-        (reopenedInformation.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U)
+        (reopenedInformation.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U ||
+        (!expectedDirectory && reopenedInformation.nNumberOfLinks != 1U))
     {
         return not_committed(cue::make_io_error(m_assertContext, cue::IoError::PreconditionFailed,
                                                 "Workspace cleanup entry changed during reopen"));
