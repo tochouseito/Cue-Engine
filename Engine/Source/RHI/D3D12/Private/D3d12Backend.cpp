@@ -104,7 +104,7 @@ HRESULT signal_for_lifecycle_probe(ID3D12CommandQueue *a_queue, ID3D12Fence *a_f
         }
 
         g_reportDeviceRemovedForProbe = true;
-        return g_queueLifecycleProbeState.failSignalAfterForwarding ? E_FAIL : DXGI_ERROR_DEVICE_REMOVED;
+        return DXGI_ERROR_DEVICE_REMOVED;
     }
 
     const HRESULT result = cue::default_d3d12_queue_native_functions().signal(a_queue, a_fence, a_value);
@@ -2400,12 +2400,24 @@ bool verify_d3d12_present_signal_recovery_for_probe(const void *a_nativeWindow, 
             !a_failPresent || !a_removeBeforeSignal ||
             (frameError != nullptr &&
              has_error_contexts_in_order(*frameError, "Cue.RHI.D3D12/46", "Cue.RHI.D3D12/50") &&
-             has_error_context(*frameError, "NativeError=D3D12/"));
+             has_error_context(*frameError, "Secondary shutdown Error Cause NativeError=D3D12/-2005270523"));
+        const NativeError *immediateCauseNativeError = frameError == nullptr || frameError->causes().empty()
+                                                           ? nullptr
+                                                           : frameError->causes().front().try_native_error();
+        const bool directPresentNativeErrorValid =
+            !a_removeBeforePresent ||
+            (immediateCauseNativeError != nullptr &&
+             immediateCauseNativeError->value() == static_cast<std::int64_t>(DXGI_ERROR_DEVICE_REMOVED));
+        const bool regularSignalNativeErrorValid =
+            !a_removeBeforeSignal || a_failPresent ||
+            (immediateCauseNativeError != nullptr &&
+             immediateCauseNativeError->value() == static_cast<std::int64_t>(DXGI_ERROR_DEVICE_REMOVED));
         const bool frameValid =
             removalProbeAvailable && !frameResult && frameError != nullptr &&
             frameError->code().domain() == "Cue.RHI.D3D12" && frameError->code().value() == 52 &&
             frameError->try_native_error() != nullptr && !frameError->causes().empty() &&
             frameError->causes().front().code().value() == a_expectedCauseCode && recoverySignalErrorValid &&
+            directPresentNativeErrorValid && regularSignalNativeErrorValid &&
             presentationStateBeforeShutdown == PresentationContextState::DeviceRemoved &&
             backendStateBeforeShutdown == GraphicsBackendState::DeviceRemoved && report.lastSubmittedFence == 0 &&
             report.frameReuseFences[0] == 0 && report.frameReuseFences[1] == 0 && !report.isAcceptingFrames &&
