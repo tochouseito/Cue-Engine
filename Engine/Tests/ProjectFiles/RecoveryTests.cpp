@@ -335,14 +335,29 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
         read_file(a_directory.child(L"Assets\\Source\\Recover.bin")) !=
             std::vector<std::byte>(collisionBytes.begin(), collisionBytes.end()) ||
         read_file(a_directory.child(L"Saved\\Editor\\Trash\\11111111-1111-4111-8111-111111111111\\Payload")) !=
-            std::vector<std::byte>(originalBytes.begin(), originalBytes.end()) ||
-        DeleteFileW(a_directory.child(L"Assets\\Source\\Recover.bin").c_str()) == FALSE)
+            std::vector<std::byte>(originalBytes.begin(), originalBytes.end()))
     {
         std::fprintf(stderr, "file recovery: restore conflict failed; result=%d outcome=%d code=%lld\n",
                      conflict ? 1 : 0, conflict ? static_cast<int>(conflict.try_value()->outcome()) : -1,
                      conflict && conflict.try_value()->try_primary_error() != nullptr
                          ? static_cast<long long>(conflict.try_value()->try_primary_error()->code().value())
                          : -1LL);
+        return false;
+    }
+    auto conflictCatalog = reopened.try_value()->refresh_recovery_catalog(k_traversal, k_content);
+    if (!conflictCatalog || reopened.try_value()->recovery_entries().size() != 1U ||
+        reopened.try_value()->recovery_entries()[0U].state !=
+            cue::project_files::RecoveryEntryState::ReconciliationRequired ||
+        DeleteFileW(a_directory.child(L"Assets\\Source\\Recover.bin").c_str()) == FALSE)
+    {
+        std::fprintf(stderr, "file recovery: restore conflict did not preserve its reconciliation record\n");
+        return false;
+    }
+    auto recoverableCatalog = reopened.try_value()->refresh_recovery_catalog(k_traversal, k_content);
+    if (!recoverableCatalog || reopened.try_value()->recovery_entries().size() != 1U ||
+        reopened.try_value()->recovery_entries()[0U].state != cue::project_files::RecoveryEntryState::Recoverable)
+    {
+        std::fprintf(stderr, "file recovery: conflict removal did not restore recoverable catalog state\n");
         return false;
     }
     auto restored = reopened.try_value()->restore(k_operationId, k_traversal, k_content);

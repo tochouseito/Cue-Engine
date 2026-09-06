@@ -1129,6 +1129,24 @@ Result<ProjectFileOperationResult> ProjectFileService::restore(std::string_view 
                     "Project trash payload verification failed", std::move(*payloadGuard.try_error()),
                     ProjectFileOperationOutcome::NotCommitted);
     }
+    /// @brief Restore失敗時にPayload Guardを確定し、変更検出診断を保持する
+    const auto finishFailureGuard = [&](std::vector<Error> &a_secondary) noexcept -> bool
+    {
+        Result<void> finished = m_workspace->finish_entry_mutation_guard(std::move(*payloadGuard.try_value()));
+        if (finished)
+        {
+            return true;
+        }
+        try
+        {
+            a_secondary.push_back(std::move(*finished.try_error()));
+        }
+        catch (...)
+        {
+            terminate_allocation(m_assertContext);
+        }
+        return false;
+    };
 
     record.try_value()->state = project_files_private::TrashRecordState::Restoring;
     Result<std::vector<std::byte>> restoring =
@@ -1144,9 +1162,13 @@ Result<ProjectFileOperationResult> ProjectFileService::restore(std::string_view 
         Error cause = !restoring  ? std::move(*restoring.try_error())
                       : !restored ? std::move(*restored.try_error())
                                   : std::move(*trashed.try_error());
+        std::vector<Error> secondary;
+        const bool guardFinished = finishFailureGuard(secondary);
         return fail(ProjectFileOperationStage::PrepareRecovery, ProjectFileError::RecoveryRequired,
                     "Project restore record serialization failed", std::move(cause),
-                    ProjectFileOperationOutcome::NotCommitted);
+                    guardFinished ? ProjectFileOperationOutcome::NotCommitted
+                                  : ProjectFileOperationOutcome::ReconciliationRequired,
+                    std::move(secondary));
     }
     WorkspaceMutationResult wroteRestoring =
         m_workspace->replace_file_atomic(*boundRecord.try_value(), *restoring.try_value(), operationId);
@@ -1157,9 +1179,13 @@ Result<ProjectFileOperationResult> ProjectFileService::restore(std::string_view 
                           ? std::move(*wroteRestoring.primaryError)
                           : make_project_file_error(m_assertContext, ProjectFileError::RecoveryRequired,
                                                     "Project restore checkpoint write failed");
+        std::vector<Error> secondary = std::move(wroteRestoring.secondaryDiagnostics);
+        const bool guardFinished = finishFailureGuard(secondary);
         return fail(ProjectFileOperationStage::UpdateRecoveryRecord, ProjectFileError::RecoveryRequired,
                     "Project restore checkpoint write failed", std::move(cause),
-                    convert_outcome(wroteRestoring.outcome), std::move(wroteRestoring.secondaryDiagnostics));
+                    guardFinished ? convert_outcome(wroteRestoring.outcome)
+                                  : ProjectFileOperationOutcome::ReconciliationRequired,
+                    std::move(secondary));
     }
     captureCommittedMutation(wroteRestoring);
 
@@ -1167,9 +1193,29 @@ Result<ProjectFileOperationResult> ProjectFileService::restore(std::string_view 
                                                                       *boundDestination.try_value());
     if (moved.outcome == WorkspaceMutationOutcome::NotCommitted)
     {
+        std::vector<Error> secondary = std::move(moved.secondaryDiagnostics);
+        Result<void> guardFinished = m_workspace->finish_entry_mutation_guard(std::move(*payloadGuard.try_value()));
+        if (!guardFinished)
+        {
+            try
+            {
+                if (moved.primaryError.has_value())
+                {
+                    secondary.push_back(std::move(*moved.primaryError));
+                }
+            }
+            catch (...)
+            {
+                terminate_allocation(m_assertContext);
+            }
+            return fail(ProjectFileOperationStage::Verify, ProjectFileError::RecoveryRequired,
+                        "Project trash payload changed after an unsuccessful restore",
+                        std::move(*guardFinished.try_error()), ProjectFileOperationOutcome::ReconciliationRequired,
+                        std::move(secondary));
+        }
+
         WorkspaceMutationResult reverted =
             m_workspace->replace_file_atomic(*boundRecord.try_value(), *trashed.try_value(), operationId);
-        std::vector<Error> secondary = std::move(moved.secondaryDiagnostics);
         try
         {
             for (Error &diagnostic : reverted.secondaryDiagnostics)
@@ -1210,13 +1256,15 @@ Result<ProjectFileOperationResult> ProjectFileService::restore(std::string_view 
     }
     if (moved.outcome == WorkspaceMutationOutcome::ReconciliationRequired)
     {
+        std::vector<Error> secondary = std::move(moved.secondaryDiagnostics);
+        static_cast<void>(finishFailureGuard(secondary));
         Error cause = moved.primaryError.has_value()
                           ? std::move(*moved.primaryError)
                           : make_project_file_error(m_assertContext, ProjectFileError::RecoveryRequired,
                                                     "Project restore rename requires reconciliation");
         return fail(ProjectFileOperationStage::Verify, ProjectFileError::RecoveryRequired,
                     "Project restore rename requires reconciliation", std::move(cause),
-                    ProjectFileOperationOutcome::ReconciliationRequired, std::move(moved.secondaryDiagnostics));
+                    ProjectFileOperationOutcome::ReconciliationRequired, std::move(secondary));
     }
     captureCommittedMutation(moved);
     WorkspaceMutationResult wroteRestored =
@@ -1228,9 +1276,11 @@ Result<ProjectFileOperationResult> ProjectFileService::restore(std::string_view 
                           ? std::move(*wroteRestored.primaryError)
                           : make_project_file_error(m_assertContext, ProjectFileError::RecoveryRequired,
                                                     "Project restore final record write requires reconciliation");
+        std::vector<Error> secondary = std::move(wroteRestored.secondaryDiagnostics);
+        static_cast<void>(finishFailureGuard(secondary));
         return fail(ProjectFileOperationStage::UpdateRecoveryRecord, ProjectFileError::RecoveryRequired,
                     "Project restore final record write failed", std::move(cause),
-                    ProjectFileOperationOutcome::ReconciliationRequired, std::move(wroteRestored.secondaryDiagnostics));
+                    ProjectFileOperationOutcome::ReconciliationRequired, std::move(secondary));
     }
     captureCommittedMutation(wroteRestored);
 
@@ -1743,6 +1793,13 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
                 addDiagnostic("Project trash cleanup entry guard could not be acquired", std::move(*guard.try_error()));
                 return false;
             }
+            Result<void> finished = m_workspace->finish_entry_mutation_guard(std::move(*guard.try_value()));
+            if (!finished)
+            {
+                addDiagnostic("Project trash cleanup entry changed before removing its record",
+                              std::move(*finished.try_error()));
+                return false;
+            }
             WorkspaceMutationResult removedRecord =
                 m_workspace->remove_file_or_empty_directory(*boundRecord.try_value());
             if (removedRecord.primaryError.has_value())
@@ -1759,13 +1816,6 @@ Result<void> ProjectFileService::refresh_recovery_catalog(TraversalLimits a_trav
                 removedRecord.outcome == WorkspaceMutationOutcome::ReconciliationRequired)
             {
                 addDiagnostic("Project trash completed record cleanup failed");
-                return false;
-            }
-            Result<void> finished = m_workspace->finish_entry_mutation_guard(std::move(*guard.try_value()));
-            if (!finished)
-            {
-                addDiagnostic("Project trash cleanup entry changed while removing its record",
-                              std::move(*finished.try_error()));
                 return false;
             }
             WorkspaceMutationResult removedOperation =
