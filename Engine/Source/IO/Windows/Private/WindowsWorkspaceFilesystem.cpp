@@ -544,10 +544,12 @@ struct NativeDirectoryEnumeration final
         DWORD completionCode = GetLastError();
         if (completionCode == ERROR_IO_INCOMPLETE)
         {
-            if (CancelIoEx(watchHandle.get(), &overlapped) == FALSE && GetLastError() != ERROR_NOT_FOUND)
+            const bool cancellationSucceeded = CancelIoEx(watchHandle.get(), &overlapped) != FALSE;
+            const DWORD cancellationCode = cancellationSucceeded ? ERROR_SUCCESS : GetLastError();
+            if (!cancellationSucceeded && cancellationCode != ERROR_NOT_FOUND)
             {
                 return cue::Result<NativeDirectoryEnumeration>::failure(make_windows_error(
-                    a_assertContext, GetLastError(), "Workspace directory watch cancellation failed"));
+                    a_assertContext, cancellationCode, "Workspace directory watch cancellation failed"));
             }
             if (GetOverlappedResult(watchHandle.get(), &overlapped, &transferred, TRUE) != FALSE)
             {
@@ -556,7 +558,7 @@ struct NativeDirectoryEnumeration final
             else
             {
                 completionCode = GetLastError();
-                if (completionCode != ERROR_OPERATION_ABORTED)
+                if (completionCode != ERROR_OPERATION_ABORTED || !cancellationSucceeded)
                 {
                     return cue::Result<NativeDirectoryEnumeration>::failure(make_windows_error(
                         a_assertContext, completionCode, "Workspace directory watch completion failed"));
@@ -1075,6 +1077,8 @@ class WindowsWorkspaceFilesystem final : public cue::WorkspaceFilesystem
     /// @brief 親DirectoryをPinし、DestinationとStagingのNative Pathを構築する
     [[nodiscard]] cue::Result<std::vector<UniqueHandle>> prepare_mutation_parent(
         const cue::BoundWorkspacePath &a_destination) const noexcept;
+    [[nodiscard]] cue::Result<void> verify_mutation_parent_chain(
+        const cue::BoundWorkspacePath &a_destination, const std::vector<UniqueHandle> &a_expected) const noexcept;
 
     cue::AssertContext m_assertContext;
     std::wstring m_rootPath;
@@ -1327,6 +1331,48 @@ cue::Result<std::vector<UniqueHandle>> WindowsWorkspaceFilesystem::prepare_mutat
     }
     pinned.try_value()->back() = std::move(mutationParent);
     return cue::Result<std::vector<UniqueHandle>>::success(std::move(*pinned.try_value()));
+}
+
+cue::Result<void> WindowsWorkspaceFilesystem::verify_mutation_parent_chain(
+    const cue::BoundWorkspacePath &a_destination, const std::vector<UniqueHandle> &a_expected) const noexcept
+{
+    cue::Result<cue::WorkspaceDirectory> parent = parent_directory(a_destination, m_assertContext);
+    if (!parent)
+    {
+        return cue::Result<void>::failure(std::move(*parent.try_error()));
+    }
+    cue::Result<std::vector<UniqueHandle>> current = pin_directory_chain(*parent.try_value());
+    if (!current)
+    {
+        return cue::Result<void>::failure(std::move(*current.try_error()));
+    }
+    if (current.try_value()->size() != a_expected.size())
+    {
+        return cue::Result<void>::failure(cue::make_io_error(m_assertContext, cue::IoError::OutsideRoot,
+                                                             "Workspace mutation parent chain length changed"));
+    }
+
+    for (std::size_t index = 0U; index < a_expected.size(); ++index)
+    {
+        cue::Result<RootIdentity> expected = read_entry_identity(a_expected[index].get(), m_assertContext);
+        cue::Result<RootIdentity> observed = read_entry_identity((*current.try_value())[index].get(), m_assertContext);
+        if (!expected)
+        {
+            return cue::Result<void>::failure(std::move(*expected.try_error()));
+        }
+        if (!observed)
+        {
+            return cue::Result<void>::failure(std::move(*observed.try_error()));
+        }
+        if (expected.try_value()->volumeSerial != observed.try_value()->volumeSerial ||
+            expected.try_value()->fileIndexHigh != observed.try_value()->fileIndexHigh ||
+            expected.try_value()->fileIndexLow != observed.try_value()->fileIndexLow)
+        {
+            return cue::Result<void>::failure(cue::make_io_error(m_assertContext, cue::IoError::OutsideRoot,
+                                                                 "Workspace mutation parent chain identity changed"));
+        }
+    }
+    return cue::Result<void>::success();
 }
 
 cue::Result<void> WindowsWorkspaceFilesystem::verify_directory(const cue::WorkspaceDirectory &a_directory) noexcept
@@ -1807,6 +1853,11 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_directory_new(
             {
                 return reconciliation_required(std::move(*uniqueDestination.try_error()));
             }
+            cue::Result<void> stableParent = verify_mutation_parent_chain(a_destination, *pinned.try_value());
+            if (!stableParent)
+            {
+                return reconciliation_required(std::move(*stableParent.try_error()));
+            }
             cue::WorkspaceMutationResult result;
             result.outcome = cue::WorkspaceMutationOutcome::CommittedButDurabilityUnknown;
             result.primaryError =
@@ -1830,6 +1881,11 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_directory_new(
         if (!uniqueDestination)
         {
             return reconciliation_required(std::move(*uniqueDestination.try_error()));
+        }
+        cue::Result<void> stableParent = verify_mutation_parent_chain(a_destination, *pinned.try_value());
+        if (!stableParent)
+        {
+            return reconciliation_required(std::move(*stableParent.try_error()));
         }
         cue::WorkspaceMutationResult result;
         result.outcome = cue::WorkspaceMutationOutcome::CommittedButDurabilityUnknown;
@@ -1983,6 +2039,11 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_file_new_atomic(
             {
                 return reconciliation_required(std::move(*uniqueDestination.try_error()));
             }
+            cue::Result<void> stableParent = verify_mutation_parent_chain(a_destination, *pinned.try_value());
+            if (!stableParent)
+            {
+                return reconciliation_required(std::move(*stableParent.try_error()));
+            }
             cue::WorkspaceMutationResult result;
             result.outcome = cue::WorkspaceMutationOutcome::CommittedButDurabilityUnknown;
             result.primaryError =
@@ -2006,6 +2067,11 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_file_new_atomic(
         if (!uniqueDestination)
         {
             return reconciliation_required(std::move(*uniqueDestination.try_error()));
+        }
+        cue::Result<void> stableParent = verify_mutation_parent_chain(a_destination, *pinned.try_value());
+        if (!stableParent)
+        {
+            return reconciliation_required(std::move(*stableParent.try_error()));
         }
         cue::WorkspaceMutationResult result;
         result.outcome = cue::WorkspaceMutationOutcome::CommittedButDurabilityUnknown;
