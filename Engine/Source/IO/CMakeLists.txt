@@ -6,6 +6,7 @@ target_sources(
         Private/Error.cpp
         Private/Filesystem.cpp
         Private/RelativePath.cpp
+        Private/WorkspaceFilesystem.cpp
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS Public
@@ -13,6 +14,7 @@ target_sources(
             Public/Cue/IO/Error.h
             Public/Cue/IO/Filesystem.h
             Public/Cue/IO/RelativePath.h
+            Public/Cue/IO/WorkspaceFilesystem.h
 )
 
 target_link_libraries(Cue.IO PUBLIC Cue.Foundation)
