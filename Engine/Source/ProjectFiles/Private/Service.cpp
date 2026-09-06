@@ -113,13 +113,17 @@ bool ProjectFileAccessPolicy::can_mutate(ProjectFileArea a_area) const noexcept
     return a_area == ProjectFileArea::SourceAssets;
 }
 
-ProjectFileOperationResult::ProjectFileOperationResult(
-    std::string a_operationId, ProjectFileOperationKind a_kind, ProjectFileArea a_area, std::string a_destination,
-    ProjectFileOperationStage a_stage, ProjectFileOperationOutcome a_outcome, std::optional<Error> a_primaryError,
-    std::vector<Error> a_secondaryDiagnostics, std::vector<std::string> a_rescanDirectories) noexcept
-    : m_operationId(std::move(a_operationId)), m_kind(a_kind), m_area(a_area), m_destination(std::move(a_destination)),
-      m_stage(a_stage), m_outcome(a_outcome), m_primaryError(std::move(a_primaryError)),
-      m_secondaryDiagnostics(std::move(a_secondaryDiagnostics)), m_rescanDirectories(std::move(a_rescanDirectories))
+ProjectFileOperationResult::ProjectFileOperationResult(std::string a_operationId, ProjectFileOperationKind a_kind,
+                                                       ProjectFileArea a_area, std::optional<std::string> a_source,
+                                                       std::string a_destination, ProjectFileOperationStage a_stage,
+                                                       ProjectFileOperationOutcome a_outcome,
+                                                       std::optional<Error> a_primaryError,
+                                                       std::vector<Error> a_secondaryDiagnostics,
+                                                       std::vector<std::string> a_rescanDirectories) noexcept
+    : m_operationId(std::move(a_operationId)), m_kind(a_kind), m_area(a_area), m_source(std::move(a_source)),
+      m_destination(std::move(a_destination)), m_stage(a_stage), m_outcome(a_outcome),
+      m_primaryError(std::move(a_primaryError)), m_secondaryDiagnostics(std::move(a_secondaryDiagnostics)),
+      m_rescanDirectories(std::move(a_rescanDirectories))
 {
 }
 
@@ -136,6 +140,11 @@ ProjectFileOperationKind ProjectFileOperationResult::kind() const noexcept
 ProjectFileArea ProjectFileOperationResult::area() const noexcept
 {
     return m_area;
+}
+
+std::optional<std::string_view> ProjectFileOperationResult::source() const noexcept
+{
+    return m_source.has_value() ? std::optional<std::string_view>(*m_source) : std::nullopt;
 }
 
 std::string_view ProjectFileOperationResult::destination() const noexcept
@@ -303,6 +312,31 @@ Result<ProjectFileOperationResult> ProjectFileService::create_file(ProjectFileAr
     return execute_create(ProjectFileOperationKind::FileCreation, a_area, std::move(a_destination), a_bytes);
 }
 
+Result<ProjectFileOperationResult> ProjectFileService::rename(ProjectFileArea a_area, RelativePath a_source,
+                                                              RelativePath a_destination,
+                                                              TraversalLimits a_limits) noexcept
+{
+    return execute_transfer(ProjectFileOperationKind::Rename, a_area, std::move(a_source), std::move(a_destination),
+                            a_limits, ContentVerificationLimits{1U, 1U});
+}
+
+Result<ProjectFileOperationResult> ProjectFileService::move(ProjectFileArea a_area, RelativePath a_source,
+                                                            RelativePath a_destination,
+                                                            TraversalLimits a_limits) noexcept
+{
+    return execute_transfer(ProjectFileOperationKind::Move, a_area, std::move(a_source), std::move(a_destination),
+                            a_limits, ContentVerificationLimits{1U, 1U});
+}
+
+Result<ProjectFileOperationResult> ProjectFileService::copy(ProjectFileArea a_area, RelativePath a_source,
+                                                            RelativePath a_destination,
+                                                            TraversalLimits a_traversalLimits,
+                                                            ContentVerificationLimits a_contentLimits) noexcept
+{
+    return execute_transfer(ProjectFileOperationKind::Copy, a_area, std::move(a_source), std::move(a_destination),
+                            a_traversalLimits, a_contentLimits);
+}
+
 Result<ProjectFileOperationResult> ProjectFileService::execute_create(ProjectFileOperationKind a_kind,
                                                                       ProjectFileArea a_area,
                                                                       RelativePath a_destination,
@@ -350,7 +384,7 @@ Result<ProjectFileOperationResult> ProjectFileService::execute_create(ProjectFil
     {
         std::optional<Error> primary(make_project_file_error(m_assertContext, ProjectFileError::ProtectedEntry,
                                                              "Project file area is protected from mutation"));
-        ProjectFileOperationResult result(std::move(operationId), a_kind, a_area, std::move(destination),
+        ProjectFileOperationResult result(std::move(operationId), a_kind, a_area, std::nullopt, std::move(destination),
                                           ProjectFileOperationStage::ValidateRequest,
                                           ProjectFileOperationOutcome::NotCommitted, std::move(primary), {}, {});
         return Result<ProjectFileOperationResult>::success(std::move(result));
@@ -363,7 +397,7 @@ Result<ProjectFileOperationResult> ProjectFileService::execute_create(ProjectFil
             classify_project_file_error(*bound.try_error(), WorkspaceMutationOutcome::NotCommitted);
         std::optional<Error> primary(reclassify_project_file_error(
             m_assertContext, classification, "Project file destination binding failed", std::move(*bound.try_error())));
-        ProjectFileOperationResult result(std::move(operationId), a_kind, a_area, std::move(destination),
+        ProjectFileOperationResult result(std::move(operationId), a_kind, a_area, std::nullopt, std::move(destination),
                                           ProjectFileOperationStage::BindDestination,
                                           ProjectFileOperationOutcome::NotCommitted, std::move(primary), {}, {});
         return Result<ProjectFileOperationResult>::success(std::move(result));
@@ -405,8 +439,168 @@ Result<ProjectFileOperationResult> ProjectFileService::execute_create(ProjectFil
             ? ProjectFileOperationStage::Complete
             : (mutation.outcome == WorkspaceMutationOutcome::NotCommitted ? ProjectFileOperationStage::NativePublish
                                                                           : ProjectFileOperationStage::Verify);
-    ProjectFileOperationResult result(std::move(operationId), a_kind, a_area, std::move(destination), stage,
-                                      convert_outcome(mutation.outcome), std::move(primary),
+    ProjectFileOperationResult result(std::move(operationId), a_kind, a_area, std::nullopt, std::move(destination),
+                                      stage, convert_outcome(mutation.outcome), std::move(primary),
+                                      std::move(mutation.secondaryDiagnostics), std::move(rescanDirectories));
+    return Result<ProjectFileOperationResult>::success(std::move(result));
+}
+
+Result<ProjectFileOperationResult> ProjectFileService::execute_transfer(
+    ProjectFileOperationKind a_kind, ProjectFileArea a_area, RelativePath a_source, RelativePath a_destination,
+    TraversalLimits a_traversalLimits, ContentVerificationLimits a_contentLimits) noexcept
+{
+    if (std::this_thread::get_id() != m_ownerThread)
+    {
+        return Result<ProjectFileOperationResult>::failure(make_project_file_error(
+            m_assertContext, ProjectFileError::InvalidRequest, "Project file service was called from another thread"));
+    }
+    if (m_isBusy)
+    {
+        return Result<ProjectFileOperationResult>::failure(make_project_file_error(
+            m_assertContext, ProjectFileError::Busy, "Project file mutation is already active"));
+    }
+    BusyReset busy(m_isBusy);
+
+    Result<std::string> generatedId = m_operationIdSource->next_operation_id();
+    if (!generatedId)
+    {
+        return Result<ProjectFileOperationResult>::failure(reclassify_project_file_error(
+            m_assertContext, ProjectFileError::InvalidRequest, "Project file operation id generation failed",
+            std::move(*generatedId.try_error())));
+    }
+    Result<ProjectId> validatedId = ProjectId::parse(*generatedId.try_value(), m_assertContext);
+    if (!validatedId)
+    {
+        return Result<ProjectFileOperationResult>::failure(
+            reclassify_project_file_error(m_assertContext, ProjectFileError::InvalidRequest,
+                                          "Project file operation id is invalid", std::move(*validatedId.try_error())));
+    }
+
+    std::string operationId = std::move(*generatedId.try_value());
+    std::string source;
+    std::string destination;
+    try
+    {
+        source.assign(a_source.text());
+        destination.assign(a_destination.text());
+    }
+    catch (...)
+    {
+        terminate_allocation(m_assertContext);
+    }
+
+    const std::string sourceKey = a_source.comparison_key(m_assertContext);
+    const std::string destinationKey = a_destination.comparison_key(m_assertContext);
+    const std::size_t sourceSeparator = source.rfind('/');
+    const std::size_t destinationSeparator = destination.rfind('/');
+    const std::string_view sourceParent = sourceSeparator == std::string::npos
+                                              ? std::string_view{}
+                                              : std::string_view(source).substr(0U, sourceSeparator);
+    const std::string_view destinationParent = destinationSeparator == std::string::npos
+                                                   ? std::string_view{}
+                                                   : std::string_view(destination).substr(0U, destinationSeparator);
+    const std::size_t sourceKeySeparator = sourceKey.rfind('/');
+    const std::size_t destinationKeySeparator = destinationKey.rfind('/');
+    const std::string_view sourceParentKey = sourceKeySeparator == std::string::npos
+                                                 ? std::string_view{}
+                                                 : std::string_view(sourceKey).substr(0U, sourceKeySeparator);
+    const std::string_view destinationParentKey =
+        destinationKeySeparator == std::string::npos
+            ? std::string_view{}
+            : std::string_view(destinationKey).substr(0U, destinationKeySeparator);
+    const bool samePath = source == destination;
+    const bool samePortablePath = sourceKey == destinationKey;
+    const bool destinationIsDescendant = destinationKey.size() > sourceKey.size() &&
+                                         destinationKey.starts_with(sourceKey) &&
+                                         destinationKey[sourceKey.size()] == '/';
+    const bool invalidKind = a_kind != ProjectFileOperationKind::Rename && a_kind != ProjectFileOperationKind::Move &&
+                             a_kind != ProjectFileOperationKind::Copy;
+    const bool wrongRenameParent = a_kind == ProjectFileOperationKind::Rename && sourceParent != destinationParent;
+    const bool wrongMoveParent = a_kind == ProjectFileOperationKind::Move && sourceParentKey == destinationParentKey;
+    const bool invalidCopyLimits = a_kind == ProjectFileOperationKind::Copy && !a_contentLimits.is_valid();
+    if (!m_policy.can_mutate(a_area) || invalidKind || !a_traversalLimits.is_valid() || invalidCopyLimits || samePath ||
+        (samePortablePath && a_kind != ProjectFileOperationKind::Rename) || wrongRenameParent || wrongMoveParent ||
+        destinationIsDescendant)
+    {
+        const ProjectFileError errorCode =
+            !m_policy.can_mutate(a_area) ? ProjectFileError::ProtectedEntry : ProjectFileError::InvalidRequest;
+        std::optional<Error> primary(make_project_file_error(
+            m_assertContext, errorCode,
+            !m_policy.can_mutate(a_area) ? "Project file area is protected from mutation"
+                                         : "Project file transfer request violates semantic preconditions"));
+        ProjectFileOperationResult result(std::move(operationId), a_kind, a_area, std::move(source),
+                                          std::move(destination), ProjectFileOperationStage::ValidateRequest,
+                                          ProjectFileOperationOutcome::NotCommitted, std::move(primary), {}, {});
+        return Result<ProjectFileOperationResult>::success(std::move(result));
+    }
+
+    Result<BoundWorkspacePath> boundSource = m_workspace->bind_path(area_root(a_area), a_source, m_assertContext);
+    if (!boundSource)
+    {
+        const ProjectFileError classification =
+            classify_project_file_error(*boundSource.try_error(), WorkspaceMutationOutcome::NotCommitted);
+        std::optional<Error> primary(reclassify_project_file_error(m_assertContext, classification,
+                                                                   "Project file source binding failed",
+                                                                   std::move(*boundSource.try_error())));
+        ProjectFileOperationResult result(std::move(operationId), a_kind, a_area, std::move(source),
+                                          std::move(destination), ProjectFileOperationStage::BindSource,
+                                          ProjectFileOperationOutcome::NotCommitted, std::move(primary), {}, {});
+        return Result<ProjectFileOperationResult>::success(std::move(result));
+    }
+    Result<BoundWorkspacePath> boundDestination =
+        m_workspace->bind_path(area_root(a_area), a_destination, m_assertContext);
+    if (!boundDestination)
+    {
+        const ProjectFileError classification =
+            classify_project_file_error(*boundDestination.try_error(), WorkspaceMutationOutcome::NotCommitted);
+        std::optional<Error> primary(reclassify_project_file_error(m_assertContext, classification,
+                                                                   "Project file destination binding failed",
+                                                                   std::move(*boundDestination.try_error())));
+        ProjectFileOperationResult result(std::move(operationId), a_kind, a_area, std::move(source),
+                                          std::move(destination), ProjectFileOperationStage::BindDestination,
+                                          ProjectFileOperationOutcome::NotCommitted, std::move(primary), {}, {});
+        return Result<ProjectFileOperationResult>::success(std::move(result));
+    }
+
+    WorkspaceMutationResult mutation =
+        a_kind == ProjectFileOperationKind::Copy
+            ? m_workspace->copy_entry_new(*boundSource.try_value(), *boundDestination.try_value(), a_traversalLimits,
+                                          a_contentLimits, operationId)
+            : m_workspace->rename_entry(*boundSource.try_value(), *boundDestination.try_value(), a_traversalLimits);
+    std::optional<Error> primary;
+    if (mutation.primaryError.has_value())
+    {
+        const ProjectFileError classification = classify_project_file_error(*mutation.primaryError, mutation.outcome);
+        primary.emplace(reclassify_project_file_error(m_assertContext, classification,
+                                                      "Project file transfer operation failed",
+                                                      std::move(*mutation.primaryError)));
+    }
+    else if (mutation.outcome != WorkspaceMutationOutcome::Committed)
+    {
+        primary.emplace(make_project_file_error(m_assertContext, ProjectFileError::RecoveryRequired,
+                                                "Project file transfer result requires reconciliation"));
+    }
+
+    std::vector<std::string> rescanDirectories;
+    try
+    {
+        rescanDirectories.emplace_back(sourceParent);
+        if (sourceParentKey != destinationParentKey)
+        {
+            rescanDirectories.emplace_back(destinationParent);
+        }
+    }
+    catch (...)
+    {
+        terminate_allocation(m_assertContext);
+    }
+    const ProjectFileOperationStage stage =
+        mutation.outcome == WorkspaceMutationOutcome::Committed
+            ? ProjectFileOperationStage::Complete
+            : (mutation.outcome == WorkspaceMutationOutcome::NotCommitted ? ProjectFileOperationStage::NativePublish
+                                                                          : ProjectFileOperationStage::Verify);
+    ProjectFileOperationResult result(std::move(operationId), a_kind, a_area, std::move(source), std::move(destination),
+                                      stage, convert_outcome(mutation.outcome), std::move(primary),
                                       std::move(mutation.secondaryDiagnostics), std::move(rescanDirectories));
     return Result<ProjectFileOperationResult>::success(std::move(result));
 }

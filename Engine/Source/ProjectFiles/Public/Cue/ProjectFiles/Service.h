@@ -30,13 +30,17 @@ enum class ProjectFileArea : std::uint8_t
 enum class ProjectFileOperationKind : std::uint8_t
 {
     DirectoryCreation,
-    FileCreation
+    FileCreation,
+    Rename,
+    Move,
+    Copy
 };
 
 /// @brief Project File操作が到達した処理段階
 enum class ProjectFileOperationStage : std::uint8_t
 {
     ValidateRequest,
+    BindSource,
     BindDestination,
     NativePublish,
     Verify,
@@ -111,6 +115,8 @@ class ProjectFileOperationResult final
     [[nodiscard]] ProjectFileOperationKind kind() const noexcept;
     /// @brief 操作対象のProject Areaを返す
     [[nodiscard]] ProjectFileArea area() const noexcept;
+    /// @brief Area Root相対Source Locatorが存在する場合だけ返す
+    [[nodiscard]] std::optional<std::string_view> source() const noexcept;
     /// @brief Area Root相対Destination Locatorを返す
     [[nodiscard]] std::string_view destination() const noexcept;
     /// @brief 操作が到達した最終Stageを返す
@@ -128,14 +134,15 @@ class ProjectFileOperationResult final
     friend class ProjectFileService;
     /// @brief Serviceが確定したOperation結果を全Field所有で構築する
     ProjectFileOperationResult(std::string a_operationId, ProjectFileOperationKind a_kind, ProjectFileArea a_area,
-                               std::string a_destination, ProjectFileOperationStage a_stage,
-                               ProjectFileOperationOutcome a_outcome, std::optional<Error> a_primaryError,
-                               std::vector<Error> a_secondaryDiagnostics,
+                               std::optional<std::string> a_source, std::string a_destination,
+                               ProjectFileOperationStage a_stage, ProjectFileOperationOutcome a_outcome,
+                               std::optional<Error> a_primaryError, std::vector<Error> a_secondaryDiagnostics,
                                std::vector<std::string> a_rescanDirectories) noexcept;
 
     std::string m_operationId;
     ProjectFileOperationKind m_kind;
     ProjectFileArea m_area;
+    std::optional<std::string> m_source;
     std::string m_destination;
     ProjectFileOperationStage m_stage;
     ProjectFileOperationOutcome m_outcome;
@@ -186,6 +193,21 @@ class ProjectFileService final
     [[nodiscard]] Result<ProjectFileOperationResult> create_file(ProjectFileArea a_area, RelativePath a_destination,
                                                                  std::span<const std::byte> a_bytes) noexcept;
 
+    /// @brief 同じ親Directory内でSource Entryの名前だけを変更する
+    [[nodiscard]] Result<ProjectFileOperationResult> rename(ProjectFileArea a_area, RelativePath a_source,
+                                                            RelativePath a_destination,
+                                                            TraversalLimits a_limits) noexcept;
+
+    /// @brief 同じProject Area内の別DirectoryへSource Entryを移動する
+    [[nodiscard]] Result<ProjectFileOperationResult> move(ProjectFileArea a_area, RelativePath a_source,
+                                                          RelativePath a_destination,
+                                                          TraversalLimits a_limits) noexcept;
+
+    /// @brief Source Entryを保持してCreate-new Copyを同じProject Areaへ公開する
+    [[nodiscard]] Result<ProjectFileOperationResult> copy(ProjectFileArea a_area, RelativePath a_source,
+                                                          RelativePath a_destination, TraversalLimits a_traversalLimits,
+                                                          ContentVerificationLimits a_contentLimits) noexcept;
+
   private:
     /// @brief 検証済みProject SnapshotとDependencyの所有権を受け取る
     ProjectFileService(ProjectId a_projectId, ProjectRoots a_roots, ProjectFileAccessPolicy a_policy,
@@ -197,6 +219,10 @@ class ProjectFileService final
     [[nodiscard]] Result<ProjectFileOperationResult> execute_create(ProjectFileOperationKind a_kind,
                                                                     ProjectFileArea a_area, RelativePath a_destination,
                                                                     std::span<const std::byte> a_bytes) noexcept;
+    /// @brief Transfer要求の共通検証、Native実行、結果変換を行う
+    [[nodiscard]] Result<ProjectFileOperationResult> execute_transfer(
+        ProjectFileOperationKind a_kind, ProjectFileArea a_area, RelativePath a_source, RelativePath a_destination,
+        TraversalLimits a_traversalLimits, ContentVerificationLimits a_contentLimits) noexcept;
     /// @brief Areaに対応する固定Root Locatorを返す
     [[nodiscard]] const RelativePath &area_root(ProjectFileArea a_area) const noexcept;
 

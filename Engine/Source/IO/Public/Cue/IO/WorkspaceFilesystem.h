@@ -91,6 +91,16 @@ struct TraversalLimits final
     [[nodiscard]] bool is_valid() const noexcept;
 };
 
+/// @brief Content FingerprintとCopy読取りの非Zero Byte上限
+struct ContentVerificationLimits final
+{
+    std::uint64_t maxFileBytes = 0U;
+    std::uint64_t maxTotalBytes = 0U;
+
+    /// @brief File単位とOperation合計の上限が非Zeroか判定する
+    [[nodiscard]] bool is_valid() const noexcept;
+};
+
 /// @brief Root自体または検証済みRoot相対Directoryを表す
 class WorkspaceDirectory final
 {
@@ -172,6 +182,9 @@ class WorkspaceFilesystem
     /// @brief Adapter固有Hard Limitを返す
     [[nodiscard]] virtual TraversalLimits hard_limits() const noexcept = 0;
 
+    /// @brief Adapter固有Content Verification Hard Limitを返す
+    [[nodiscard]] virtual ContentVerificationLimits hard_content_limits() const noexcept = 0;
+
     /// @brief 検証済みUser LocatorをこのWorkspace固有のDirectory CapabilityへBindingする
     [[nodiscard]] Result<WorkspaceDirectory> bind_directory(RelativePath a_locator,
                                                             const AssertContext &a_assertContext) const noexcept;
@@ -203,6 +216,18 @@ class WorkspaceFilesystem
     [[nodiscard]] virtual WorkspaceMutationResult create_file_new_atomic(const BoundWorkspacePath &a_destination,
                                                                          std::span<const std::byte> a_bytes,
                                                                          std::string_view a_operationId) noexcept = 0;
+
+    /// @brief Source Identityを保持した一回の同一Volume RenameでDestinationへ移す
+    [[nodiscard]] virtual WorkspaceMutationResult rename_entry(const BoundWorkspacePath &a_source,
+                                                               const BoundWorkspacePath &a_destination,
+                                                               TraversalLimits a_limits) noexcept = 0;
+
+    /// @brief Sourceを保持して検証済みSibling StagingからCreate-new Copyを公開する
+    [[nodiscard]] virtual WorkspaceMutationResult copy_entry_new(const BoundWorkspacePath &a_source,
+                                                                 const BoundWorkspacePath &a_destination,
+                                                                 TraversalLimits a_traversalLimits,
+                                                                 ContentVerificationLimits a_contentLimits,
+                                                                 std::string_view a_operationId) noexcept = 0;
 
   protected:
     /// @brief 発行可能なRoot相対Path長を固定してCapabilityを初期化する
