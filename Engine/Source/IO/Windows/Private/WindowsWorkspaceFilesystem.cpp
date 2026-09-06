@@ -295,10 +295,136 @@ struct RootIdentity final
 /// @brief Pin済みDirectory Handleから取得したEntry MetadataとFile Identity
 struct NativeDirectoryEntry final
 {
-    std::wstring_view name;
+    std::wstring name;
     DWORD attributes = 0U;
     LARGE_INTEGER fileId{};
 };
+
+/// @brief Directory Handle列挙の完了状態と取得済みNative Entryを所有する
+struct NativeDirectoryEnumeration final
+{
+    std::vector<NativeDirectoryEntry> entries;
+    std::optional<DWORD> interruptedCode;
+};
+
+/// @brief Pin済みDirectory HandleをFile ID付きで列挙し、途中I/O失敗では取得済みEntryを保持する
+[[nodiscard]] cue::Result<NativeDirectoryEnumeration> enumerate_directory_handle(
+    HANDLE a_directoryHandle, std::size_t a_maximumEntries, std::size_t a_maximumMetadataBytes,
+    const cue::AssertContext &a_assertContext) noexcept
+{
+    constexpr std::size_t k_directoryBufferBytes = 64U * 1024U;
+    alignas(FILE_ID_BOTH_DIR_INFO) std::array<std::byte, k_directoryBufferBytes> buffer{};
+    NativeDirectoryEnumeration enumeration;
+    bool restart = true;
+    bool receivedBatch = false;
+    std::size_t metadataBytes = 0U;
+
+    try
+    {
+        while (true)
+        {
+            const FILE_INFO_BY_HANDLE_CLASS informationClass =
+                restart ? FileIdBothDirectoryRestartInfo : FileIdBothDirectoryInfo;
+            if (GetFileInformationByHandleEx(a_directoryHandle, informationClass, buffer.data(),
+                                             static_cast<DWORD>(buffer.size())) == FALSE)
+            {
+                const DWORD code = GetLastError();
+                if (code == ERROR_NO_MORE_FILES)
+                {
+                    break;
+                }
+                if (!receivedBatch)
+                {
+                    return cue::Result<NativeDirectoryEnumeration>::failure(
+                        make_windows_error(a_assertContext, code, "Workspace directory enumeration failed"));
+                }
+                enumeration.interruptedCode = code;
+                break;
+            }
+            receivedBatch = true;
+            restart = false;
+
+            std::size_t offset = 0U;
+            while (true)
+            {
+                constexpr std::size_t k_minimumEntryBytes = offsetof(FILE_ID_BOTH_DIR_INFO, FileName);
+                if (offset > buffer.size() - k_minimumEntryBytes)
+                {
+                    return cue::Result<NativeDirectoryEnumeration>::failure(cue::make_io_error(
+                        a_assertContext, cue::IoError::IoFailure, "Workspace directory metadata is malformed"));
+                }
+                const auto *data = reinterpret_cast<const FILE_ID_BOTH_DIR_INFO *>(buffer.data() + offset);
+                if ((data->FileNameLength % sizeof(wchar_t)) != 0U ||
+                    data->FileNameLength > buffer.size() - offset - k_minimumEntryBytes)
+                {
+                    return cue::Result<NativeDirectoryEnumeration>::failure(cue::make_io_error(
+                        a_assertContext, cue::IoError::IoFailure, "Workspace directory name metadata is malformed"));
+                }
+
+                const std::wstring_view name(data->FileName, data->FileNameLength / sizeof(wchar_t));
+                if (name != L"." && name != L"..")
+                {
+                    if (enumeration.entries.size() == a_maximumEntries)
+                    {
+                        return cue::Result<NativeDirectoryEnumeration>::failure(
+                            cue::make_io_error(a_assertContext, cue::IoError::CapacityExceeded,
+                                               "Workspace listing entry limit was exceeded"));
+                    }
+                    if (name.size() >
+                        (std::numeric_limits<std::size_t>::max() - sizeof(NativeDirectoryEntry)) / sizeof(wchar_t))
+                    {
+                        return cue::Result<NativeDirectoryEnumeration>::failure(
+                            cue::make_io_error(a_assertContext, cue::IoError::CapacityExceeded,
+                                               "Workspace native listing metadata size overflowed"));
+                    }
+                    const std::size_t entryBytes = sizeof(NativeDirectoryEntry) + name.size() * sizeof(wchar_t);
+                    if (entryBytes > a_maximumMetadataBytes - metadataBytes)
+                    {
+                        return cue::Result<NativeDirectoryEnumeration>::failure(
+                            cue::make_io_error(a_assertContext, cue::IoError::CapacityExceeded,
+                                               "Workspace native listing metadata limit was exceeded"));
+                    }
+                    enumeration.entries.push_back(
+                        NativeDirectoryEntry{std::wstring(name), data->FileAttributes, data->FileId});
+                    metadataBytes += entryBytes;
+                }
+
+                if (data->NextEntryOffset == 0U)
+                {
+                    break;
+                }
+                if (data->NextEntryOffset < k_minimumEntryBytes || data->NextEntryOffset > buffer.size() - offset)
+                {
+                    return cue::Result<NativeDirectoryEnumeration>::failure(cue::make_io_error(
+                        a_assertContext, cue::IoError::IoFailure, "Workspace directory entry chain is malformed"));
+                }
+                offset += data->NextEntryOffset;
+            }
+        }
+    }
+    catch (...)
+    {
+        terminate_allocation(a_assertContext);
+    }
+    return cue::Result<NativeDirectoryEnumeration>::success(std::move(enumeration));
+}
+
+/// @brief File IDが同じDirectory Entry Objectを示すか判定する
+[[nodiscard]] bool same_file_id(const LARGE_INTEGER &a_left, const LARGE_INTEGER &a_right) noexcept
+{
+    return a_left.QuadPart == a_right.QuadPart;
+}
+
+/// @brief Entryを操作不能へ変更し、古いLocatorとMetadataを公開しない
+void reject_stale_entry(cue::WorkspaceEntry &a_entry, cue::WorkspaceDiagnosticCode a_code,
+                        const cue::AssertContext &a_assertContext) noexcept
+{
+    copy_display_sort_key(a_entry, a_assertContext);
+    a_entry.locator.reset();
+    a_entry.type = cue::WorkspaceEntryType::UnsupportedEntry;
+    a_entry.byteSize = 0U;
+    a_entry.rejection = a_code;
+}
 
 /// @brief Windows Root境界内だけを列挙するWorkspace Adapter
 class WindowsWorkspaceFilesystem final : public cue::WorkspaceFilesystem
@@ -584,105 +710,208 @@ cue::Result<cue::DirectorySnapshot> WindowsWorkspaceFilesystem::list_directory(
     }
 
     const HANDLE directoryHandle = pinned.try_value()->empty() ? m_rootHandle.get() : pinned.try_value()->back().get();
-    constexpr std::size_t k_directoryBufferBytes = 64U * 1024U;
-    alignas(FILE_ID_BOTH_DIR_INFO) std::array<std::byte, k_directoryBufferBytes> buffer{};
-    bool restart = true;
     std::size_t metadataBytes = 0U;
     const std::size_t maximumEntries =
         std::min({a_limits.maxVisitedEntries, a_limits.maxResults, k_windowsHardLimits.maxVisitedEntries,
                   k_windowsHardLimits.maxResults});
     const std::size_t maximumMetadata = std::min(a_limits.maxMetadataBytes, k_windowsHardLimits.maxMetadataBytes);
-    try
+
+    cue::Result<NativeDirectoryEnumeration> initial =
+        enumerate_directory_handle(directoryHandle, maximumEntries, maximumMetadata, m_assertContext);
+    if (!initial)
     {
-        while (true)
+        return cue::Result<cue::DirectorySnapshot>::failure(std::move(*initial.try_error()));
+    }
+
+    const auto append_bounded_diagnostic = [&](cue::WorkspaceDiagnosticCode a_code, std::string_view a_displayName,
+                                               std::int64_t a_nativeCode) noexcept -> cue::Result<void>
+    {
+        if (a_displayName.size() > std::numeric_limits<std::size_t>::max() - sizeof(cue::WorkspaceDiagnostic))
         {
-            const FILE_INFO_BY_HANDLE_CLASS informationClass =
-                restart ? FileIdBothDirectoryRestartInfo : FileIdBothDirectoryInfo;
-            if (GetFileInformationByHandleEx(directoryHandle, informationClass, buffer.data(),
-                                             static_cast<DWORD>(buffer.size())) == FALSE)
+            return cue::Result<void>::failure(cue::make_io_error(m_assertContext, cue::IoError::CapacityExceeded,
+                                                                 "Workspace listing metadata size overflowed"));
+        }
+        const std::size_t bytes = sizeof(cue::WorkspaceDiagnostic) + a_displayName.size();
+        if (bytes > maximumMetadata - metadataBytes)
+        {
+            return cue::Result<void>::failure(cue::make_io_error(m_assertContext, cue::IoError::CapacityExceeded,
+                                                                 "Workspace listing metadata limit was exceeded"));
+        }
+        append_diagnostic(snapshot, a_code, a_displayName, a_nativeCode, m_assertContext);
+        metadataBytes += bytes;
+        return cue::Result<void>::success();
+    };
+
+    for (const NativeDirectoryEntry &nativeEntry : initial.try_value()->entries)
+    {
+        const std::size_t diagnosticCount = snapshot.diagnostics.size();
+        cue::Result<cue::WorkspaceEntry> converted =
+            make_entry(a_directory, directoryHandle, nativeEntry, snapshot.generation, snapshot);
+        if (!converted)
+        {
+            return cue::Result<cue::DirectorySnapshot>::failure(std::move(*converted.try_error()));
+        }
+        for (std::size_t index = diagnosticCount; index < snapshot.diagnostics.size(); ++index)
+        {
+            const std::size_t diagnosticBytes = metadata_bytes(snapshot.diagnostics[index]);
+            if (diagnosticBytes > maximumMetadata - metadataBytes)
             {
-                const DWORD code = GetLastError();
-                if (code == ERROR_NO_MORE_FILES)
-                {
-                    break;
-                }
-                return cue::Result<cue::DirectorySnapshot>::failure(
-                    make_windows_error(m_assertContext, code, "Workspace directory enumeration failed"));
+                return cue::Result<cue::DirectorySnapshot>::failure(cue::make_io_error(
+                    m_assertContext, cue::IoError::CapacityExceeded, "Workspace listing metadata limit was exceeded"));
             }
-            restart = false;
+            metadataBytes += diagnosticBytes;
+        }
+        const std::size_t entryBytes = metadata_bytes(*converted.try_value());
+        if (entryBytes > maximumMetadata - metadataBytes)
+        {
+            return cue::Result<cue::DirectorySnapshot>::failure(cue::make_io_error(
+                m_assertContext, cue::IoError::CapacityExceeded, "Workspace listing metadata limit was exceeded"));
+        }
+        metadataBytes += entryBytes;
+        snapshot.entries.push_back(std::move(*converted.try_value()));
+    }
 
-            std::size_t offset = 0U;
-            while (true)
-            {
-                constexpr std::size_t k_minimumEntryBytes = offsetof(FILE_ID_BOTH_DIR_INFO, FileName);
-                if (offset > buffer.size() - k_minimumEntryBytes)
-                {
-                    return cue::Result<cue::DirectorySnapshot>::failure(cue::make_io_error(
-                        m_assertContext, cue::IoError::IoFailure, "Workspace directory metadata is malformed"));
-                }
-                const auto *data = reinterpret_cast<const FILE_ID_BOTH_DIR_INFO *>(buffer.data() + offset);
-                if ((data->FileNameLength % sizeof(wchar_t)) != 0U ||
-                    data->FileNameLength > buffer.size() - offset - k_minimumEntryBytes)
-                {
-                    return cue::Result<cue::DirectorySnapshot>::failure(cue::make_io_error(
-                        m_assertContext, cue::IoError::IoFailure, "Workspace directory name metadata is malformed"));
-                }
-
-                const std::wstring_view name(data->FileName, data->FileNameLength / sizeof(wchar_t));
-                if (name != L"." && name != L"..")
-                {
-                    if (snapshot.entries.size() == maximumEntries)
-                    {
-                        return cue::Result<cue::DirectorySnapshot>::failure(
-                            cue::make_io_error(m_assertContext, cue::IoError::CapacityExceeded,
-                                               "Workspace listing entry limit was exceeded"));
-                    }
-                    const std::size_t diagnosticCount = snapshot.diagnostics.size();
-                    const NativeDirectoryEntry nativeEntry{name, data->FileAttributes, data->FileId};
-                    cue::Result<cue::WorkspaceEntry> converted =
-                        make_entry(a_directory, directoryHandle, nativeEntry, snapshot.generation, snapshot);
-                    if (!converted)
-                    {
-                        return cue::Result<cue::DirectorySnapshot>::failure(std::move(*converted.try_error()));
-                    }
-                    for (std::size_t index = diagnosticCount; index < snapshot.diagnostics.size(); ++index)
-                    {
-                        const std::size_t diagnosticBytes = metadata_bytes(snapshot.diagnostics[index]);
-                        if (diagnosticBytes > maximumMetadata - metadataBytes)
-                        {
-                            return cue::Result<cue::DirectorySnapshot>::failure(
-                                cue::make_io_error(m_assertContext, cue::IoError::CapacityExceeded,
-                                                   "Workspace listing metadata limit was exceeded"));
-                        }
-                        metadataBytes += diagnosticBytes;
-                    }
-                    const std::size_t entryBytes = metadata_bytes(*converted.try_value());
-                    if (entryBytes > maximumMetadata - metadataBytes)
-                    {
-                        return cue::Result<cue::DirectorySnapshot>::failure(
-                            cue::make_io_error(m_assertContext, cue::IoError::CapacityExceeded,
-                                               "Workspace listing metadata limit was exceeded"));
-                    }
-                    metadataBytes += entryBytes;
-                    snapshot.entries.push_back(std::move(*converted.try_value()));
-                }
-
-                if (data->NextEntryOffset == 0U)
-                {
-                    break;
-                }
-                if (data->NextEntryOffset < k_minimumEntryBytes || data->NextEntryOffset > buffer.size() - offset)
-                {
-                    return cue::Result<cue::DirectorySnapshot>::failure(cue::make_io_error(
-                        m_assertContext, cue::IoError::IoFailure, "Workspace directory entry chain is malformed"));
-                }
-                offset += data->NextEntryOffset;
-            }
+    if (initial.try_value()->interruptedCode.has_value())
+    {
+        snapshot.state = cue::WorkspaceSnapshotState::RescanRequired;
+        cue::Result<void> recorded =
+            append_bounded_diagnostic(cue::WorkspaceDiagnosticCode::EnumerationFailed, {},
+                                      static_cast<std::int64_t>(*initial.try_value()->interruptedCode));
+        if (!recorded)
+        {
+            return cue::Result<cue::DirectorySnapshot>::failure(std::move(*recorded.try_error()));
         }
     }
-    catch (...)
+    else
     {
-        terminate_allocation(m_assertContext);
+        cue::Result<NativeDirectoryEnumeration> verification =
+            enumerate_directory_handle(directoryHandle, maximumEntries, maximumMetadata, m_assertContext);
+        if (!verification)
+        {
+            const cue::ErrorCode &rootCode = verification.try_error()->root_code();
+            const bool isCapacityFailure =
+                rootCode.domain() == "Cue.IO" &&
+                rootCode.value() == static_cast<std::int64_t>(cue::IoError::CapacityExceeded);
+            const bool isPortableFailure = verification.try_error()->try_native_error() == nullptr;
+            if (isCapacityFailure || isPortableFailure)
+            {
+                return cue::Result<cue::DirectorySnapshot>::failure(std::move(*verification.try_error()));
+            }
+            std::int64_t nativeCode = 0;
+            if (const cue::NativeError *native = verification.try_error()->try_native_error(); native != nullptr)
+            {
+                nativeCode = native->value();
+            }
+            snapshot.state = cue::WorkspaceSnapshotState::RescanRequired;
+            cue::Result<void> recorded =
+                append_bounded_diagnostic(cue::WorkspaceDiagnosticCode::EnumerationFailed, {}, nativeCode);
+            if (!recorded)
+            {
+                return cue::Result<cue::DirectorySnapshot>::failure(std::move(*recorded.try_error()));
+            }
+        }
+        else if (verification.try_value()->interruptedCode.has_value())
+        {
+            snapshot.state = cue::WorkspaceSnapshotState::RescanRequired;
+            cue::Result<void> recorded =
+                append_bounded_diagnostic(cue::WorkspaceDiagnosticCode::EnumerationFailed, {},
+                                          static_cast<std::int64_t>(*verification.try_value()->interruptedCode));
+            if (!recorded)
+            {
+                return cue::Result<cue::DirectorySnapshot>::failure(std::move(*recorded.try_error()));
+            }
+        }
+        else
+        {
+            try
+            {
+                auto &currentEntries = verification.try_value()->entries;
+                std::sort(currentEntries.begin(), currentEntries.end(),
+                          [](const NativeDirectoryEntry &a_left, const NativeDirectoryEntry &a_right) noexcept
+                          { return a_left.name < a_right.name; });
+
+                std::vector<std::wstring_view> initialNames;
+                initialNames.reserve(initial.try_value()->entries.size());
+                for (const NativeDirectoryEntry &entry : initial.try_value()->entries)
+                {
+                    initialNames.push_back(entry.name);
+                }
+                std::sort(initialNames.begin(), initialNames.end());
+
+                for (std::size_t index = 0U; index < initial.try_value()->entries.size(); ++index)
+                {
+                    const NativeDirectoryEntry &before = initial.try_value()->entries[index];
+                    const auto current =
+                        std::lower_bound(currentEntries.begin(), currentEntries.end(), before.name,
+                                         [](const NativeDirectoryEntry &a_entry, const std::wstring &a_name) noexcept
+                                         { return a_entry.name < a_name; });
+
+                    std::optional<cue::WorkspaceDiagnosticCode> diagnostic;
+                    if (current == currentEntries.end() || current->name != before.name)
+                    {
+                        diagnostic = cue::WorkspaceDiagnosticCode::EntryDisappeared;
+                    }
+                    else
+                    {
+                        const DWORD typeMask = FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT;
+                        if (!same_file_id(current->fileId, before.fileId))
+                        {
+                            diagnostic = (current->attributes & typeMask) != (before.attributes & typeMask)
+                                             ? cue::WorkspaceDiagnosticCode::TypeChanged
+                                             : cue::WorkspaceDiagnosticCode::EntryDisappeared;
+                        }
+                        else if ((current->attributes & typeMask) != (before.attributes & typeMask))
+                        {
+                            diagnostic = (current->attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U
+                                             ? cue::WorkspaceDiagnosticCode::ReparsePoint
+                                             : cue::WorkspaceDiagnosticCode::TypeChanged;
+                        }
+                    }
+
+                    if (diagnostic.has_value())
+                    {
+                        snapshot.state = cue::WorkspaceSnapshotState::RescanRequired;
+                        reject_stale_entry(snapshot.entries[index], *diagnostic, m_assertContext);
+                        cue::Result<void> recorded =
+                            append_bounded_diagnostic(*diagnostic, snapshot.entries[index].displayName, 0);
+                        if (!recorded)
+                        {
+                            return cue::Result<cue::DirectorySnapshot>::failure(std::move(*recorded.try_error()));
+                        }
+                    }
+                }
+
+                for (const NativeDirectoryEntry &current : currentEntries)
+                {
+                    if (!std::binary_search(initialNames.begin(), initialNames.end(), std::wstring_view(current.name)))
+                    {
+                        cue::Result<std::string> displayName = to_utf8(current.name, m_assertContext);
+                        std::string fallback;
+                        std::string_view diagnosticName;
+                        if (displayName)
+                        {
+                            diagnosticName = *displayName.try_value();
+                        }
+                        else
+                        {
+                            fallback = make_native_name_fallback(current.name, m_assertContext);
+                            diagnosticName = fallback;
+                        }
+                        snapshot.state = cue::WorkspaceSnapshotState::RescanRequired;
+                        cue::Result<void> recorded = append_bounded_diagnostic(
+                            cue::WorkspaceDiagnosticCode::EnumerationFailed, diagnosticName, 0);
+                        if (!recorded)
+                        {
+                            return cue::Result<cue::DirectorySnapshot>::failure(std::move(*recorded.try_error()));
+                        }
+                    }
+                }
+            }
+            catch (...)
+            {
+                terminate_allocation(m_assertContext);
+            }
+        }
     }
 
     cue::sort_workspace_entries(snapshot.entries);
