@@ -723,6 +723,156 @@ struct NativeEntryObservation final
         RootIdentity{information.dwVolumeSerialNumber, information.nFileIndexHigh, information.nFileIndexLow});
 }
 
+/// @brief 親LocatorのNamespace変更監視を完了確認まで保持する
+class DirectoryChangeGuard final
+{
+  public:
+    DirectoryChangeGuard() noexcept = default;
+    DirectoryChangeGuard(const DirectoryChangeGuard &) = delete;
+    DirectoryChangeGuard &operator=(const DirectoryChangeGuard &) = delete;
+    DirectoryChangeGuard(DirectoryChangeGuard &&) = delete;
+    DirectoryChangeGuard &operator=(DirectoryChangeGuard &&) = delete;
+    ~DirectoryChangeGuard()
+    {
+        if (m_pending)
+        {
+            CancelIoEx(m_directory.get(), &m_overlapped);
+            DWORD transferred = 0U;
+            GetOverlappedResult(m_directory.get(), &m_overlapped, &transferred, TRUE);
+        }
+    }
+
+    UniqueHandle m_directory;
+    UniqueHandle m_event;
+    alignas(DWORD) std::array<std::byte, 16U * 1024U> m_changes{};
+    OVERLAPPED m_overlapped{};
+    bool m_pending = false;
+};
+
+[[nodiscard]] cue::Result<std::unique_ptr<DirectoryChangeGuard>> begin_directory_change_guard(
+    HANDLE a_directoryHandle, const cue::AssertContext &a_assertContext) noexcept
+{
+    const DWORD pathLength =
+        GetFinalPathNameByHandleW(a_directoryHandle, nullptr, 0U, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (pathLength == 0U)
+    {
+        return cue::Result<std::unique_ptr<DirectoryChangeGuard>>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace parent watch path query failed"));
+    }
+
+    std::wstring path;
+    std::unique_ptr<DirectoryChangeGuard> guard;
+    try
+    {
+        path.resize(pathLength);
+        guard = std::make_unique<DirectoryChangeGuard>();
+    }
+    catch (...)
+    {
+        terminate_allocation(a_assertContext);
+    }
+    const DWORD pathWritten =
+        GetFinalPathNameByHandleW(a_directoryHandle, path.data(), pathLength, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (pathWritten == 0U || pathWritten >= pathLength)
+    {
+        return cue::Result<std::unique_ptr<DirectoryChangeGuard>>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace parent watch path query failed"));
+    }
+    path.resize(pathWritten);
+
+    guard->m_directory.reset(
+        CreateFileW(path.c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_OVERLAPPED, nullptr));
+    if (!guard->m_directory.is_valid())
+    {
+        return cue::Result<std::unique_ptr<DirectoryChangeGuard>>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace parent watch open failed"));
+    }
+
+    BY_HANDLE_FILE_INFORMATION expectedInformation{};
+    BY_HANDLE_FILE_INFORMATION watchInformation{};
+    if (GetFileInformationByHandle(a_directoryHandle, &expectedInformation) == FALSE ||
+        GetFileInformationByHandle(guard->m_directory.get(), &watchInformation) == FALSE)
+    {
+        return cue::Result<std::unique_ptr<DirectoryChangeGuard>>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace parent watch inspection failed"));
+    }
+    if (expectedInformation.dwVolumeSerialNumber != watchInformation.dwVolumeSerialNumber ||
+        expectedInformation.nFileIndexHigh != watchInformation.nFileIndexHigh ||
+        expectedInformation.nFileIndexLow != watchInformation.nFileIndexLow ||
+        (watchInformation.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0U ||
+        (watchInformation.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U)
+    {
+        return cue::Result<std::unique_ptr<DirectoryChangeGuard>>::failure(
+            cue::make_io_error(a_assertContext, cue::IoError::OutsideRoot, "Workspace parent watch identity changed"));
+    }
+
+    guard->m_event.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    if (!guard->m_event.is_valid())
+    {
+        return cue::Result<std::unique_ptr<DirectoryChangeGuard>>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace parent watch event creation failed"));
+    }
+    guard->m_overlapped.hEvent = guard->m_event.get();
+    DWORD immediateBytes = 0U;
+    if (ReadDirectoryChangesW(guard->m_directory.get(), guard->m_changes.data(),
+                              static_cast<DWORD>(guard->m_changes.size()), FALSE,
+                              FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME, &immediateBytes,
+                              &guard->m_overlapped, nullptr) == FALSE)
+    {
+        return cue::Result<std::unique_ptr<DirectoryChangeGuard>>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace parent watch start failed"));
+    }
+    guard->m_pending = true;
+    return cue::Result<std::unique_ptr<DirectoryChangeGuard>>::success(std::move(guard));
+}
+
+[[nodiscard]] cue::Result<void> finish_directory_change_guard(DirectoryChangeGuard &a_guard,
+                                                              const cue::AssertContext &a_assertContext) noexcept
+{
+    DWORD transferred = 0U;
+    if (GetOverlappedResult(a_guard.m_directory.get(), &a_guard.m_overlapped, &transferred, FALSE) != FALSE)
+    {
+        a_guard.m_pending = false;
+        return cue::Result<void>::failure(cue::make_io_error(a_assertContext, cue::IoError::Busy,
+                                                             "Workspace parent directory changed during mutation"));
+    }
+
+    DWORD completionCode = GetLastError();
+    if (completionCode != ERROR_IO_INCOMPLETE)
+    {
+        a_guard.m_pending = false;
+        return cue::Result<void>::failure(
+            make_windows_error(a_assertContext, completionCode, "Workspace parent watch query failed"));
+    }
+
+    const bool cancellationSucceeded = CancelIoEx(a_guard.m_directory.get(), &a_guard.m_overlapped) != FALSE;
+    const DWORD cancellationCode = cancellationSucceeded ? ERROR_SUCCESS : GetLastError();
+    const bool cancellationUnavailable = !cancellationSucceeded && cancellationCode != ERROR_NOT_FOUND;
+    const BOOL completionSucceeded =
+        GetOverlappedResult(a_guard.m_directory.get(), &a_guard.m_overlapped, &transferred, TRUE);
+    completionCode = completionSucceeded != FALSE ? ERROR_SUCCESS : GetLastError();
+    a_guard.m_pending = false;
+
+    if (cancellationUnavailable)
+    {
+        return cue::Result<void>::failure(
+            make_windows_error(a_assertContext, cancellationCode, "Workspace parent watch cancellation failed"));
+    }
+    if (completionSucceeded != FALSE)
+    {
+        return cue::Result<void>::failure(cue::make_io_error(a_assertContext, cue::IoError::Busy,
+                                                             "Workspace parent directory changed during mutation"));
+    }
+    if (completionCode == ERROR_OPERATION_ABORTED && cancellationSucceeded)
+    {
+        return cue::Result<void>::success();
+    }
+    return cue::Result<void>::failure(
+        make_windows_error(a_assertContext, completionCode, "Workspace parent watch completion failed"));
+}
+
 /// @brief Native PathのEntryをFollowせず開き、期待Identityと種別を照合する
 [[nodiscard]] NativeEntryObservation observe_native_entry(std::wstring_view a_path, const RootIdentity &a_expected,
                                                           bool a_expectDirectory) noexcept
@@ -1077,6 +1227,10 @@ class WindowsWorkspaceFilesystem final : public cue::WorkspaceFilesystem
     /// @brief 親DirectoryをPinし、DestinationとStagingのNative Pathを構築する
     [[nodiscard]] cue::Result<std::vector<UniqueHandle>> prepare_mutation_parent(
         const cue::BoundWorkspacePath &a_destination) const noexcept;
+    [[nodiscard]] cue::Result<std::vector<std::unique_ptr<DirectoryChangeGuard>>> begin_mutation_parent_guards(
+        const std::vector<UniqueHandle> &a_pinned) const noexcept;
+    [[nodiscard]] cue::Result<void> finish_mutation_parent_guards(
+        std::vector<std::unique_ptr<DirectoryChangeGuard>> &a_guards) const noexcept;
     [[nodiscard]] cue::Result<void> verify_mutation_parent_chain(
         const cue::BoundWorkspacePath &a_destination, const std::vector<UniqueHandle> &a_expected) const noexcept;
 
@@ -1371,6 +1525,59 @@ cue::Result<void> WindowsWorkspaceFilesystem::verify_mutation_parent_chain(
             return cue::Result<void>::failure(cue::make_io_error(m_assertContext, cue::IoError::OutsideRoot,
                                                                  "Workspace mutation parent chain identity changed"));
         }
+    }
+    return cue::Result<void>::success();
+}
+
+cue::Result<std::vector<std::unique_ptr<DirectoryChangeGuard>>> WindowsWorkspaceFilesystem::
+    begin_mutation_parent_guards(const std::vector<UniqueHandle> &a_pinned) const noexcept
+{
+    if (a_pinned.empty())
+    {
+        return cue::Result<std::vector<std::unique_ptr<DirectoryChangeGuard>>>::failure(cue::make_io_error(
+            m_assertContext, cue::IoError::PreconditionFailed, "Workspace mutation parent chain is empty"));
+    }
+
+    std::vector<std::unique_ptr<DirectoryChangeGuard>> guards;
+    try
+    {
+        guards.reserve(a_pinned.size());
+    }
+    catch (...)
+    {
+        terminate_allocation(m_assertContext);
+    }
+
+    for (std::size_t index = 0U; index < a_pinned.size(); ++index)
+    {
+        const HANDLE directory = index == 0U ? m_rootHandle.get() : a_pinned[index - 1U].get();
+        cue::Result<std::unique_ptr<DirectoryChangeGuard>> guard =
+            begin_directory_change_guard(directory, m_assertContext);
+        if (!guard)
+        {
+            return cue::Result<std::vector<std::unique_ptr<DirectoryChangeGuard>>>::failure(
+                std::move(*guard.try_error()));
+        }
+        guards.push_back(std::move(*guard.try_value()));
+    }
+    return cue::Result<std::vector<std::unique_ptr<DirectoryChangeGuard>>>::success(std::move(guards));
+}
+
+cue::Result<void> WindowsWorkspaceFilesystem::finish_mutation_parent_guards(
+    std::vector<std::unique_ptr<DirectoryChangeGuard>> &a_guards) const noexcept
+{
+    std::optional<cue::Error> firstError;
+    for (std::unique_ptr<DirectoryChangeGuard> &guard : a_guards)
+    {
+        cue::Result<void> finished = finish_directory_change_guard(*guard, m_assertContext);
+        if (!finished && !firstError.has_value())
+        {
+            firstError.emplace(std::move(*finished.try_error()));
+        }
+    }
+    if (firstError.has_value())
+    {
+        return cue::Result<void>::failure(std::move(*firstError));
     }
     return cue::Result<void>::success();
 }
@@ -1768,6 +1975,17 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_directory_new(
     {
         return not_committed(std::move(*pinned.try_error()));
     }
+    cue::Result<std::vector<std::unique_ptr<DirectoryChangeGuard>>> parentGuards =
+        begin_mutation_parent_guards(*pinned.try_value());
+    if (!parentGuards)
+    {
+        return not_committed(std::move(*parentGuards.try_error()));
+    }
+    cue::Result<void> initialParent = verify_mutation_parent_chain(a_destination, *pinned.try_value());
+    if (!initialParent)
+    {
+        return not_committed(std::move(*initialParent.try_error()));
+    }
 
     cue::Result<std::wstring> destination =
         make_native_workspace_path(m_rootPath, a_destination.text(), m_assertContext);
@@ -1858,6 +2076,11 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_directory_new(
             {
                 return reconciliation_required(std::move(*stableParent.try_error()));
             }
+            cue::Result<void> stableGuards = finish_mutation_parent_guards(*parentGuards.try_value());
+            if (!stableGuards)
+            {
+                return reconciliation_required(std::move(*stableGuards.try_error()));
+            }
             cue::WorkspaceMutationResult result;
             result.outcome = cue::WorkspaceMutationOutcome::CommittedButDurabilityUnknown;
             result.primaryError =
@@ -1886,6 +2109,11 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_directory_new(
         if (!stableParent)
         {
             return reconciliation_required(std::move(*stableParent.try_error()));
+        }
+        cue::Result<void> stableGuards = finish_mutation_parent_guards(*parentGuards.try_value());
+        if (!stableGuards)
+        {
+            return reconciliation_required(std::move(*stableGuards.try_error()));
         }
         cue::WorkspaceMutationResult result;
         result.outcome = cue::WorkspaceMutationOutcome::CommittedButDurabilityUnknown;
@@ -1925,6 +2153,17 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_file_new_atomic(
     if (!pinned)
     {
         return not_committed(std::move(*pinned.try_error()));
+    }
+    cue::Result<std::vector<std::unique_ptr<DirectoryChangeGuard>>> parentGuards =
+        begin_mutation_parent_guards(*pinned.try_value());
+    if (!parentGuards)
+    {
+        return not_committed(std::move(*parentGuards.try_error()));
+    }
+    cue::Result<void> initialParent = verify_mutation_parent_chain(a_destination, *pinned.try_value());
+    if (!initialParent)
+    {
+        return not_committed(std::move(*initialParent.try_error()));
     }
 
     cue::Result<std::wstring> destination =
@@ -2044,6 +2283,11 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_file_new_atomic(
             {
                 return reconciliation_required(std::move(*stableParent.try_error()));
             }
+            cue::Result<void> stableGuards = finish_mutation_parent_guards(*parentGuards.try_value());
+            if (!stableGuards)
+            {
+                return reconciliation_required(std::move(*stableGuards.try_error()));
+            }
             cue::WorkspaceMutationResult result;
             result.outcome = cue::WorkspaceMutationOutcome::CommittedButDurabilityUnknown;
             result.primaryError =
@@ -2072,6 +2316,11 @@ cue::WorkspaceMutationResult WindowsWorkspaceFilesystem::create_file_new_atomic(
         if (!stableParent)
         {
             return reconciliation_required(std::move(*stableParent.try_error()));
+        }
+        cue::Result<void> stableGuards = finish_mutation_parent_guards(*parentGuards.try_value());
+        if (!stableGuards)
+        {
+            return reconciliation_required(std::move(*stableGuards.try_error()));
         }
         cue::WorkspaceMutationResult result;
         result.outcome = cue::WorkspaceMutationOutcome::CommittedButDurabilityUnknown;
