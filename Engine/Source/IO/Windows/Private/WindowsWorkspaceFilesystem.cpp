@@ -442,6 +442,146 @@ struct NativeDirectoryEnumeration final
     return cue::Result<NativeDirectoryEnumeration>::success(std::move(enumeration));
 }
 
+/// @brief Directory名変更監視中に列挙し、列挙期間中のNamespace変更を拒否する
+[[nodiscard]] cue::Result<NativeDirectoryEnumeration> enumerate_directory_handle_stable(
+    HANDLE a_directoryHandle, std::size_t a_maximumEntries, std::size_t a_maximumMetadataBytes,
+    const cue::AssertContext &a_assertContext) noexcept
+{
+    FILE_CASE_SENSITIVE_INFO caseSensitivity{};
+    if (GetFileInformationByHandleEx(a_directoryHandle, FileCaseSensitiveInfo, &caseSensitivity,
+                                     sizeof(caseSensitivity)) == FALSE)
+    {
+        return cue::Result<NativeDirectoryEnumeration>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace directory case policy query failed"));
+    }
+    if ((caseSensitivity.Flags & FILE_CS_FLAG_CASE_SENSITIVE_DIR) == 0U)
+    {
+        return enumerate_directory_handle(a_directoryHandle, a_maximumEntries, a_maximumMetadataBytes, a_assertContext);
+    }
+
+    const DWORD pathLength =
+        GetFinalPathNameByHandleW(a_directoryHandle, nullptr, 0U, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (pathLength == 0U)
+    {
+        return cue::Result<NativeDirectoryEnumeration>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace directory watch path query failed"));
+    }
+    std::wstring path;
+    try
+    {
+        path.resize(pathLength);
+    }
+    catch (...)
+    {
+        terminate_allocation(a_assertContext);
+    }
+    const DWORD pathWritten =
+        GetFinalPathNameByHandleW(a_directoryHandle, path.data(), pathLength, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (pathWritten == 0U || pathWritten >= pathLength)
+    {
+        return cue::Result<NativeDirectoryEnumeration>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace directory watch path query failed"));
+    }
+    path.resize(pathWritten);
+
+    UniqueHandle watchHandle(
+        CreateFileW(path.c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_OVERLAPPED, nullptr));
+    if (!watchHandle.is_valid())
+    {
+        return cue::Result<NativeDirectoryEnumeration>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace directory watch open failed"));
+    }
+    BY_HANDLE_FILE_INFORMATION expectedInformation{};
+    BY_HANDLE_FILE_INFORMATION watchInformation{};
+    if (GetFileInformationByHandle(a_directoryHandle, &expectedInformation) == FALSE ||
+        GetFileInformationByHandle(watchHandle.get(), &watchInformation) == FALSE)
+    {
+        return cue::Result<NativeDirectoryEnumeration>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace directory watch inspection failed"));
+    }
+    if (expectedInformation.dwVolumeSerialNumber != watchInformation.dwVolumeSerialNumber ||
+        expectedInformation.nFileIndexHigh != watchInformation.nFileIndexHigh ||
+        expectedInformation.nFileIndexLow != watchInformation.nFileIndexLow ||
+        (watchInformation.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0U ||
+        (watchInformation.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U)
+    {
+        return cue::Result<NativeDirectoryEnumeration>::failure(cue::make_io_error(
+            a_assertContext, cue::IoError::OutsideRoot, "Workspace directory watch identity changed"));
+    }
+
+    UniqueHandle eventHandle(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    if (!eventHandle.is_valid())
+    {
+        return cue::Result<NativeDirectoryEnumeration>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace directory watch event creation failed"));
+    }
+
+    alignas(DWORD) std::array<std::byte, 16U * 1024U> changes{};
+    OVERLAPPED overlapped{};
+    overlapped.hEvent = eventHandle.get();
+    DWORD immediateBytes = 0U;
+    if (ReadDirectoryChangesW(watchHandle.get(), changes.data(), static_cast<DWORD>(changes.size()), FALSE,
+                              FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME, &immediateBytes, &overlapped,
+                              nullptr) == FALSE)
+    {
+        return cue::Result<NativeDirectoryEnumeration>::failure(
+            make_windows_error(a_assertContext, GetLastError(), "Workspace directory watch start failed"));
+    }
+
+    cue::Result<NativeDirectoryEnumeration> enumeration =
+        enumerate_directory_handle(a_directoryHandle, a_maximumEntries, a_maximumMetadataBytes, a_assertContext);
+
+    DWORD transferred = 0U;
+    bool changed = false;
+    if (GetOverlappedResult(watchHandle.get(), &overlapped, &transferred, FALSE) != FALSE)
+    {
+        changed = true;
+    }
+    else
+    {
+        DWORD completionCode = GetLastError();
+        if (completionCode == ERROR_IO_INCOMPLETE)
+        {
+            if (CancelIoEx(watchHandle.get(), &overlapped) == FALSE && GetLastError() != ERROR_NOT_FOUND)
+            {
+                return cue::Result<NativeDirectoryEnumeration>::failure(make_windows_error(
+                    a_assertContext, GetLastError(), "Workspace directory watch cancellation failed"));
+            }
+            if (GetOverlappedResult(watchHandle.get(), &overlapped, &transferred, TRUE) != FALSE)
+            {
+                changed = true;
+            }
+            else
+            {
+                completionCode = GetLastError();
+                if (completionCode != ERROR_OPERATION_ABORTED)
+                {
+                    return cue::Result<NativeDirectoryEnumeration>::failure(make_windows_error(
+                        a_assertContext, completionCode, "Workspace directory watch completion failed"));
+                }
+            }
+        }
+        else if (completionCode != ERROR_OPERATION_ABORTED)
+        {
+            return cue::Result<NativeDirectoryEnumeration>::failure(
+                make_windows_error(a_assertContext, completionCode, "Workspace directory watch query failed"));
+        }
+    }
+
+    if (!enumeration)
+    {
+        return cue::Result<NativeDirectoryEnumeration>::failure(std::move(*enumeration.try_error()));
+    }
+    if (changed)
+    {
+        return cue::Result<NativeDirectoryEnumeration>::failure(cue::make_io_error(
+            a_assertContext, cue::IoError::Busy, "Workspace directory changed during stable enumeration"));
+    }
+    return cue::Result<NativeDirectoryEnumeration>::success(std::move(*enumeration.try_value()));
+}
+
 /// @brief File IDが同じDirectory Entry Objectを示すか判定する
 [[nodiscard]] bool same_file_id(const LARGE_INTEGER &a_left, const LARGE_INTEGER &a_right) noexcept
 {
@@ -695,7 +835,7 @@ void cleanup_owned_temporary(UniqueHandle &a_ownedHandle, std::wstring_view a_pa
 [[nodiscard]] cue::Result<void> verify_portable_destination_absent(HANDLE a_parent, std::wstring_view a_destinationName,
                                                                    const cue::AssertContext &a_assertContext) noexcept
 {
-    cue::Result<NativeDirectoryEnumeration> enumeration = enumerate_directory_handle(
+    cue::Result<NativeDirectoryEnumeration> enumeration = enumerate_directory_handle_stable(
         a_parent, k_windowsHardLimits.maxVisitedEntries, k_windowsHardLimits.maxMetadataBytes, a_assertContext);
     if (!enumeration)
     {
@@ -732,7 +872,7 @@ void cleanup_owned_temporary(UniqueHandle &a_ownedHandle, std::wstring_view a_pa
                                                                    bool a_expectDirectory,
                                                                    const cue::AssertContext &a_assertContext) noexcept
 {
-    cue::Result<NativeDirectoryEnumeration> enumeration = enumerate_directory_handle(
+    cue::Result<NativeDirectoryEnumeration> enumeration = enumerate_directory_handle_stable(
         a_parent, k_windowsHardLimits.maxVisitedEntries, k_windowsHardLimits.maxMetadataBytes, a_assertContext);
     if (!enumeration)
     {
@@ -998,8 +1138,8 @@ cue::Result<std::vector<UniqueHandle>> WindowsWorkspaceFilesystem::pin_directory
 
             const HANDLE parentHandle = pinned.empty() ? m_rootHandle.get() : pinned.back().get();
             cue::Result<NativeDirectoryEnumeration> before =
-                enumerate_directory_handle(parentHandle, k_windowsHardLimits.maxVisitedEntries,
-                                           k_windowsHardLimits.maxMetadataBytes, m_assertContext);
+                enumerate_directory_handle_stable(parentHandle, k_windowsHardLimits.maxVisitedEntries,
+                                                  k_windowsHardLimits.maxMetadataBytes, m_assertContext);
             if (!before)
             {
                 return cue::Result<std::vector<UniqueHandle>>::failure(std::move(*before.try_error()));
@@ -1014,29 +1154,19 @@ cue::Result<std::vector<UniqueHandle>> WindowsWorkspaceFilesystem::pin_directory
             const auto findComponent =
                 [&](const NativeDirectoryEnumeration &a_enumeration) noexcept -> const NativeDirectoryEntry *
             {
-                for (const NativeDirectoryEntry &entry : a_enumeration.entries)
-                {
-                    if (entry.name == *nativeComponent.try_value())
-                    {
-                        return &entry;
-                    }
-                }
-
-                const NativeDirectoryEntry *caseInsensitive = nullptr;
+                const NativeDirectoryEntry *match = nullptr;
+                std::size_t matchingNames = 0U;
                 for (const NativeDirectoryEntry &entry : a_enumeration.entries)
                 {
                     if (CompareStringOrdinal(entry.name.data(), static_cast<int>(entry.name.size()),
                                              nativeComponent.try_value()->data(),
                                              static_cast<int>(nativeComponent.try_value()->size()), TRUE) == CSTR_EQUAL)
                     {
-                        if (caseInsensitive != nullptr)
-                        {
-                            return nullptr;
-                        }
-                        caseInsensitive = &entry;
+                        ++matchingNames;
+                        match = &entry;
                     }
                 }
-                return caseInsensitive;
+                return matchingNames == 1U ? match : nullptr;
             };
 
             const NativeDirectoryEntry *entry = findComponent(*before.try_value());
@@ -1100,8 +1230,8 @@ cue::Result<std::vector<UniqueHandle>> WindowsWorkspaceFilesystem::pin_directory
             }
 
             cue::Result<NativeDirectoryEnumeration> after =
-                enumerate_directory_handle(parentHandle, k_windowsHardLimits.maxVisitedEntries,
-                                           k_windowsHardLimits.maxMetadataBytes, m_assertContext);
+                enumerate_directory_handle_stable(parentHandle, k_windowsHardLimits.maxVisitedEntries,
+                                                  k_windowsHardLimits.maxMetadataBytes, m_assertContext);
             if (!after)
             {
                 return cue::Result<std::vector<UniqueHandle>>::failure(std::move(*after.try_error()));

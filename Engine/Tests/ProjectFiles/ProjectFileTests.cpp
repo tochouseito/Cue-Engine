@@ -142,6 +142,23 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
     return success;
 }
 
+[[nodiscard]] bool enable_case_sensitive_directory(std::wstring_view a_path) noexcept
+{
+    HANDLE directory = CreateFileW(a_path.data(), FILE_LIST_DIRECTORY | FILE_WRITE_ATTRIBUTES,
+                                   FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                   FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (directory == INVALID_HANDLE_VALUE)
+    {
+        return false;
+    }
+    FILE_CASE_SENSITIVE_INFO information{};
+    information.Flags = FILE_CS_FLAG_CASE_SENSITIVE_DIR;
+    const bool succeeded =
+        SetFileInformationByHandle(directory, FileCaseSensitiveInfo, &information, sizeof(information)) != FALSE;
+    CloseHandle(directory);
+    return succeeded;
+}
+
 [[nodiscard]] std::vector<std::byte> read_file(std::wstring_view a_path)
 {
     std::vector<std::byte> bytes;
@@ -463,6 +480,42 @@ class SequenceOperationIdSource final : public cue::project_files::ProjectFileOp
                INVALID_FILE_ATTRIBUTES &&
            has_no_staging_entries(a_directory);
 }
+
+[[nodiscard]] bool test_portable_parent_alias(const cue::ProjectDescriptor &a_descriptor,
+                                              const cue::AssertContext &a_assertContext)
+{
+    TestDirectory directory;
+    if (!directory.is_created() || !enable_case_sensitive_directory(directory.child(L"Assets\\Source")) ||
+        CreateDirectoryW(directory.child(L"Assets\\Source\\Folder").c_str(), nullptr) == FALSE ||
+        CreateDirectoryW(directory.child(L"Assets\\Source\\folder").c_str(), nullptr) == FALSE)
+    {
+        return false;
+    }
+    auto workspace = cue::create_windows_workspace_filesystem(directory.utf8_path(), a_assertContext);
+    if (!workspace)
+    {
+        return false;
+    }
+    std::vector<std::string> ids{"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"};
+    auto service = cue::project_files::ProjectFileService::create(a_descriptor, std::move(*workspace.try_value()),
+                                                                  make_id_source(a_assertContext, std::move(ids)),
+                                                                  a_assertContext);
+    auto destination = cue::RelativePath::parse("Folder/Alias.bin", a_assertContext);
+    if (!service || !destination)
+    {
+        return false;
+    }
+
+    const std::array<std::byte, 1U> content{std::byte{0x01}};
+    auto result = service.try_value()->create_file(cue::project_files::ProjectFileArea::SourceAssets,
+                                                   std::move(*destination.try_value()), content);
+    return result && result.try_value()->outcome() == cue::project_files::ProjectFileOperationOutcome::NotCommitted &&
+           has_project_file_error(result.try_value()->try_primary_error(),
+                                  cue::project_files::ProjectFileError::InvalidRequest) &&
+           GetFileAttributesW(directory.child(L"Assets\\Source\\Folder\\Alias.bin").c_str()) ==
+               INVALID_FILE_ATTRIBUTES &&
+           GetFileAttributesW(directory.child(L"Assets\\Source\\folder\\Alias.bin").c_str()) == INVALID_FILE_ATTRIBUTES;
+}
 } // namespace
 
 int main()
@@ -500,5 +553,5 @@ int main()
     {
         return 6;
     }
-    return 0;
+    return test_portable_parent_alias(*descriptor.try_value(), assertContext) ? 0 : 7;
 }
