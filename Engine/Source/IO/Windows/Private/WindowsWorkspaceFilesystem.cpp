@@ -2016,6 +2016,10 @@ class WindowsWorkspaceFilesystem final : public cue::WorkspaceFilesystem
         return k_windowsContentHardLimits;
     }
 
+    /// @brief 未検証Absolute Windows PathをRoot相対Portable Capabilityへ正規化する
+    [[nodiscard]] cue::Result<cue::BoundWorkspacePath> bind_external_path(
+        std::string_view a_unverifiedAbsolutePath) noexcept override;
+
     /// @brief Directory直下をRoot Pin保持中に列挙する
     [[nodiscard]] cue::Result<cue::DirectorySnapshot> list_directory(const cue::WorkspaceDirectory &a_directory,
                                                                      cue::TraversalLimits a_limits) noexcept override;
@@ -2151,6 +2155,117 @@ cue::Result<void> WindowsWorkspaceFilesystem::verify_root_identity() const noexc
             cue::make_io_error(m_assertContext, cue::IoError::OutsideRoot, "Workspace root identity changed"));
     }
     return cue::Result<void>::success();
+}
+
+/// @brief 未検証Absolute Windows PathをRoot相対Portable Capabilityへ正規化する
+cue::Result<cue::BoundWorkspacePath> WindowsWorkspaceFilesystem::bind_external_path(
+    std::string_view a_unverifiedAbsolutePath) noexcept
+{
+    cue::Result<std::wstring> converted = to_utf16(a_unverifiedAbsolutePath, m_assertContext);
+    if (!converted)
+    {
+        return cue::Result<cue::BoundWorkspacePath>::failure(std::move(*converted.try_error()));
+    }
+    const std::wstring_view input(*converted.try_value());
+    if (input.empty() || input.find(L'\0') != std::wstring_view::npos || is_unc_path(input))
+    {
+        return cue::Result<cue::BoundWorkspacePath>::failure(cue::make_io_error(
+            m_assertContext, cue::IoError::InvalidPath, "External workspace path must be a local absolute path"));
+    }
+
+    const bool extendedPrefix = input.starts_with(L"\\\\?\\");
+    const std::size_t driveOffset = extendedPrefix ? 4U : 0U;
+    const bool driveAbsolute = input.size() >= driveOffset + 3U && std::iswalpha(input[driveOffset]) != 0 &&
+                               input[driveOffset + 1U] == L':' &&
+                               (input[driveOffset + 2U] == L'\\' || input[driveOffset + 2U] == L'/');
+    if (!driveAbsolute)
+    {
+        return cue::Result<cue::BoundWorkspacePath>::failure(cue::make_io_error(
+            m_assertContext, cue::IoError::InvalidPath, "External workspace path must be local-drive absolute"));
+    }
+
+    const DWORD required = GetFullPathNameW(converted.try_value()->c_str(), 0U, nullptr, nullptr);
+    if (required == 0U)
+    {
+        return cue::Result<cue::BoundWorkspacePath>::failure(
+            make_windows_error(m_assertContext, GetLastError(), "External workspace path normalization failed"));
+    }
+    std::wstring absolute;
+    try
+    {
+        absolute.resize(required);
+    }
+    catch (...)
+    {
+        terminate_allocation(m_assertContext);
+    }
+    const DWORD written = GetFullPathNameW(converted.try_value()->c_str(), required, absolute.data(), nullptr);
+    if (written == 0U || written >= required)
+    {
+        return cue::Result<cue::BoundWorkspacePath>::failure(
+            make_windows_error(m_assertContext, written == 0U ? GetLastError() : ERROR_INSUFFICIENT_BUFFER,
+                               "External workspace path normalization failed"));
+    }
+    absolute.resize(written);
+    const std::size_t rootLength = local_drive_root_length(absolute);
+    while (absolute.size() > rootLength && (absolute.back() == L'\\' || absolute.back() == L'/'))
+    {
+        absolute.pop_back();
+    }
+
+    cue::Result<std::wstring> extended = make_extended_path(std::move(absolute), m_assertContext);
+    if (!extended)
+    {
+        return cue::Result<cue::BoundWorkspacePath>::failure(std::move(*extended.try_error()));
+    }
+    const std::wstring_view normalized(*extended.try_value());
+    if (!starts_with_ordinal_ignore_case(normalized, m_rootPath) || normalized.size() <= m_rootPath.size())
+    {
+        return cue::Result<cue::BoundWorkspacePath>::failure(cue::make_io_error(
+            m_assertContext, cue::IoError::OutsideRoot, "External workspace path is outside the bound root"));
+    }
+
+    std::size_t relativeOffset = m_rootPath.size();
+    const bool rootEndsWithSeparator = m_rootPath.back() == L'\\' || m_rootPath.back() == L'/';
+    if (!rootEndsWithSeparator)
+    {
+        if (normalized[relativeOffset] != L'\\' && normalized[relativeOffset] != L'/')
+        {
+            return cue::Result<cue::BoundWorkspacePath>::failure(cue::make_io_error(
+                m_assertContext, cue::IoError::OutsideRoot, "External workspace path is outside the bound root"));
+        }
+        ++relativeOffset;
+    }
+
+    std::wstring relative(normalized.substr(relativeOffset));
+    std::replace(relative.begin(), relative.end(), L'\\', L'/');
+    cue::Result<std::string> portable = to_utf8(relative, m_assertContext);
+    if (!portable)
+    {
+        return cue::Result<cue::BoundWorkspacePath>::failure(std::move(*portable.try_error()));
+    }
+    cue::WorkspaceDirectory parent = cue::WorkspaceDirectory::root();
+    cue::Result<cue::BoundWorkspacePath> bound = cue::Result<cue::BoundWorkspacePath>::failure(
+        cue::make_io_error(m_assertContext, cue::IoError::InvalidPath, "External workspace path is empty"));
+    std::string_view remaining(*portable.try_value());
+    while (!remaining.empty())
+    {
+        const std::size_t separator = remaining.find('/');
+        const std::string_view segment = remaining.substr(0U, separator);
+        cue::Result<cue::RelativePath> locator = cue::RelativePath::parse(segment, m_assertContext);
+        if (!locator)
+        {
+            return cue::Result<cue::BoundWorkspacePath>::failure(std::move(*locator.try_error()));
+        }
+        bound = append_path(parent, std::move(*locator.try_value()), m_assertContext);
+        if (!bound)
+        {
+            return bound;
+        }
+        parent = cue::WorkspaceDirectory::from_bound_path(*bound.try_value());
+        remaining = separator == std::string_view::npos ? std::string_view{} : remaining.substr(separator + 1U);
+    }
+    return bound;
 }
 
 cue::Result<std::vector<UniqueHandle>> WindowsWorkspaceFilesystem::pin_directory_chain(

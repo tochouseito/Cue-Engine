@@ -522,6 +522,14 @@ struct MountPointReparseBuffer final
     return entry.is_operable() && entry.locator->text() == expected;
 }
 
+/// @brief 個別には有効な16 Segment RootとChildをAbsolute Pathから内部PathへBindingできるか検証する
+[[nodiscard]] bool test_deep_external_binding(cue::WorkspaceFilesystem &a_filesystem, const TestDirectory &a_directory)
+{
+    const std::string absolute = a_directory.utf8_path() + "/" + std::string(k_deepLocator) + "/Tail.bin";
+    auto bound = a_filesystem.bind_external_path(absolute);
+    return bound && bound.try_value()->text() == std::string(k_deepLocator) + "/Tail.bin";
+}
+
 /// @brief 別Rootから発行されたDirectory Capabilityを拒否するか検証する
 [[nodiscard]] bool test_binding_origin(cue::WorkspaceFilesystem &a_filesystem, const TestDirectory &a_directory,
                                        const cue::AssertContext &a_assertContext)
@@ -600,36 +608,40 @@ int main()
     {
         return 8;
     }
-    if (!test_binding_origin(**filesystem.try_value(), directory, assertContext))
+    if (!test_deep_external_binding(**filesystem.try_value(), directory))
     {
         return 9;
+    }
+    if (!test_binding_origin(**filesystem.try_value(), directory, assertContext))
+    {
+        return 10;
     }
 
     auto temporaryContextFilesystem = create_with_temporary_context(directory.utf8_path(), logger, fatalHandler);
     if (!temporaryContextFilesystem)
     {
-        return 10;
+        return 11;
     }
     auto temporaryContextSnapshot =
         (**temporaryContextFilesystem.try_value())
             .list_directory(cue::WorkspaceDirectory::root(), cue::TraversalLimits{2U, 64U, 64U, 32U * 1024U});
     if (!temporaryContextSnapshot)
     {
-        return 11;
+        return 12;
     }
 
     auto limited = (**filesystem.try_value())
                        .list_directory(cue::WorkspaceDirectory::root(), cue::TraversalLimits{2U, 64U, 1U, 16U * 1024U});
     if (!has_io_error(limited, cue::IoError::CapacityExceeded))
     {
-        return 12;
+        return 13;
     }
 
     if (MoveFileExW(directory.path().c_str(), directory.moved_path().c_str(), 0U) != FALSE)
     {
         MoveFileExW(directory.moved_path().c_str(), directory.path().c_str(), 0U);
-        return 13;
+        return 14;
     }
     const DWORD replacementCode = GetLastError();
-    return replacementCode == ERROR_SHARING_VIOLATION || replacementCode == ERROR_ACCESS_DENIED ? 0 : 14;
+    return replacementCode == ERROR_SHARING_VIOLATION || replacementCode == ERROR_ACCESS_DENIED ? 0 : 15;
 }

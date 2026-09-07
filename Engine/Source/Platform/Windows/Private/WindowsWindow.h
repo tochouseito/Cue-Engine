@@ -13,6 +13,7 @@
 namespace cue
 {
 class AssertContext;
+class FileDialogOwnerToken;
 class WindowsMessageSink;
 class WindowsWindow;
 
@@ -97,6 +98,8 @@ class WindowsWindow final : public Window
                                                            LPARAM a_lParam) noexcept;
 
   private:
+    friend Result<FileDialogOwnerToken> create_windows_file_dialog_owner(Window &a_window,
+                                                                         const AssertContext &a_assertContext) noexcept;
     friend Result<void> attach_windows_message_sink(Window &a_window, WindowsMessageSink &a_sink,
                                                     const AssertContext &a_assertContext) noexcept;
     friend Result<void> detach_windows_message_sink(Window &a_window, WindowsMessageSink &a_sink,
