@@ -24,6 +24,28 @@ constexpr std::size_t k_maximumTrashRecordBytes = 16U * 1024U * 1024U;
     std::abort();
 }
 
+/// @brief 検証済みPortable Pathを合成後の長さ制限なしでASCII lowercase比較Keyへ変換する
+[[nodiscard]] std::string portable_path_key(std::string_view a_path, const cue::AssertContext &a_assertContext) noexcept
+{
+    std::string key;
+    try
+    {
+        key.assign(a_path);
+    }
+    catch (...)
+    {
+        terminate_allocation(a_assertContext);
+    }
+    for (char &character : key)
+    {
+        if (character >= 'A' && character <= 'Z')
+        {
+            character = static_cast<char>(character + ('a' - 'A'));
+        }
+    }
+    return key;
+}
+
 /// @brief Workspace列挙診断を保持可能なPortable IO Errorへ分類する
 [[nodiscard]] cue::IoError classify_workspace_diagnostic(cue::WorkspaceDiagnosticCode a_code) noexcept
 {
@@ -417,15 +439,8 @@ Result<RelativePath> ProjectFileService::revalidate_external_selection(ProjectFi
             std::move(*bound.try_error())));
     }
 
-    Result<RelativePath> rootRelative = RelativePath::parse(bound.try_value()->text(), m_assertContext);
-    if (!rootRelative)
-    {
-        return Result<RelativePath>::failure(reclassify_project_file_error(
-            m_assertContext, ProjectFileError::InvalidRequest,
-            "Native File Dialog selection is not a portable project path", std::move(*rootRelative.try_error())));
-    }
     const RelativePath &areaRoot = area_root(a_area);
-    const std::string rootRelativeKey = rootRelative.try_value()->comparison_key(m_assertContext);
+    const std::string rootRelativeKey = portable_path_key(bound.try_value()->text(), m_assertContext);
     const std::string areaRootKey = areaRoot.comparison_key(m_assertContext);
     if (rootRelativeKey.size() <= areaRootKey.size() + 1U || !rootRelativeKey.starts_with(areaRootKey) ||
         rootRelativeKey[areaRootKey.size()] != '/')
@@ -441,11 +456,18 @@ Result<RelativePath> ProjectFileService::revalidate_external_selection(ProjectFi
     std::string leafText;
     try
     {
-        rootRelativeText.assign(rootRelative.try_value()->text());
+        rootRelativeText.assign(bound.try_value()->text());
         areaRelativeText.assign(rootRelativeText.substr(areaRoot.text().size() + 1U));
-        const std::size_t separator = rootRelativeText.rfind('/');
-        parentText.assign(rootRelativeText.substr(0U, separator));
-        leafText.assign(rootRelativeText.substr(separator + 1U));
+        const std::size_t separator = areaRelativeText.rfind('/');
+        if (separator != std::string::npos)
+        {
+            parentText.assign(areaRelativeText.substr(0U, separator));
+            leafText.assign(areaRelativeText.substr(separator + 1U));
+        }
+        else
+        {
+            leafText.assign(areaRelativeText);
+        }
     }
     catch (...)
     {
@@ -453,30 +475,39 @@ Result<RelativePath> ProjectFileService::revalidate_external_selection(ProjectFi
     }
 
     Result<RelativePath> areaRelative = RelativePath::parse(areaRelativeText, m_assertContext);
-    Result<RelativePath> parentLocator = RelativePath::parse(parentText, m_assertContext);
     Result<RelativePath> leafLocator = RelativePath::parse(leafText, m_assertContext);
-    if (!areaRelative || !parentLocator || !leafLocator)
+    if (!areaRelative || !leafLocator)
     {
-        std::optional<Error> cause;
-        if (!areaRelative)
-        {
-            cause.emplace(std::move(*areaRelative.try_error()));
-        }
-        else if (!parentLocator)
-        {
-            cause.emplace(std::move(*parentLocator.try_error()));
-        }
-        else
-        {
-            cause.emplace(std::move(*leafLocator.try_error()));
-        }
+        Error cause = !areaRelative ? std::move(*areaRelative.try_error()) : std::move(*leafLocator.try_error());
         return Result<RelativePath>::failure(reclassify_project_file_error(
             m_assertContext, ProjectFileError::InvalidRequest,
-            "Native File Dialog selection is not a portable project path", std::move(*cause)));
+            "Native File Dialog selection is not a portable project path", std::move(cause)));
     }
 
-    Result<WorkspaceDirectory> parentDirectory =
-        m_workspace->bind_directory(std::move(*parentLocator.try_value()), m_assertContext);
+    Result<WorkspaceDirectory> parentDirectory = m_workspace->bind_directory(areaRoot, m_assertContext);
+    if (!parentText.empty())
+    {
+        Result<RelativePath> parentLocator = RelativePath::parse(parentText, m_assertContext);
+        if (!parentLocator)
+        {
+            return Result<RelativePath>::failure(
+                reclassify_project_file_error(m_assertContext, ProjectFileError::InvalidRequest,
+                                              "Native File Dialog selection parent is not a portable area path",
+                                              std::move(*parentLocator.try_error())));
+        }
+        Result<BoundWorkspacePath> boundParent =
+            m_workspace->bind_path(areaRoot, std::move(*parentLocator.try_value()), m_assertContext);
+        if (!boundParent)
+        {
+            const ProjectFileError classification =
+                classify_project_file_error(*boundParent.try_error(), WorkspaceMutationOutcome::NotCommitted);
+            return Result<RelativePath>::failure(reclassify_project_file_error(
+                m_assertContext, classification, "Native File Dialog selection parent is not safe",
+                std::move(*boundParent.try_error())));
+        }
+        parentDirectory = Result<WorkspaceDirectory>::success(
+            WorkspaceDirectory::from_bound_path(std::move(*boundParent.try_value())));
+    }
     if (!parentDirectory)
     {
         const ProjectFileError classification =

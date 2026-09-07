@@ -286,6 +286,79 @@ struct MountPointReparseBuffer final
     return descriptor;
 }
 
+/// @brief 16 Segment Source Rootを持つDescriptorとNative Fixtureを生成する
+[[nodiscard]] cue::Result<cue::ProjectDescriptor> create_deep_root_fixture(
+    const TestDirectory &a_directory, const cue::AssertContext &a_assertContext) noexcept
+{
+    constexpr std::string_view k_sourceRoot = "D/D/D/D/D/D/D/D/D/D/D/D/D/D/D/D";
+    constexpr std::wstring_view k_nativeSourceRoot = L"D\\D\\D\\D\\D\\D\\D\\D\\D\\D\\D\\D\\D\\D\\D\\D";
+    std::error_code directoryError;
+    std::filesystem::create_directories(a_directory.child(k_nativeSourceRoot), directoryError);
+    const std::array<std::byte, 3U> bytes{std::byte{'c'}, std::byte{'u'}, std::byte{'e'}};
+    if (directoryError || !write_file(a_directory.child(std::wstring(k_nativeSourceRoot) + L"\\Tail.bin"), bytes))
+    {
+        return cue::Result<cue::ProjectDescriptor>::failure(cue::project_files::make_project_file_error(
+            a_assertContext, cue::project_files::ProjectFileError::StorageFailure,
+            "Deep root File Dialog fixture could not be created"));
+    }
+
+    std::string json =
+        R"json({"schemaVersion":1,"projectId":"abcdefab-cdef-4abc-8def-abcdefabcdef","displayName":"Deep Root","engineCompatibility":{"minimum":"1.0.0","maximumExclusive":"2.0.0"},"roots":{"sourceAssets":")json";
+    try
+    {
+        json.append(k_sourceRoot);
+        json.append(
+            R"json(","runtimeAssets":"Assets/Runtime","generated":"Generated","saved":"Saved"},"defaultScene":null,"requiredCapabilities":[],"extensions":{}})json");
+    }
+    catch (...)
+    {
+        std::abort();
+    }
+    cue::Result<cue::ProjectDescriptor> descriptor = cue::parse_project_descriptor(json, a_assertContext);
+    if (!descriptor)
+    {
+        return descriptor;
+    }
+    cue::Result<std::string> serialized = cue::serialize_project_descriptor(*descriptor.try_value(), a_assertContext);
+    if (!serialized ||
+        !write_file(a_directory.child(L"CueProject.json"),
+                    std::as_bytes(std::span(serialized.try_value()->data(), serialized.try_value()->size()))))
+    {
+        return cue::Result<cue::ProjectDescriptor>::failure(cue::project_files::make_project_file_error(
+            a_assertContext, cue::project_files::ProjectFileError::StorageFailure,
+            "Deep root project descriptor could not be written"));
+    }
+    return descriptor;
+}
+
+/// @brief 16 Segment Area Root直下のFileをArea相対Locatorとして再検証できるか検証する
+[[nodiscard]] bool run_deep_root_revalidation_test(const cue::AssertContext &a_assertContext)
+{
+    TestDirectory directory;
+    cue::Result<cue::ProjectDescriptor> descriptor = create_deep_root_fixture(directory, a_assertContext);
+    if (!directory.is_created() || !descriptor)
+    {
+        return false;
+    }
+    cue::Result<std::unique_ptr<cue::WorkspaceFilesystem>> workspace =
+        cue::create_windows_workspace_filesystem(directory.utf8_path(), a_assertContext);
+    if (!workspace)
+    {
+        return false;
+    }
+    cue::Result<cue::project_files::ProjectFileService> service = cue::project_files::ProjectFileService::create(
+        *descriptor.try_value(), std::move(*workspace.try_value()),
+        std::make_unique<EmptyOperationIdSource>(a_assertContext), a_assertContext);
+    if (!service)
+    {
+        return false;
+    }
+    auto result = revalidate_selected(*service.try_value(),
+                                      directory.child_utf8(L"D\\D\\D\\D\\D\\D\\D\\D\\D\\D\\D\\D\\D\\D\\D\\D\\Tail.bin"),
+                                      cue::project_files::ProjectFileSelectionPurpose::OpenExistingFile);
+    return result && result.try_value()->text() == "Tail.bin";
+}
+
 /// @brief File、Folder、Save先、Area、Alias、Reparse、TOCTOU再検証を検証する
 [[nodiscard]] bool run_revalidation_tests(const cue::AssertContext &a_assertContext)
 {
@@ -393,5 +466,5 @@ int main()
     std::vector<std::unique_ptr<cue::LogSink>> sinks;
     cue::Logger logger(fatalHandler, std::move(sinks));
     cue::AssertContext assertContext(logger, fatalHandler);
-    return run_revalidation_tests(assertContext) ? 0 : 1;
+    return run_revalidation_tests(assertContext) && run_deep_root_revalidation_test(assertContext) ? 0 : 1;
 }
