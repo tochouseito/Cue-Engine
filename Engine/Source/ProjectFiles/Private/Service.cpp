@@ -379,6 +379,188 @@ const ProjectFileAccessPolicy &ProjectFileService::access_policy() const noexcep
     return m_policy;
 }
 
+/// @brief 未検証Absolute PathをArea境界、親Chain、Entry種別に照らして再検証する
+Result<RelativePath> ProjectFileService::revalidate_external_selection(ProjectFileArea a_area,
+                                                                       std::string_view a_unverifiedAbsolutePath,
+                                                                       ProjectFileSelectionPurpose a_purpose) noexcept
+{
+    if (std::this_thread::get_id() != m_ownerThread)
+    {
+        return Result<RelativePath>::failure(
+            make_project_file_error(m_assertContext, ProjectFileError::InvalidRequest,
+                                    "Project file selection was revalidated from another thread"));
+    }
+    if (m_isBusy)
+    {
+        return Result<RelativePath>::failure(make_project_file_error(m_assertContext, ProjectFileError::Busy,
+                                                                     "Project file mutation is already active"));
+    }
+    const bool validPurpose = a_purpose == ProjectFileSelectionPurpose::OpenExistingFile ||
+                              a_purpose == ProjectFileSelectionPurpose::SaveFileDestination ||
+                              a_purpose == ProjectFileSelectionPurpose::SelectExistingDirectory;
+    const bool allowedArea = a_purpose == ProjectFileSelectionPurpose::SaveFileDestination ? m_policy.can_mutate(a_area)
+                                                                                           : m_policy.can_list(a_area);
+    if (!validPurpose || !allowedArea)
+    {
+        return Result<RelativePath>::failure(make_project_file_error(
+            m_assertContext, allowedArea ? ProjectFileError::InvalidRequest : ProjectFileError::ProtectedEntry,
+            allowedArea ? "Project file selection purpose is invalid" : "Project file area is protected"));
+    }
+
+    Result<BoundWorkspacePath> bound = m_workspace->bind_external_path(a_unverifiedAbsolutePath);
+    if (!bound)
+    {
+        const ProjectFileError classification =
+            classify_project_file_error(*bound.try_error(), WorkspaceMutationOutcome::NotCommitted);
+        return Result<RelativePath>::failure(reclassify_project_file_error(
+            m_assertContext, classification, "Native File Dialog selection is outside the project workspace",
+            std::move(*bound.try_error())));
+    }
+
+    Result<RelativePath> rootRelative = RelativePath::parse(bound.try_value()->text(), m_assertContext);
+    if (!rootRelative)
+    {
+        return Result<RelativePath>::failure(reclassify_project_file_error(
+            m_assertContext, ProjectFileError::InvalidRequest,
+            "Native File Dialog selection is not a portable project path", std::move(*rootRelative.try_error())));
+    }
+    const RelativePath &areaRoot = area_root(a_area);
+    const std::string rootRelativeKey = rootRelative.try_value()->comparison_key(m_assertContext);
+    const std::string areaRootKey = areaRoot.comparison_key(m_assertContext);
+    if (rootRelativeKey.size() <= areaRootKey.size() + 1U || !rootRelativeKey.starts_with(areaRootKey) ||
+        rootRelativeKey[areaRootKey.size()] != '/')
+    {
+        return Result<RelativePath>::failure(
+            make_project_file_error(m_assertContext, ProjectFileError::InvalidRequest,
+                                    "Native File Dialog selection is outside the requested project area"));
+    }
+
+    std::string rootRelativeText;
+    std::string areaRelativeText;
+    std::string parentText;
+    std::string leafText;
+    try
+    {
+        rootRelativeText.assign(rootRelative.try_value()->text());
+        areaRelativeText.assign(rootRelativeText.substr(areaRoot.text().size() + 1U));
+        const std::size_t separator = rootRelativeText.rfind('/');
+        parentText.assign(rootRelativeText.substr(0U, separator));
+        leafText.assign(rootRelativeText.substr(separator + 1U));
+    }
+    catch (...)
+    {
+        terminate_allocation(m_assertContext);
+    }
+
+    Result<RelativePath> areaRelative = RelativePath::parse(areaRelativeText, m_assertContext);
+    Result<RelativePath> parentLocator = RelativePath::parse(parentText, m_assertContext);
+    Result<RelativePath> leafLocator = RelativePath::parse(leafText, m_assertContext);
+    if (!areaRelative || !parentLocator || !leafLocator)
+    {
+        std::optional<Error> cause;
+        if (!areaRelative)
+        {
+            cause.emplace(std::move(*areaRelative.try_error()));
+        }
+        else if (!parentLocator)
+        {
+            cause.emplace(std::move(*parentLocator.try_error()));
+        }
+        else
+        {
+            cause.emplace(std::move(*leafLocator.try_error()));
+        }
+        return Result<RelativePath>::failure(reclassify_project_file_error(
+            m_assertContext, ProjectFileError::InvalidRequest,
+            "Native File Dialog selection is not a portable project path", std::move(*cause)));
+    }
+
+    Result<WorkspaceDirectory> parentDirectory =
+        m_workspace->bind_directory(std::move(*parentLocator.try_value()), m_assertContext);
+    if (!parentDirectory)
+    {
+        const ProjectFileError classification =
+            classify_project_file_error(*parentDirectory.try_error(), WorkspaceMutationOutcome::NotCommitted);
+        return Result<RelativePath>::failure(reclassify_project_file_error(
+            m_assertContext, classification, "Native File Dialog selection parent is not safe",
+            std::move(*parentDirectory.try_error())));
+    }
+    Result<DirectorySnapshot> snapshot =
+        m_workspace->list_directory(*parentDirectory.try_value(), m_workspace->hard_limits());
+    if (!snapshot)
+    {
+        const ProjectFileError classification =
+            classify_project_file_error(*snapshot.try_error(), WorkspaceMutationOutcome::NotCommitted);
+        return Result<RelativePath>::failure(reclassify_project_file_error(
+            m_assertContext, classification, "Native File Dialog selection parent could not be inspected",
+            std::move(*snapshot.try_error())));
+    }
+    if (snapshot.try_value()->state != WorkspaceSnapshotState::Complete)
+    {
+        return Result<RelativePath>::failure(
+            make_project_file_error(m_assertContext, ProjectFileError::StorageFailure,
+                                    "Native File Dialog selection parent changed while it was inspected"));
+    }
+
+    const std::string leafKey = leafLocator.try_value()->comparison_key(m_assertContext);
+    const WorkspaceEntry *exactEntry = nullptr;
+    bool hasPortableAlias = false;
+    for (const WorkspaceEntry &entry : snapshot.try_value()->entries)
+    {
+        Result<RelativePath> entryName = RelativePath::parse(entry.displayName, m_assertContext);
+        if (!entryName)
+        {
+            if (entry.displayName == leafText)
+            {
+                return Result<RelativePath>::failure(
+                    make_project_file_error(m_assertContext, ProjectFileError::InvalidRequest,
+                                            "Native File Dialog selection names an unsupported workspace entry"));
+            }
+            continue;
+        }
+        if (entryName.try_value()->comparison_key(m_assertContext) == leafKey)
+        {
+            hasPortableAlias = true;
+            if (entry.displayName == leafText)
+            {
+                exactEntry = &entry;
+            }
+        }
+    }
+
+    if (exactEntry == nullptr)
+    {
+        if (hasPortableAlias || a_purpose != ProjectFileSelectionPurpose::SaveFileDestination)
+        {
+            return Result<RelativePath>::failure(make_project_file_error(
+                m_assertContext, ProjectFileError::InvalidRequest,
+                hasPortableAlias ? "Native File Dialog selection uses a non-canonical path spelling"
+                                 : "Native File Dialog selection no longer exists"));
+        }
+        return Result<RelativePath>::success(std::move(*areaRelative.try_value()));
+    }
+    if (!exactEntry->is_operable())
+    {
+        return Result<RelativePath>::failure(
+            make_project_file_error(m_assertContext, ProjectFileError::InvalidRequest,
+                                    "Native File Dialog selection is a reparse point or unsupported entry"));
+    }
+
+    const bool validType = (a_purpose == ProjectFileSelectionPurpose::OpenExistingFile &&
+                            exactEntry->type == WorkspaceEntryType::RegularFile) ||
+                           (a_purpose == ProjectFileSelectionPurpose::SaveFileDestination &&
+                            exactEntry->type == WorkspaceEntryType::RegularFile) ||
+                           (a_purpose == ProjectFileSelectionPurpose::SelectExistingDirectory &&
+                            exactEntry->type == WorkspaceEntryType::Directory);
+    if (!validType)
+    {
+        return Result<RelativePath>::failure(
+            make_project_file_error(m_assertContext, ProjectFileError::InvalidRequest,
+                                    "Native File Dialog selection has the wrong workspace entry type"));
+    }
+    return Result<RelativePath>::success(std::move(*areaRelative.try_value()));
+}
+
 std::span<const RecoveryEntry> ProjectFileService::recovery_entries() const noexcept
 {
     return m_recoveryEntries;
