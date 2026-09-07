@@ -3,6 +3,9 @@
 #include <Cue/Foundation/Log.h>
 #include <Cue/Platform/Windows/WindowsFileDialog.h>
 #include <Cue/Platform/Windows/WindowsPlatform.h>
+#include <Cue/Platform/Windows/WindowsWindowInterop.h>
+
+#include <Windows.h>
 
 #include <cstdlib>
 #include <iostream>
@@ -230,6 +233,39 @@ template <typename T> [[nodiscard]] bool has_utf8_conversion_cause(const cue::Re
     }
     cue::Result<cue::FileDialogResult> staleResult = service->show(staleRequest);
     if (!has_dialog_error(staleResult, cue::WindowsFileDialogError::OwnerUnavailable))
+    {
+        return false;
+    }
+
+    cue::Result<std::unique_ptr<cue::Window>> reusedWindowResult = create_test_window(a_system);
+    if (!reusedWindowResult)
+    {
+        return false;
+    }
+    std::unique_ptr<cue::Window> reusedWindow = std::move(*reusedWindowResult.try_value());
+    cue::Result<cue::FileDialogOwnerToken> reusedOwner =
+        cue::create_windows_file_dialog_owner(*reusedWindow, a_context);
+    cue::Result<cue::NativeWindowView> reusedView = cue::get_native_window_view(*reusedWindow, a_context);
+    if (!reusedOwner || !reusedView)
+    {
+        return false;
+    }
+    HWND reusedHandle = static_cast<HWND>(const_cast<void *>(reusedView.try_value()->value()));
+    const LONG_PTR originalIdentity = GetWindowLongPtrW(reusedHandle, GWLP_USERDATA);
+    const LONG_PTR replacementIdentity = originalIdentity == 1 ? 2 : 1;
+    SetLastError(ERROR_SUCCESS);
+    const LONG_PTR previousIdentity = SetWindowLongPtrW(reusedHandle, GWLP_USERDATA, replacementIdentity);
+    if (previousIdentity != originalIdentity || (previousIdentity == 0 && GetLastError() != ERROR_SUCCESS))
+    {
+        return false;
+    }
+    cue::FileDialogRequest reusedRequest(cue::FileDialogKind::OpenFile, {}, {}, {},
+                                         std::move(*reusedOwner.try_value()));
+    cue::Result<cue::FileDialogResult> reusedResult = service->show(reusedRequest);
+    SetLastError(ERROR_SUCCESS);
+    const LONG_PTR replacedIdentity = SetWindowLongPtrW(reusedHandle, GWLP_USERDATA, originalIdentity);
+    if (replacedIdentity != replacementIdentity || (replacedIdentity == 0 && GetLastError() != ERROR_SUCCESS) ||
+        !has_dialog_error(reusedResult, cue::WindowsFileDialogError::OwnerUnavailable) || !reusedWindow->destroy())
     {
         return false;
     }

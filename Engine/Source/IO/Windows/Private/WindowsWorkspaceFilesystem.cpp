@@ -2244,12 +2244,28 @@ cue::Result<cue::BoundWorkspacePath> WindowsWorkspaceFilesystem::bind_external_p
     {
         return cue::Result<cue::BoundWorkspacePath>::failure(std::move(*portable.try_error()));
     }
-    cue::Result<cue::RelativePath> locator = cue::RelativePath::parse(*portable.try_value(), m_assertContext);
-    if (!locator)
+    cue::WorkspaceDirectory parent = cue::WorkspaceDirectory::root();
+    cue::Result<cue::BoundWorkspacePath> bound = cue::Result<cue::BoundWorkspacePath>::failure(
+        cue::make_io_error(m_assertContext, cue::IoError::InvalidPath, "External workspace path is empty"));
+    std::string_view remaining(*portable.try_value());
+    while (!remaining.empty())
     {
-        return cue::Result<cue::BoundWorkspacePath>::failure(std::move(*locator.try_error()));
+        const std::size_t separator = remaining.find('/');
+        const std::string_view segment = remaining.substr(0U, separator);
+        cue::Result<cue::RelativePath> locator = cue::RelativePath::parse(segment, m_assertContext);
+        if (!locator)
+        {
+            return cue::Result<cue::BoundWorkspacePath>::failure(std::move(*locator.try_error()));
+        }
+        bound = append_path(parent, std::move(*locator.try_value()), m_assertContext);
+        if (!bound)
+        {
+            return bound;
+        }
+        parent = cue::WorkspaceDirectory::from_bound_path(*bound.try_value());
+        remaining = separator == std::string_view::npos ? std::string_view{} : remaining.substr(separator + 1U);
     }
-    return bind_root_path(std::move(*locator.try_value()), m_assertContext);
+    return bound;
 }
 
 cue::Result<std::vector<UniqueHandle>> WindowsWorkspaceFilesystem::pin_directory_chain(
