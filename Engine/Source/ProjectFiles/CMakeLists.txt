@@ -5,6 +5,8 @@ target_sources(
     PRIVATE
         Private/Error.cpp
         Private/Service.cpp
+        Private/TrashRecord.cpp
+        Private/TrashRecord.h
     PUBLIC
         FILE_SET HEADERS
         BASE_DIRS Public

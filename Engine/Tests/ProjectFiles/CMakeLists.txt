@@ -8,7 +8,18 @@ if(WIN32)
     add_executable(CueProjectFilesTests ProjectFileTests.cpp)
     target_link_libraries(CueProjectFilesTests PRIVATE Cue.ProjectFiles Cue.IO.Windows)
     target_compile_features(CueProjectFilesTests PRIVATE cxx_std_20)
-    list(APPEND cueProjectFilesTestTargets CueProjectFilesTests)
+    add_executable(CueProjectFilesRecoveryTests RecoveryTests.cpp)
+    target_link_libraries(CueProjectFilesRecoveryTests PRIVATE Cue.ProjectFiles Cue.IO.Windows)
+    target_compile_features(CueProjectFilesRecoveryTests PRIVATE cxx_std_20)
+    add_executable(CueProjectFilesTrashRecordTests TrashRecordTests.cpp)
+    target_include_directories(
+        CueProjectFilesTrashRecordTests
+        PRIVATE
+            "${PROJECT_SOURCE_DIR}/Engine/Source/ProjectFiles/Private"
+    )
+    target_link_libraries(CueProjectFilesTrashRecordTests PRIVATE Cue.ProjectFiles)
+    target_compile_features(CueProjectFilesTrashRecordTests PRIVATE cxx_std_20)
+    list(APPEND cueProjectFilesTestTargets CueProjectFilesTests CueProjectFilesRecoveryTests CueProjectFilesTrashRecordTests)
 endif()
 
 foreach(testTarget IN LISTS cueProjectFilesTestTargets)
@@ -42,4 +53,8 @@ set_tests_properties(Cue.ProjectFiles.PublicHeaders PROPERTIES LABELS ProjectFil
 if(WIN32)
     add_test(NAME Cue.ProjectFiles.Create COMMAND CueProjectFilesTests)
     set_tests_properties(Cue.ProjectFiles.Create PROPERTIES LABELS "ProjectFiles;Windows" TIMEOUT 30)
+    add_test(NAME Cue.ProjectFiles.Recovery COMMAND CueProjectFilesRecoveryTests)
+    set_tests_properties(Cue.ProjectFiles.Recovery PROPERTIES LABELS "ProjectFiles;Windows" TIMEOUT 30)
+    add_test(NAME Cue.ProjectFiles.TrashRecord COMMAND CueProjectFilesTrashRecordTests)
+    set_tests_properties(Cue.ProjectFiles.TrashRecord PROPERTIES LABELS ProjectFiles TIMEOUT 10)
 endif()

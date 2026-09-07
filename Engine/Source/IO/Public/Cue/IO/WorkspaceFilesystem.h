@@ -16,12 +16,22 @@ namespace cue
 {
 class AssertContext;
 class WorkspaceDirectory;
+class WorkspaceEntryMutationGuard;
 class WorkspaceFilesystem;
 
 /// @brief 検証済みUser Locatorと列挙結果からだけ生成できるRoot相対内部Path
 class BoundWorkspacePath final
 {
   public:
+    /// @brief 同じWorkspace Bindingを共有する値CapabilityとしてCopy構築する
+    BoundWorkspacePath(const BoundWorkspacePath &) = default;
+    /// @brief 同じWorkspace Bindingを共有する値CapabilityとしてCopy代入する
+    BoundWorkspacePath &operator=(const BoundWorkspacePath &) = default;
+    /// @brief Workspace Binding付きPath Valueを移動構築する
+    BoundWorkspacePath(BoundWorkspacePath &&) noexcept = default;
+    /// @brief Workspace Binding付きPath Valueを移動代入する
+    BoundWorkspacePath &operator=(BoundWorkspacePath &&) noexcept = default;
+
     /// @brief Root相対のPortable Path文字列を返す
     [[nodiscard]] std::string_view text() const noexcept;
 
@@ -99,6 +109,61 @@ struct ContentVerificationLimits final
 
     /// @brief File単位とOperation合計の上限が非Zeroか判定する
     [[nodiscard]] bool is_valid() const noexcept;
+};
+
+/// @brief Regular Fileの内容とHard Link前提を再検証できるFingerprint
+struct WorkspaceFileFingerprint final
+{
+    std::uint64_t byteSize = 0U;
+    std::uint64_t contentDigest = 0U;
+
+    /// @brief File Fingerprintの全要素を比較する
+    [[nodiscard]] bool operator==(const WorkspaceFileFingerprint &) const noexcept = default;
+};
+
+/// @brief Directory Payload内の一つのEntryをRoot相対Pathで記録する
+struct WorkspaceManifestEntry final
+{
+    std::string path;
+    WorkspaceEntryType type = WorkspaceEntryType::UnsupportedEntry;
+    std::optional<WorkspaceFileFingerprint> file;
+
+    /// @brief Manifest Entryの全要素を比較する
+    [[nodiscard]] bool operator==(const WorkspaceManifestEntry &) const noexcept = default;
+};
+
+/// @brief FileまたはDirectory Treeを内容まで照合するPortable Snapshot
+struct WorkspaceEntryFingerprint final
+{
+    WorkspaceEntryType type = WorkspaceEntryType::UnsupportedEntry;
+    std::optional<WorkspaceFileFingerprint> file;
+    std::vector<WorkspaceManifestEntry> manifest;
+
+    /// @brief Entry Fingerprintの全要素を比較する
+    [[nodiscard]] bool operator==(const WorkspaceEntryFingerprint &) const noexcept = default;
+};
+
+/// @brief Native EntryのIdentityと変更排他をRecord確定まで保持するOpaque Guard
+class WorkspaceEntryMutationGuard
+{
+  public:
+    /// @brief Native Guardの一意所有を保つためCopy構築を禁止する
+    WorkspaceEntryMutationGuard(const WorkspaceEntryMutationGuard &) = delete;
+    /// @brief Native Guardの一意所有を保つためCopy代入を禁止する
+    WorkspaceEntryMutationGuard &operator=(const WorkspaceEntryMutationGuard &) = delete;
+    /// @brief Platform実装が所有するNative Resourceを解放する
+    virtual ~WorkspaceEntryMutationGuard() = default;
+
+  protected:
+    /// @brief Platform実装だけがGuardを構築できる状態にする
+    WorkspaceEntryMutationGuard() noexcept = default;
+};
+
+/// @brief Guard取得中に確定したFingerprintとNative Guardの一意所有権
+struct GuardedWorkspaceEntry final
+{
+    WorkspaceEntryFingerprint fingerprint;
+    std::unique_ptr<WorkspaceEntryMutationGuard> guard;
 };
 
 /// @brief Root自体または検証済みRoot相対Directoryを表す
@@ -197,6 +262,15 @@ class WorkspaceFilesystem
     [[nodiscard]] Result<BoundWorkspacePath> bind_root_path(RelativePath a_locator,
                                                             const AssertContext &a_assertContext) const noexcept;
 
+    /// @brief 検証済み親とOperation IDから利用者Pathでは表せないHidden Staging Capabilityを発行する
+    [[nodiscard]] Result<BoundWorkspacePath> bind_operation_staging_path(
+        const BoundWorkspacePath &a_parent, std::string_view a_operationId, std::string_view a_kind,
+        const AssertContext &a_assertContext) const noexcept;
+
+    /// @brief 既存Bound Directoryへ個別検証済みChild Locatorを追加する
+    [[nodiscard]] Result<BoundWorkspacePath> bind_child_path(const BoundWorkspacePath &a_parent, RelativePath a_child,
+                                                             const AssertContext &a_assertContext) const noexcept;
+
     /// @brief Directory直下を決定的に列挙する
     [[nodiscard]] virtual Result<DirectorySnapshot> list_directory(const WorkspaceDirectory &a_directory,
                                                                    TraversalLimits a_limits) noexcept = 0;
@@ -208,6 +282,11 @@ class WorkspaceFilesystem
     [[nodiscard]] virtual Result<std::vector<std::byte>> read_file_bounded(const BoundWorkspacePath &a_source,
                                                                            std::size_t a_maxBytes) noexcept = 0;
 
+    /// @brief EntryのType、単一Link、Contentを上限付きで決定的にFingerprint化する
+    [[nodiscard]] virtual Result<WorkspaceEntryFingerprint> fingerprint_entry(
+        const BoundWorkspacePath &a_source, TraversalLimits a_traversalLimits,
+        ContentVerificationLimits a_contentLimits) noexcept = 0;
+
     /// @brief Operation所有Sibling Directoryを経由し、既存Entryを上書きせずDirectoryを公開する
     [[nodiscard]] virtual WorkspaceMutationResult create_directory_new(const BoundWorkspacePath &a_destination,
                                                                        std::string_view a_operationId) noexcept = 0;
@@ -217,10 +296,34 @@ class WorkspaceFilesystem
                                                                          std::span<const std::byte> a_bytes,
                                                                          std::string_view a_operationId) noexcept = 0;
 
+    /// @brief 既存Regular FileをOperation所有Temporary FileからAtomic置換する
+    [[nodiscard]] virtual WorkspaceMutationResult replace_file_atomic(const BoundWorkspacePath &a_destination,
+                                                                      std::span<const std::byte> a_bytes,
+                                                                      std::string_view a_operationId) noexcept = 0;
+
     /// @brief Source Identityを保持した一回の同一Volume RenameでDestinationへ移す
     [[nodiscard]] virtual WorkspaceMutationResult rename_entry(const BoundWorkspacePath &a_source,
                                                                const BoundWorkspacePath &a_destination,
                                                                TraversalLimits a_limits) noexcept = 0;
+
+    /// @brief EntryのIdentityと内容を固定し、Record確定まで保持できるMutation Guardを取得する
+    [[nodiscard]] virtual Result<GuardedWorkspaceEntry> guard_entry(
+        const BoundWorkspacePath &a_entry, TraversalLimits a_traversalLimits,
+        ContentVerificationLimits a_contentLimits) noexcept = 0;
+
+    /// @brief Entryが期待Fingerprintと一致する場合だけMutation Guardを取得する
+    [[nodiscard]] virtual Result<std::unique_ptr<WorkspaceEntryMutationGuard>> guard_entry_if_matches(
+        const BoundWorkspacePath &a_entry, const WorkspaceEntryFingerprint &a_expected,
+        TraversalLimits a_traversalLimits, ContentVerificationLimits a_contentLimits) noexcept = 0;
+
+    /// @brief 取得済みGuardと同じNative Entryを一回の同一Volume Renameで移動する
+    [[nodiscard]] virtual WorkspaceMutationResult rename_guarded_entry(
+        WorkspaceEntryMutationGuard &a_guard, const BoundWorkspacePath &a_source,
+        const BoundWorkspacePath &a_destination) noexcept = 0;
+
+    /// @brief Guard期間中の内容不変を再検証してNative Resourceを解放する
+    [[nodiscard]] virtual Result<void> finish_entry_mutation_guard(
+        std::unique_ptr<WorkspaceEntryMutationGuard> a_guard) noexcept = 0;
 
     /// @brief Sourceを保持して検証済みSibling StagingからCreate-new Copyを公開する
     [[nodiscard]] virtual WorkspaceMutationResult copy_entry_new(const BoundWorkspacePath &a_source,
@@ -228,6 +331,10 @@ class WorkspaceFilesystem
                                                                  TraversalLimits a_traversalLimits,
                                                                  ContentVerificationLimits a_contentLimits,
                                                                  std::string_view a_operationId) noexcept = 0;
+
+    /// @brief Identity固定したRegular Fileまたは空Directoryだけを削除する
+    [[nodiscard]] virtual WorkspaceMutationResult remove_file_or_empty_directory(
+        const BoundWorkspacePath &a_entry) noexcept = 0;
 
   protected:
     /// @brief 発行可能なRoot相対Path長を固定してCapabilityを初期化する

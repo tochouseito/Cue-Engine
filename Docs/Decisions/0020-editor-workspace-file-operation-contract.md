@@ -338,7 +338,7 @@ Readerは`0`、小数、指数表記、負数、`uint32_t`範囲外、`1`以外�
 - `schemaVersion`: 初期値`1`
 - `projectId`: ADR-0013のlowercase 8-4-4-4-12 UUID Version 4
 - `operationId`: lowercase 8-4-4-4-12 UUID Version 4 JSON String
-- `state`: `allocating`、`prepared`、`trashed`、`restoring`、`restored`
+- `state`: `allocating`、`prepared`、`trashed`、`restoring`、`restored`、`aborting`、`aborted`
 - `originalArea`: `sourceAssets`
 - `originalPath`: `originalArea`基準の`RelativePath`
 - `entryType`: `regularFile`または`directory`
@@ -402,12 +402,14 @@ Path基準RenameへFallbackしない。DirectoryではManifest列挙対象の全
 Directory DeleteとRestoreは、検証開始からNative Rename、移動先でのManifest再検証、最終Record Commitまで
 `DirectoryTreeMutationGuard`を保持する。Windows AdapterのGuardはSource Root Directoryを`DELETE` Accessと
 `FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_WRITE_THROUGH`で開き、Native Renameにも同じHandleを使用する。全Regular FileはRead専用かつ
-Write非共有、Delete共有Handleで固定し、全Directory HandleへRまたはRH Directory Oplockを要求してBreakを監視する。ChildのDelete共有は
-Source Root Handleによる親Directory Renameを妨げないために必要であり、外部のChild Rename／DeleteはDirectory Oplock Breakと移動先の
-Manifest再検証で検出する。既存Writer、Guard非対応Filesystem、Oplock取得失敗では`Busy`または`UnsupportedEntry`としてMoveを開始しない。
-Directory Oplockは内容変更を阻止しない通知契約であるため、Guard期間中のBreakを失敗として記録し、移動先でLink CountとManifestを
-再検証する。Move前のBreakは`NotCommitted`、Move後のBreakまたは不一致はRecordとPayloadを維持した
-`ReconciliationRequired`とする。黙って成功へFallbackしない。
+Write非共有、Delete共有Handleで固定し、全Child DirectoryもIdentity固定Handleとして保持する。Source Rootには
+`ReadDirectoryChangesW`をSubtree有効で発行し、Name、Directory Name、Attributes、Size、Last Write、Creationの変更を監視する。
+ChildのDelete共有はSource Root Handleによる親Directory Renameを妨げないために必要であり、外部のChild Rename／Delete／Writeは
+再帰変更監視と移動先のManifest再検証で検出する。Directory OplockはSource RootまたはAncestorのRename自体でBreakし、同一Threadの
+Native RenameがBreak Ack待ちになるため、このMove Guardには使用しない。既存Writer、Guard非対応Filesystem、変更監視取得失敗では
+`Busy`または`UnsupportedEntry`としてMoveを開始しない。変更監視は内容変更を阻止しない通知契約であるため、Guard期間中の完了を
+失敗として記録し、移動先でLink CountとManifestを再検証する。Move前の通知は`NotCommitted`、Move後の通知または不一致はRecordと
+Payloadを維持した`ReconciliationRequired`とする。黙って成功へFallbackしない。
 
 Delete順序を固定する。
 
@@ -420,8 +422,10 @@ Delete順序を固定する。
 6. Recordを`trashed`へAtomic更新する
 7. Trash CatalogとSource親Directoryを再列挙する
 
-Step 4より前の失敗ではSourceを維持し、Operation-owned Trash DirectoryだけをRollbackできる。Step 4以後はSourceを自動的に
-元へ戻そうとせず、事後状態とRecordを保持してReconciliationへ移る。Process終了等で`prepared`が残った場合は次の規則で再判定する。
+Step 4より前かつRecord未公開の失敗ではSourceを維持し、Operation-owned Trash DirectoryだけをRollbackできる。`allocating`または
+`prepared` Record公開後にDeleteが未Commitで終わる場合は、Source Guard保持中に`aborting`、Guard正常確定後に`aborted`へ進めてから
+Operation-owned Trash DirectoryをCleanupする。Step 4以後はSourceを自動的に元へ戻そうとせず、事後状態とRecordを保持して
+Reconciliationへ移る。Process終了等で`prepared`が残った場合は次の規則で再判定する。
 
 再起動時はTrash Rootを`TraversalLimits`内で列挙し、正確なStaging名またはOperation ID名だけを候補にする。空のStaging Directory、
 Entryを一つも持たない正確なOperation ID名のDirectory、
@@ -431,13 +435,15 @@ Operation DirectoryはOperation-owned残骸として削除できる。Record不�
 
 | Source | Payload | Reconciliation |
 | --- | --- | --- |
-| Exists | Missing | SourceがType、Link Count、FingerprintまたはManifestでRecordと完全一致する場合だけDelete未CommitとしてRecordと空Operation DirectoryをCleanup可能にする |
+| Exists | Missing | SourceがType、Link Count、FingerprintまたはManifestでRecordと完全一致する場合だけDelete未Commitとして`aborting`、Guard確定後に`aborted`へ進め、終端Recordと空Operation DirectoryをCleanup可能にする |
 | Missing | Exists | Type、Link Count、FingerprintまたはManifestをStep 5と同じ上限で再検証し、一致時だけ`trashed`へ昇格できる |
 | Exists | Exists | 外部競合として両方を維持し、User判断を要求する |
 | Missing | Missing | Data所在不明としてRecordを維持し、Errorを報告する |
 
 `Exists / Missing`と`Missing / Exists`の再検証前に、存在する側へ単一Fileは`SingleFileMutationGuard`、Directoryは
-`DirectoryTreeMutationGuard`を取得し、検証からRecordのCleanupまたは`trashed` Atomic Commit完了まで保持する。Guard取得、再検証、
+`DirectoryTreeMutationGuard`を取得し、検証から`aborting`または`trashed` Atomic Commit完了まで保持する。`aborting` Commit後にGuardを
+正常確定できた場合だけ`aborted`へAtomic更新し、終端RecordとしてCleanupする。これによりRecordの物理Cleanup前にGuardが外れても、
+Crash後は`aborting`を再検証し、`aborted`をData非依存の完了済みRecordとしてCleanupできる。Guard取得、再検証、
 または上限確認が失敗した場合はCleanupも`trashed`昇格も行わず、Recordと存在するDataを維持して`ReconciliationRequired`を報告する。
 
 RestoreはRecordの`originalPath`を使用し、DestinationがMissingであり、既存の親Directory Chainが全て通常Directoryである場合だけ
@@ -477,12 +483,15 @@ Guard取得、上限確認、内容照合の失敗では状態を昇格せず、
 | Record State | Original | Payload | Reconciliation |
 | --- | --- | --- | --- |
 | `trashed` | Missing | Exists | PayloadへGuardを取得し、Recordと完全一致する場合だけ正常なTrashとしてCatalogへ公開する |
-| `trashed` | Exists | Missing | OriginalへGuardを取得し、Recordと完全一致する場合だけRename巻き戻し済みとしてRecordと空Operation DirectoryをCleanupする |
-| `restored` | Exists | Missing | OriginalへGuardを取得し、Recordと完全一致する場合だけ正常RestoreとしてRecordと空Operation DirectoryをCleanupする |
+| `trashed` | Exists | Missing | OriginalへGuardを取得し、Recordと完全一致する場合だけRename巻き戻し済みとして`aborting`、Guard確定後に`aborted`へ進めてCleanupする |
+| `restored` | Exists | Missing | 正常Restoreの終端RecordとしてRecordと空Operation DirectoryをCleanupする |
 | `restored` | Missing | Exists | PayloadへGuardを取得し、Recordと完全一致する場合だけRename巻き戻し済みとして`trashed`へAtomic更新する |
+| `aborting` | Exists | Missing | OriginalへGuardを再取得し、Recordと完全一致する場合だけ`aborted`へAtomic更新してCleanupする |
+| `aborted` | Any | Missing | Delete未Commitの終端RecordとしてRecordと空Operation DirectoryをCleanupする |
 
 上表以外のExists／Missing組合せ、Guard取得失敗、Type、Link Count、Fingerprint／Manifest不一致では自動遷移またはCleanupを行わず、
-Recordと存在するDataを維持して`ReconciliationRequired`を返す。検証からRecord更新またはCleanup完了までGuardを保持する。
+Recordと存在するDataを維持して`ReconciliationRequired`を返す。非終端Recordでは検証から`aborting`、`trashed`、`restored`の
+Atomic Commit完了までGuardを保持し、物理Cleanupは`aborted`または`restored`の終端Recordだけに実行する。
 
 M13はRecoverable Payloadの自動期限削除と永久削除UIを提供しない。成功済みRestoreの空Operation DirectoryとRecord、および上記で
 厳密に識別した`allocating`以前の空Staging／Operation DirectoryだけをOperation-owned Cleanupとして削除できる。未Restore Payloadは

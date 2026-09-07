@@ -33,7 +33,9 @@ enum class ProjectFileOperationKind : std::uint8_t
     FileCreation,
     Rename,
     Move,
-    Copy
+    Copy,
+    RecoverableDelete,
+    Restore
 };
 
 /// @brief Project File操作が到達した処理段階
@@ -42,7 +44,9 @@ enum class ProjectFileOperationStage : std::uint8_t
     ValidateRequest,
     BindSource,
     BindDestination,
+    PrepareRecovery,
     NativePublish,
+    UpdateRecoveryRecord,
     Verify,
     Complete
 };
@@ -54,6 +58,25 @@ enum class ProjectFileOperationOutcome : std::uint8_t
     NotCommitted,
     CommittedButDurabilityUnknown,
     ReconciliationRequired
+};
+
+/// @brief Trash Catalog Entryが通常復元可能か手動照合を要するか表す
+enum class RecoveryEntryState : std::uint8_t
+{
+    Recoverable,
+    ReconciliationRequired
+};
+
+/// @brief Project内TrashからUIへ公開する復元候補Metadata
+struct RecoveryEntry final
+{
+    std::string operationId;
+    ProjectFileArea originalArea = ProjectFileArea::SourceAssets;
+    std::string originalPath;
+    WorkspaceEntryType entryType = WorkspaceEntryType::UnsupportedEntry;
+    std::uint64_t byteSize = 0U;
+    std::size_t descendantCount = 0U;
+    RecoveryEntryState state = RecoveryEntryState::ReconciliationRequired;
 };
 
 /// @brief Operation ID発行をPlatformまたは決定的Test Doubleへ分離する境界
@@ -208,6 +231,26 @@ class ProjectFileService final
                                                           RelativePath a_destination, TraversalLimits a_traversalLimits,
                                                           ContentVerificationLimits a_contentLimits) noexcept;
 
+    /// @brief Source EntryをProject内Trashへ移して復元Recordを公開する
+    [[nodiscard]] Result<ProjectFileOperationResult> delete_entry(ProjectFileArea a_area, RelativePath a_source,
+                                                                  TraversalLimits a_traversalLimits,
+                                                                  ContentVerificationLimits a_contentLimits) noexcept;
+
+    /// @brief Trash Operation IDが記録した元PathへPayloadを上書きなしで復元する
+    [[nodiscard]] Result<ProjectFileOperationResult> restore(std::string_view a_operationId,
+                                                             TraversalLimits a_traversalLimits,
+                                                             ContentVerificationLimits a_contentLimits) noexcept;
+
+    /// @brief Project内Trashを再走査し、安全に照合できたRecovery Catalogを更新する
+    [[nodiscard]] Result<void> refresh_recovery_catalog(TraversalLimits a_traversalLimits,
+                                                        ContentVerificationLimits a_contentLimits) noexcept;
+
+    /// @brief 最後に更新したRecovery Catalog Entryを返す
+    [[nodiscard]] std::span<const RecoveryEntry> recovery_entries() const noexcept;
+
+    /// @brief Catalog再構築で保持したEntry単位診断を返す
+    [[nodiscard]] std::span<const Error> recovery_diagnostics() const noexcept;
+
   private:
     /// @brief 検証済みProject SnapshotとDependencyの所有権を受け取る
     ProjectFileService(ProjectId a_projectId, ProjectRoots a_roots, ProjectFileAccessPolicy a_policy,
@@ -226,6 +269,11 @@ class ProjectFileService final
     /// @brief Areaに対応する固定Root Locatorを返す
     [[nodiscard]] const RelativePath &area_root(ProjectFileArea a_area) const noexcept;
 
+    /// @brief Saved Root内のTrash Directory Chainを存在確認付きで準備する
+    [[nodiscard]] WorkspaceMutationResult ensure_trash_root(std::string_view a_operationId) noexcept;
+    /// @brief Operation IDに対応するRecord Byte列を上限付きで読み込む
+    [[nodiscard]] Result<std::vector<std::byte>> read_trash_record_bytes(std::string_view a_operationId) noexcept;
+
     ProjectId m_projectId;
     ProjectRoots m_roots;
     ProjectFileAccessPolicy m_policy;
@@ -233,6 +281,8 @@ class ProjectFileService final
     std::unique_ptr<ProjectFileOperationIdSource> m_operationIdSource;
     AssertContext m_assertContext;
     std::thread::id m_ownerThread;
+    std::vector<RecoveryEntry> m_recoveryEntries;
+    std::vector<Error> m_recoveryDiagnostics;
     bool m_isBusy = false;
 };
 } // namespace cue::project_files

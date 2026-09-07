@@ -208,6 +208,70 @@ Result<BoundWorkspacePath> WorkspaceFilesystem::bind_root_path(RelativePath a_lo
     return append_path(WorkspaceDirectory::root(), std::move(a_locator), a_assertContext);
 }
 
+Result<BoundWorkspacePath> WorkspaceFilesystem::bind_operation_staging_path(
+    const BoundWorkspacePath &a_parent, std::string_view a_operationId, std::string_view a_kind,
+    const AssertContext &a_assertContext) const noexcept
+{
+    const bool validId = a_operationId.size() == 36U && a_operationId[8U] == '-' && a_operationId[13U] == '-' &&
+                         a_operationId[18U] == '-' && a_operationId[23U] == '-' && a_operationId[14U] == '4' &&
+                         (a_operationId[19U] == '8' || a_operationId[19U] == '9' || a_operationId[19U] == 'a' ||
+                          a_operationId[19U] == 'b');
+    bool validIdCharacters = validId;
+    for (std::size_t index = 0U; validIdCharacters && index < a_operationId.size(); ++index)
+    {
+        if (index == 8U || index == 13U || index == 18U || index == 23U)
+        {
+            continue;
+        }
+        const char value = a_operationId[index];
+        validIdCharacters = (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f');
+    }
+    const bool validKind =
+        !a_kind.empty() && a_kind.size() <= 32U &&
+        std::ranges::all_of(a_kind,
+                            /// @brief Staging kindがlowercase ASCIIまたは内部区切りだけか判定する
+                            [](char a_value) noexcept { return (a_value >= 'a' && a_value <= 'z') || a_value == '-'; });
+    if (!owns_path(a_parent) || !validIdCharacters || !validKind)
+    {
+        return Result<BoundWorkspacePath>::failure(
+            make_io_error(a_assertContext, owns_path(a_parent) ? IoError::InvalidPath : IoError::OutsideRoot,
+                          "Workspace operation staging request is invalid"));
+    }
+    std::string path;
+    try
+    {
+        path.reserve(a_parent.text().size() + a_operationId.size() + a_kind.size() + 12U);
+        path.assign(a_parent.text());
+        path.append("/.");
+        path.append(a_operationId);
+        path.push_back('.');
+        path.append(a_kind);
+        path.append("-staging");
+    }
+    catch (...)
+    {
+        terminate_allocation(a_assertContext);
+    }
+    if (path.size() > m_maxBoundPathCharacters)
+    {
+        return Result<BoundWorkspacePath>::failure(make_io_error(
+            a_assertContext, IoError::CapacityExceeded, "Workspace operation staging path exceeds the native limit"));
+    }
+    return Result<BoundWorkspacePath>::success(BoundWorkspacePath(std::move(path), m_bindingToken));
+}
+
+Result<BoundWorkspacePath> WorkspaceFilesystem::bind_child_path(const BoundWorkspacePath &a_parent,
+                                                                RelativePath a_child,
+                                                                const AssertContext &a_assertContext) const noexcept
+{
+    if (!owns_path(a_parent))
+    {
+        return Result<BoundWorkspacePath>::failure(
+            make_io_error(a_assertContext, IoError::OutsideRoot, "Workspace parent belongs to another root binding"));
+    }
+    return append_path(WorkspaceDirectory::from_bound_path(a_parent), std::move(a_child), a_assertContext);
+}
+
 bool WorkspaceFilesystem::owns_directory(const WorkspaceDirectory &a_directory) const noexcept
 {
     const BoundWorkspacePath *locator = a_directory.locator();
